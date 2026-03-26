@@ -67,6 +67,10 @@ ignore_this.txt
 /dickens*/
 /book.txt
 download_models_hf.py
+.superpowers/
+.worktrees/
+.superpowers/brainstorm/*/.server.pid
+.superpowers/brainstorm/*/.server-info
 
 # Frontend build output (built during PyPI release)
 /lightrag/api/webui/
