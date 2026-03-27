@@ -53,7 +53,11 @@ from lightrag.api.routers.document_routes import (
     create_document_routes,
 )
 from lightrag.api.routers.prompt_config_routes import create_prompt_config_routes
-from lightrag.api.routers.workspace_routes import create_workspace_routes
+from lightrag.api.routers.workspace_routes import (
+    _identity_from_request,
+    create_workspace_routes,
+    workspace_create_allowed,
+)
 from lightrag.api.routers.query_routes import create_query_routes
 from lightrag.api.routers.graph_routes import create_graph_routes
 from lightrag.api.routers.ollama_api import OllamaAPI
@@ -747,25 +751,10 @@ def create_app(args):
         return workspace or ""
 
     def _workspace_create_capability_for_request(request: Request) -> bool:
-        authorization = request.headers.get("Authorization", "").strip()
-        if not authorization or not authorization.startswith("Bearer "):
-            return False
-
-        token = authorization.removeprefix("Bearer ").strip()
-        if not token:
-            return False
-
-        try:
-            token_info = auth_handler.validate_token(token)
-        except Exception:
-            return False
-
-        role = token_info.get("role", "user")
-        username = token_info.get("username")
-        if role in {"user", "admin"} and username:
-            return True
-        return bool(
-            role == "guest" and username and args.allow_guest_workspace_create
+        identity = _identity_from_request(request)
+        return workspace_create_allowed(
+            identity=identity,
+            allow_guest_create=args.allow_guest_workspace_create,
         )
 
     # Create working directory if it doesn't exist
@@ -1640,6 +1629,8 @@ def create_app(args):
                 "webui_title": webui_title,
                 "webui_description": webui_description,
             }
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error getting health status: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))

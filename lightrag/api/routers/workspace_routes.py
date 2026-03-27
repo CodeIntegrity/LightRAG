@@ -50,6 +50,16 @@ def _identity_from_request(request: Request) -> dict[str, str | None]:
     }
 
 
+def workspace_create_allowed(
+    identity: dict[str, str | None], allow_guest_create: bool
+) -> bool:
+    if identity["role"] in {"user", "admin"} and identity["username"]:
+        return True
+    if identity["role"] == "guest" and identity["username"] and allow_guest_create:
+        return True
+    return False
+
+
 def _can_view_workspace(identity: dict[str, str | None], record: dict[str, Any]) -> bool:
     if identity["role"] == "admin":
         return True
@@ -103,18 +113,14 @@ def create_workspace_routes(
     combined_auth = get_combined_auth_dependency(api_key)
 
     def _require_workspace_creator(identity: dict[str, str | None]) -> str:
-        if identity["role"] in {"user", "admin"} and identity["username"]:
-            return identity["username"]
-        if (
-            identity["role"] == "guest"
-            and identity["username"]
-            and allow_guest_create
-        ):
+        if not workspace_create_allowed(identity, allow_guest_create):
+            raise HTTPException(
+                status_code=403,
+                detail="Workspace creation is not allowed for this session",
+            )
+        if identity["role"] == "guest":
             return "guest"
-        raise HTTPException(
-            status_code=403,
-            detail="Workspace creation is not allowed for this session",
-        )
+        return identity["username"]
 
     @router.get("", dependencies=[Depends(combined_auth)])
     async def list_workspaces(include_deleted: bool = False, request: Request = None):

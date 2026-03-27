@@ -266,3 +266,16 @@ def test_health_exposes_workspace_create_capability_as_false_without_authorizati
 
     assert response.status_code == 200
     assert response.json()["capabilities"]["workspace_create"] is False
+
+
+def test_health_rejects_invalid_authorization_header(monkeypatch, tmp_path):
+    with _build_test_client(
+        monkeypatch, tmp_path, allow_guest_workspace_create=True
+    ) as client:
+        response = client.get(
+            "/health",
+            headers={"Authorization": "Basic abc"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid authorization header"
