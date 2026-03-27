@@ -25,65 +25,70 @@ def _build_token(username: str, role: str) -> str:
 
 
 @pytest.fixture
-def workspace_app(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
-    import lightrag.api.routers.workspace_routes as workspace_routes
-    from lightrag.api.workspace_registry import WorkspaceRegistryStore
+def workspace_app_factory(monkeypatch, tmp_path: Path):
+    def _build(*, allow_guest_create: bool = False):
+        monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+        import lightrag.api.routers.workspace_routes as workspace_routes
+        from lightrag.api.workspace_registry import WorkspaceRegistryStore
 
-    store = WorkspaceRegistryStore(tmp_path / "registry.sqlite3")
-    scheduler = _DeleteScheduler()
+        store = WorkspaceRegistryStore(tmp_path / "registry.sqlite3")
+        scheduler = _DeleteScheduler()
 
-    async def _init() -> None:
-        await store.initialize(default_workspace="")
-        await store.create_workspace(
-            workspace="private_ws",
-            display_name="Private",
-            description="private",
-            created_by="alice",
-            visibility="private",
+        async def _init() -> None:
+            await store.initialize(default_workspace="")
+            await store.create_workspace(
+                workspace="private_ws",
+                display_name="Private",
+                description="private",
+                created_by="alice",
+                visibility="private",
+            )
+            await store.create_workspace(
+                workspace="public_ws",
+                display_name="Public",
+                description="public",
+                created_by="alice",
+                visibility="public",
+            )
+
+        asyncio.run(_init())
+        monkeypatch.setattr(
+            workspace_routes, "get_combined_auth_dependency", lambda *_: (lambda: None)
         )
-        await store.create_workspace(
-            workspace="public_ws",
-            display_name="Public",
-            description="public",
-            created_by="alice",
-            visibility="public",
-        )
 
-    import asyncio
-
-    asyncio.run(_init())
-
-    monkeypatch.setattr(
-        workspace_routes, "get_combined_auth_dependency", lambda *_: (lambda: None)
-    )
-
-    app = FastAPI()
-    app.include_router(
-        workspace_routes.create_workspace_routes(
-            registry_store=store,
-            delete_scheduler=scheduler,
-            stats_provider=lambda workspace: {
-                "document_count": 2,
-                "entity_count": None,
-                "relation_count": None,
-                "chunk_count": None,
-                "storage_size_bytes": None,
-                "prompt_version_count": 4,
-                "capabilities": {
-                    "document_count": "available",
-                    "entity_count": "unsupported_by_backend",
-                    "relation_count": "unsupported_by_backend",
-                    "chunk_count": "unsupported_by_backend",
-                    "storage_size_bytes": "unsupported_by_backend",
-                    "prompt_version_count": "available",
+        app = FastAPI()
+        app.include_router(
+            workspace_routes.create_workspace_routes(
+                registry_store=store,
+                delete_scheduler=scheduler,
+                stats_provider=lambda workspace: {
+                    "document_count": 2,
+                    "entity_count": None,
+                    "relation_count": None,
+                    "chunk_count": None,
+                    "storage_size_bytes": None,
+                    "prompt_version_count": 4,
+                    "capabilities": {
+                        "document_count": "available",
+                        "entity_count": "unsupported_by_backend",
+                        "relation_count": "unsupported_by_backend",
+                        "chunk_count": "unsupported_by_backend",
+                        "storage_size_bytes": "unsupported_by_backend",
+                        "prompt_version_count": "available",
+                    },
                 },
-            },
-            api_key=None,
+                api_key=None,
+                allow_guest_create=allow_guest_create,
+            )
         )
-    )
+        return TestClient(app), store, scheduler
 
-    return TestClient(app), store, scheduler
+    return _build
+
+
+@pytest.fixture
+def workspace_app(workspace_app_factory):
+    return workspace_app_factory()
 
 
 def test_list_workspaces_hides_private_entries_from_guest(workspace_app):
@@ -120,6 +125,50 @@ def test_create_workspace_as_user_sets_creator_and_owner(workspace_app):
 
     stored = asyncio.run(store.get_workspace("books"))
     assert stored["visibility"] == "private"
+
+
+def test_create_workspace_as_guest_returns_403_when_disabled(workspace_app_factory):
+    client, _, _ = workspace_app_factory(allow_guest_create=False)
+
+    response = client.post(
+        "/workspaces",
+        json={
+            "workspace": "guest_books",
+            "display_name": "Guest Books",
+            "description": "guest workspace",
+            "visibility": "private",
+        },
+        headers={"Authorization": f"Bearer {_build_token('guest', 'guest')}"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Workspace creation is not allowed for this session"
+
+
+def test_create_workspace_as_guest_sets_creator_and_owner_when_enabled(
+    workspace_app_factory,
+):
+    client, store, _ = workspace_app_factory(allow_guest_create=True)
+
+    response = client.post(
+        "/workspaces",
+        json={
+            "workspace": "guest_books",
+            "display_name": "Guest Books",
+            "description": "guest workspace",
+            "visibility": "private",
+        },
+        headers={"Authorization": f"Bearer {_build_token('guest', 'guest')}"},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["created_by"] == "guest"
+    assert body["owners"] == ["guest"]
+
+    stored = asyncio.run(store.get_workspace("guest_books"))
+    assert stored["created_by"] == "guest"
+    assert stored["owners"] == ["guest"]
 
 
 def test_hard_delete_requires_admin_and_returns_accepted(workspace_app):

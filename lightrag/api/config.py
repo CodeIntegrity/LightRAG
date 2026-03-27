@@ -482,6 +482,9 @@ def parse_args() -> argparse.Namespace:
     args.hard_delete_executor_workers = get_env_value(
         "LIGHTRAG_HARD_DELETE_EXECUTOR_WORKERS", 2, int
     )
+    args.allow_guest_workspace_create = get_env_value(
+        "ALLOW_GUEST_WORKSPACE_CREATE", False, bool
+    )
 
     ollama_server_infos.LIGHTRAG_NAME = args.simulated_model_name
     ollama_server_infos.LIGHTRAG_TAG = args.simulated_model_tag

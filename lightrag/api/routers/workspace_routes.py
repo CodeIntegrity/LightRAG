@@ -97,9 +97,20 @@ def create_workspace_routes(
     workspace_initializer: Callable[[str], Awaitable[None]] | None = None,
     stats_provider: Callable[[str], Any] | None = None,
     api_key: str | None = None,
+    allow_guest_create: bool = False,
 ) -> APIRouter:
     router = APIRouter(prefix="/workspaces", tags=["workspaces"])
     combined_auth = get_combined_auth_dependency(api_key)
+
+    def _require_workspace_creator(identity: dict[str, str | None]) -> str:
+        if identity["role"] in {"user", "admin"} and identity["username"]:
+            return identity["username"]
+        if identity["role"] == "guest" and allow_guest_create:
+            return "guest"
+        raise HTTPException(
+            status_code=403,
+            detail="Workspace creation is not allowed for this session",
+        )
 
     @router.get("", dependencies=[Depends(combined_auth)])
     async def list_workspaces(include_deleted: bool = False, request: Request = None):
@@ -116,13 +127,13 @@ def create_workspace_routes(
     @router.post("", status_code=201, dependencies=[Depends(combined_auth)])
     async def create_workspace(payload: WorkspaceCreateRequest, request: Request):
         identity = _identity_from_request(request)
-        username = _require_user(identity)
+        created_by = _require_workspace_creator(identity)
         try:
             created = await registry_store.create_workspace(
                 workspace=payload.workspace,
                 display_name=payload.display_name,
                 description=payload.description,
-                created_by=username,
+                created_by=created_by,
                 visibility=payload.visibility,
             )
         except WorkspaceRegistryError as exc:
