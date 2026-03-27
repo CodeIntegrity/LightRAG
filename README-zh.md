@@ -877,6 +877,28 @@ LightRAG 现在支持按 workspace 隔离、服务端持久化的提示词版本
 
 注意：如果在已有图谱数据的 workspace 中激活新的 indexing 版本，后续新文档会使用新的抽取规则，但已有图谱数据不会自动重建。
 
+### Workspace 管理
+
+LightRAG WebUI 现在在顶栏提供全局 workspace 切换器，并配有 workspace 管理弹窗，可用于：
+
+- 创建 workspace
+- 软删除与恢复 workspace
+- 启动异步 hard-delete
+- 查看 best-effort workspace 统计和操作进度
+
+在服务端，这些能力通过 `/workspaces*` 接口暴露。workspace 切换是请求级行为，通过 `LIGHTRAG-WORKSPACE` 请求头指定，而不是修改服务器全局状态。
+
+对于已有 legacy 数据，建议显式导入到受管 registry：
+
+```bash
+lightrag-migrate-workspaces \
+  --registry-path ./workspaces/registry.sqlite3 \
+  --discover-local \
+  --dry-run
+```
+
+完整接口列表、鉴权说明和迁移参数请参阅 [lightrag/api/README-zh.md](./lightrag/api/README-zh.md)。
+
 ### 插入
 
 <details>

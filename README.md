@@ -877,6 +877,28 @@ In the WebUI:
 
 Be careful when activating a new indexing version in a workspace that already contains indexed data. New documents will use the new extraction rules, but existing graph data will not be rewritten automatically.
 
+### Workspace Management
+
+LightRAG WebUI now includes a global workspace switcher in the header and a workspace management dialog for:
+
+- creating workspaces
+- soft-deleting and restoring workspaces
+- starting asynchronous hard-delete operations
+- viewing best-effort workspace stats and operation progress
+
+On the server side, workspace management is exposed through `/workspaces*` APIs. Switching is request-scoped via the `LIGHTRAG-WORKSPACE` header rather than a server-global toggle.
+
+For legacy data, import existing workspaces into the managed registry explicitly:
+
+```bash
+lightrag-migrate-workspaces \
+  --registry-path ./workspaces/registry.sqlite3 \
+  --discover-local \
+  --dry-run
+```
+
+See [lightrag/api/README.md](./lightrag/api/README.md) for the complete API list, authentication notes, and migration flags.
+
 ### Insert
 
 <details>

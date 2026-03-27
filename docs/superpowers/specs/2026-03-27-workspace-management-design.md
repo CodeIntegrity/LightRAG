@@ -497,7 +497,15 @@ Suggested response:
   "relation_count": 4321,
   "chunk_count": 9876,
   "storage_size_bytes": null,
-  "prompt_version_count": 8
+  "prompt_version_count": 8,
+  "capabilities": {
+    "document_count": "available",
+    "entity_count": "available",
+    "relation_count": "available",
+    "chunk_count": "available",
+    "storage_size_bytes": "unsupported_by_backend",
+    "prompt_version_count": "available"
+  }
 }
 ```
 
@@ -508,6 +516,7 @@ Metric availability rules:
 - `entity_count`, `relation_count`, and `chunk_count` are optional best-effort fields and may be `null` on backends where counting is unavailable or too expensive
 - `storage_size_bytes` is typically only available for local filesystem-backed artifacts; remote database-backed workspaces should return `null` unless the backend exposes a cheap and trustworthy size signal
 - use `WORKSPACE_STATS_UNAVAILABLE` only when the stats request as a whole cannot be served; partial metric absence should prefer `null` fields in a successful response
+- `capabilities` must explain why a field is present, absent, or `null`, so clients do not have to infer backend support from value shape alone
 
 ### Soft Delete Workspace
 
@@ -646,6 +655,9 @@ The drain timeout must use an explicit fail-safe rule.
 Recommended first-iteration behavior:
 
 - `LIGHTRAG_WORKSPACE_DRAIN_TIMEOUT=30`
+- when drain begins, persist visibility hints in `progress_json`, for example:
+  - `drain_started_at`
+  - `active_requests_remaining`
 - if active requests do not drain before timeout:
   - abort the delete before any storage or filesystem cleanup begins
   - restore workspace status from `hard_deleting` back to `ready`
@@ -821,6 +833,7 @@ Suggested first-iteration codes:
 - `WORKSPACE_OPERATION_ALREADY_RUNNING`
 - `WORKSPACE_DRAIN_TIMEOUT`
 - `WORKSPACE_MIGRATION_FAILED`
+- `WORKSPACE_MIGRATION_CONFLICT`
 - `WORKSPACE_STATS_UNAVAILABLE`
 - `WORKSPACE_REGISTRY_BUSY`
 
@@ -854,6 +867,10 @@ Recommended shape:
 Recommended modes:
 
 - `--workspace <name>` repeated to register explicit legacy workspaces
+- `--from-file <path>` to load explicit workspace names from a file
+- `--owner <username>` to override the owner recorded for imported workspaces
+- `--visibility public|private` to override imported visibility
+- `--on-conflict error|skip` with default `error`
 - `--discover-local` to discover candidate local workspaces from known filesystem clues such as:
   - `input_dir/*`
   - workspace-relative prompt version directories under `working_dir`
@@ -863,6 +880,8 @@ Important boundary:
 
 - local filesystem discovery is best-effort only
 - external-database-only workspaces should be registered by explicit name because automatic discovery is not trustworthy there
+- `merge` is intentionally out of scope for first iteration because conflict semantics are too ambiguous for a safe operational default
+- if a discovered workspace has incomplete local signals, migration may still report it as a candidate, but the CLI must warn that data completeness was not verified
 
 ## Observability
 
@@ -923,11 +942,13 @@ AUTH_ADMIN_USERS=admin,superuser
 Deliberately omitted:
 
 - `LIGHTRAG_STRICT_WORKSPACE`
+- migration owner / visibility defaults as environment variables
 
 Reason:
 
 - strict registry enforcement is the default product behavior in this design
 - first iteration does not introduce a compatibility toggle that re-enables implicit workspace adoption
+- migration ownership and visibility are better expressed as one-off CLI flags than persistent server environment configuration
 
 ## Performance and Capacity Assumptions
 
@@ -1016,7 +1037,9 @@ cd lightrag_webui && bun run build
 Recommended rollout order:
 
 1. add SQLite registry store, migration utility, and auth role support
+1.5. run the migration utility to import known legacy workspaces before enabling strict managed routing in production
 2. add runtime manager request refcounting and bounded cache policy
+2.5. validate runtime cache behavior under representative production load before raising cache limits
 3. refactor routes to resolve workspace per request
 4. add workspace management APIs and error code contract
 5. add hard delete executor with persisted progress and retry

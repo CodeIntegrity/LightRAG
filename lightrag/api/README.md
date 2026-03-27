@@ -410,6 +410,46 @@ Important semantics:
 
 `/health` now also exposes `configuration.active_prompt_versions`, which clients can use to show the current active indexing/retrieval version summary.
 
+### Workspace Management APIs
+
+The server also exposes workspace management endpoints for the WebUI header switcher and management dialog:
+
+- `GET /workspaces`
+- `POST /workspaces`
+- `GET /workspaces/{workspace}`
+- `GET /workspaces/{workspace}/stats`
+- `POST /workspaces/{workspace}/soft-delete`
+- `POST /workspaces/{workspace}/restore`
+- `POST /workspaces/{workspace}/hard-delete`
+- `GET /workspaces/{workspace}/operation`
+
+Important semantics:
+
+- Workspace switching is request-scoped, not server-global. Clients select the active workspace by sending the `LIGHTRAG-WORKSPACE` header.
+- Unknown workspaces are rejected by default instead of being created from request traffic.
+- `soft-delete` hides a workspace from the normal selector but keeps the underlying data.
+- `hard-delete` is asynchronous and returns `202 Accepted`; clients should poll `/workspaces/{workspace}/operation` for progress.
+- `GET /workspaces/{workspace}/stats` is best-effort and includes a `capabilities` object explaining why some fields may be `null`.
+
+### Workspace Migration CLI
+
+Legacy workspaces should be imported into the managed registry explicitly:
+
+```bash
+lightrag-migrate-workspaces \
+  --registry-path ./workspaces/registry.sqlite3 \
+  --discover-local \
+  --dry-run
+```
+
+Useful flags:
+
+- `--workspace <name>` repeated for explicit imports
+- `--from-file <path>` to load workspace names from a file
+- `--owner <username>` to assign imported ownership
+- `--visibility public|private`
+- `--on-conflict error|skip`
+
 ## API Key and Authentication
 
 By default, the LightRAG Server can be accessed without any authentication. We can configure the server with an API Key or account credentials to secure it.
@@ -440,6 +480,7 @@ LightRAG API Server implements JWT-based authentication using the HS256 algorith
 ```bash
 # For jwt auth
 AUTH_ACCOUNTS='admin:{bcrypt}$2b$12$replace-with-generated-hash,user1:pass456'
+AUTH_ADMIN_USERS='admin'
 TOKEN_SECRET='your-key'
 TOKEN_EXPIRE_HOURS=4
 ```
@@ -451,6 +492,8 @@ lightrag-hash-password --username admin
 ```
 
 The command prompts for the password and prints an `admin:{bcrypt}...` entry ready to paste into `.env`.
+
+Use `AUTH_ADMIN_USERS` to decide which authenticated usernames receive the `admin` JWT role and can perform dangerous workspace operations such as `hard-delete`.
 
 > Currently, only the configuration of an administrator account and password is supported. A comprehensive account system is yet to be developed and implemented.
 
