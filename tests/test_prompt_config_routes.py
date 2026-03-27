@@ -279,3 +279,25 @@ def test_health_rejects_invalid_authorization_header(monkeypatch, tmp_path):
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid authorization header"
+
+
+def test_health_reports_workspace_create_false_for_guest_token_when_auth_is_configured(
+    monkeypatch, tmp_path
+):
+    from lightrag.api.auth import auth_handler
+
+    original_accounts = auth_handler.accounts.copy()
+    auth_handler.accounts = {"alice": "secret"}
+    try:
+        with _build_test_client(
+            monkeypatch, tmp_path, allow_guest_workspace_create=True
+        ) as client:
+            response = client.get(
+                "/health",
+                headers={"Authorization": f"Bearer {_build_token('guest', 'guest')}"},
+            )
+
+        assert response.status_code == 200
+        assert response.json()["capabilities"]["workspace_create"] is False
+    finally:
+        auth_handler.accounts = original_accounts

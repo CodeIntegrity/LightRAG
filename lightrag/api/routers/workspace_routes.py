@@ -55,7 +55,12 @@ def workspace_create_allowed(
 ) -> bool:
     if identity["role"] in {"user", "admin"} and identity["username"]:
         return True
-    if identity["role"] == "guest" and identity["username"] and allow_guest_create:
+    if (
+        identity["role"] == "guest"
+        and identity["username"]
+        and allow_guest_create
+        and not bool(auth_handler.accounts)
+    ):
         return True
     return False
 
