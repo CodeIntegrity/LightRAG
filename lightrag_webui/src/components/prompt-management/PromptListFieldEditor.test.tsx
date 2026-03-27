@@ -5,6 +5,10 @@ import { renderToString } from 'react-dom/server'
 import PromptListFieldEditor from './PromptListFieldEditor'
 
 vi.mock('react-i18next', () => ({
+  initReactI18next: {
+    type: '3rdParty',
+    init: () => undefined
+  },
   useTranslation: () => ({
     t: (key: string) => key
   })

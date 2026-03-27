@@ -660,6 +660,57 @@
     "placeholder": "請輸入 API key",
     "save": "儲存"
   },
+  "workspaceManager": {
+    "title": "工作空間管理",
+    "description": "為目前服務建立、切換並管理工作空間。",
+    "readyTitle": "工作空間",
+    "deletedTitle": "已刪除 / 處理中",
+    "createTitle": "建立工作空間",
+    "loading": "載入中...",
+    "refresh": "重新整理",
+    "create": "建立工作空間",
+    "createSuccess": "工作空間已建立",
+    "workspacePlaceholder": "workspace_name",
+    "displayNamePlaceholder": "顯示名稱",
+    "descriptionPlaceholder": "描述",
+    "private": "私人",
+    "public": "公開",
+    "current": "目前",
+    "switch": "切換",
+    "softDelete": "軟刪除",
+    "restore": "還原",
+    "hardDelete": "硬刪除",
+    "defaultWorkspace": "預設",
+    "softDeleteConfirm": "確定要軟刪除 {{workspace}} 嗎？",
+    "hardDeletePrompt": "請輸入 {{workspace}} 以確認硬刪除",
+    "stats": {
+      "docs": "{{count}} 份文件",
+      "promptVersions": "{{count}} 個提示詞版本",
+      "capabilities": "能力說明"
+    },
+    "operation": {
+      "state": "狀態",
+      "progress": "進度"
+    },
+    "operationStatus": {
+      "idle": "閒置",
+      "running": "執行中",
+      "failed": "失敗",
+      "completed": "已完成"
+    },
+    "capabilityLabels": {
+      "document_count": "文件數量",
+      "entity_count": "實體數量",
+      "relation_count": "關係數量",
+      "chunk_count": "分塊數量",
+      "storage_size_bytes": "儲存大小",
+      "prompt_version_count": "提示詞版本數"
+    },
+    "capabilityStatus": {
+      "available": "可用",
+      "unsupported_by_backend": "目前後端不支援"
+    }
+  },
   "pagination": {
     "showing": "顯示第 {{start}} 到 {{end}} 筆，共 {{total}} 筆記錄",
     "page": "頁",

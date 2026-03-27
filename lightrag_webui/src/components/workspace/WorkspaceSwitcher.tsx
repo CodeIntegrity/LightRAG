@@ -1,0 +1,28 @@
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { FolderKanbanIcon } from 'lucide-react'
+
+import Button from '@/components/ui/Button'
+import WorkspaceManagerDialog from '@/components/workspace/WorkspaceManagerDialog'
+import { useSettingsStore } from '@/stores/settings'
+
+export default function WorkspaceSwitcher() {
+  const { t } = useTranslation()
+  const currentWorkspace = useSettingsStore.use.currentWorkspace()
+  const [open, setOpen] = useState(false)
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-8 gap-2"
+        onClick={() => setOpen(true)}
+      >
+        <FolderKanbanIcon className="size-4" />
+        <span>{currentWorkspace || t('workspaceManager.defaultWorkspace', 'default')}</span>
+      </Button>
+      <WorkspaceManagerDialog open={open} onOpenChange={setOpen} />
+    </>
+  )
+}

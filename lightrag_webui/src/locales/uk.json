@@ -660,6 +660,57 @@
     "placeholder": "Введіть ваш API ключ",
     "save": "Зберегти"
   },
+  "workspaceManager": {
+    "title": "Workspace Management",
+    "description": "Create, switch, and manage workspaces for the current server.",
+    "readyTitle": "Workspaces",
+    "deletedTitle": "Deleted / Pending",
+    "createTitle": "Create Workspace",
+    "loading": "Loading...",
+    "refresh": "Refresh",
+    "create": "Create Workspace",
+    "createSuccess": "Workspace created",
+    "workspacePlaceholder": "workspace_name",
+    "displayNamePlaceholder": "Display name",
+    "descriptionPlaceholder": "Description",
+    "private": "Private",
+    "public": "Public",
+    "current": "Current",
+    "switch": "Switch",
+    "softDelete": "Soft Delete",
+    "restore": "Restore",
+    "hardDelete": "Hard Delete",
+    "defaultWorkspace": "default",
+    "softDeleteConfirm": "Soft delete {{workspace}}?",
+    "hardDeletePrompt": "Type {{workspace}} to confirm hard delete",
+    "stats": {
+      "docs": "{{count}} docs",
+      "promptVersions": "{{count}} prompt versions",
+      "capabilities": "Capabilities"
+    },
+    "operation": {
+      "state": "State",
+      "progress": "Progress"
+    },
+    "operationStatus": {
+      "idle": "Idle",
+      "running": "Running",
+      "failed": "Failed",
+      "completed": "Completed"
+    },
+    "capabilityLabels": {
+      "document_count": "Document count",
+      "entity_count": "Entity count",
+      "relation_count": "Relation count",
+      "chunk_count": "Chunk count",
+      "storage_size_bytes": "Storage size",
+      "prompt_version_count": "Prompt versions"
+    },
+    "capabilityStatus": {
+      "available": "Available",
+      "unsupported_by_backend": "Unsupported by backend"
+    }
+  },
   "pagination": {
     "showing": "Показано {{start}} до {{end}} з {{total}} записів",
     "page": "Сторінка",

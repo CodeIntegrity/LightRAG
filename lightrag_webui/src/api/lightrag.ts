@@ -186,6 +186,57 @@ export type PromptVersionUpdateRequest = {
   payload: Record<string, unknown>
 }
 
+export type WorkspaceVisibility = 'public' | 'private'
+
+export type WorkspaceRecord = {
+  workspace: string
+  display_name: string
+  description: string
+  status: string
+  visibility: WorkspaceVisibility
+  created_by: string | null
+  owners: string[]
+  is_default: boolean
+  is_protected: boolean
+  created_at?: string
+  updated_at?: string
+  deleted_at?: string | null
+  deleted_by?: string | null
+  delete_error?: string | null
+}
+
+export type WorkspaceListResponse = {
+  workspaces: WorkspaceRecord[]
+}
+
+export type WorkspaceCreateRequest = {
+  workspace: string
+  display_name: string
+  description: string
+  visibility: WorkspaceVisibility
+}
+
+export type WorkspaceOperationResponse = {
+  workspace: string
+  kind?: string | null
+  state: string
+  requested_by?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+  error?: string | null
+  progress?: Record<string, string>
+}
+
+export type WorkspaceStatsResponse = {
+  document_count: number | null
+  entity_count: number | null
+  relation_count: number | null
+  chunk_count: number | null
+  storage_size_bytes: number | null
+  prompt_version_count: number | null
+  capabilities: Record<string, string>
+}
+
 export type LightragStatus = {
   status: 'healthy'
   working_directory: string
@@ -476,6 +527,16 @@ const axiosInstance = axios.create({
   }
 })
 
+export const resolveWorkspaceHeader = (
+  workspace: string | null | undefined
+): string | undefined => {
+  if (typeof workspace !== 'string') {
+    return undefined
+  }
+  const trimmed = workspace.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
 // ========== Token Management ==========
 // Prevent multiple requests from triggering token refresh simultaneously
 let isRefreshingGuestToken = false;
@@ -533,6 +594,7 @@ axiosInstance.interceptors.request.use((config) => {
   }
 
   const apiKey = useSettingsStore.getState().apiKey
+  const currentWorkspace = useSettingsStore.getState().currentWorkspace
   const token = localStorage.getItem('LIGHTRAG-API-TOKEN');
 
   // Always include token if it exists, regardless of path
@@ -541,6 +603,10 @@ axiosInstance.interceptors.request.use((config) => {
   }
   if (apiKey) {
     config.headers['X-API-Key'] = apiKey
+  }
+  const workspaceHeader = resolveWorkspaceHeader(currentWorkspace)
+  if (workspaceHeader) {
+    config.headers['LIGHTRAG-WORKSPACE'] = workspaceHeader
   }
   return config
 })
@@ -723,6 +789,46 @@ export const checkHealth = async (): Promise<
   }
 }
 
+export const listWorkspaces = async (includeDeleted: boolean = false): Promise<WorkspaceListResponse> => {
+  const suffix = includeDeleted ? '?include_deleted=true' : ''
+  const response = await axiosInstance.get(`/workspaces${suffix}`)
+  return response.data
+}
+
+export const createWorkspace = async (payload: WorkspaceCreateRequest): Promise<WorkspaceRecord> => {
+  const response = await axiosInstance.post('/workspaces', payload)
+  return response.data
+}
+
+export const softDeleteWorkspace = async (workspace: string): Promise<WorkspaceRecord> => {
+  const response = await axiosInstance.post(`/workspaces/${encodeURIComponent(workspace)}/soft-delete`)
+  return response.data
+}
+
+export const getWorkspaceStats = async (workspace: string): Promise<WorkspaceStatsResponse> => {
+  const response = await axiosInstance.get(`/workspaces/${encodeURIComponent(workspace)}/stats`)
+  return response.data
+}
+
+export const restoreWorkspace = async (workspace: string): Promise<WorkspaceRecord> => {
+  const response = await axiosInstance.post(`/workspaces/${encodeURIComponent(workspace)}/restore`)
+  return response.data
+}
+
+export const hardDeleteWorkspace = async (workspace: string): Promise<{
+  workspace: string
+  status: string
+  operation: WorkspaceOperationResponse
+}> => {
+  const response = await axiosInstance.post(`/workspaces/${encodeURIComponent(workspace)}/hard-delete`)
+  return response.data
+}
+
+export const getWorkspaceOperation = async (workspace: string): Promise<WorkspaceOperationResponse> => {
+  const response = await axiosInstance.get(`/workspaces/${encodeURIComponent(workspace)}/operation`)
+  return response.data
+}
+
 export const initializePromptConfig = async (locale: string = 'zh'): Promise<PromptConfigGroupsResponse> => {
   const response = await axiosInstance.post(`/prompt-config/initialize?locale=${encodeURIComponent(locale)}`)
   return response.data
@@ -840,6 +946,7 @@ export const queryTextStream = async (
   signal?: AbortSignal
 ) => {
   const apiKey = useSettingsStore.getState().apiKey;
+  const currentWorkspace = useSettingsStore.getState().currentWorkspace;
   const token = localStorage.getItem('LIGHTRAG-API-TOKEN');
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -850,6 +957,10 @@ export const queryTextStream = async (
   }
   if (apiKey) {
     headers['X-API-Key'] = apiKey;
+  }
+  const workspaceHeader = resolveWorkspaceHeader(currentWorkspace)
+  if (workspaceHeader) {
+    headers['LIGHTRAG-WORKSPACE'] = workspaceHeader
   }
 
   try {

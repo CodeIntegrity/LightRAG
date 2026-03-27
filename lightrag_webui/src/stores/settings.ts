@@ -9,6 +9,9 @@ type Language = 'en' | 'zh' | 'fr' | 'ar' | 'zh_TW' | 'ru' | 'ja' | 'de' | 'uk' 
 type Tab = 'documents' | 'knowledge-graph' | 'prompt-management' | 'retrieval' | 'api'
 
 interface SettingsState {
+  currentWorkspace: string
+  setCurrentWorkspace: (workspace: string) => void
+
   // Document manager settings
   showFileName: boolean
   setShowFileName: (show: boolean) => void
@@ -121,6 +124,7 @@ const useSettingsStoreBase = create<SettingsState>()(
       enableHealthCheck: true,
 
       apiKey: null,
+      currentWorkspace: '',
 
       currentTab: 'documents',
       showFileName: false,
@@ -197,6 +201,14 @@ const useSettingsStoreBase = create<SettingsState>()(
 
       setApiKey: (apiKey: string | null) => set({ apiKey }),
 
+      setCurrentWorkspace: (currentWorkspace: string) =>
+        set({
+          currentWorkspace,
+          promptManagementSelectedVersionId: null,
+          retrievalPromptVersionSelection: 'active',
+          retrievalPromptDraft: undefined
+        }),
+
       setCurrentTab: (tab: Tab) => set({ currentTab: tab }),
 
       setRetrievalHistory: (history: Message[]) => set({ retrievalHistory: history }),
@@ -263,7 +275,7 @@ const useSettingsStoreBase = create<SettingsState>()(
     {
       name: 'settings-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 22,
+      version: 23,
       migrate: (state: any, version: number) => {
         if (version < 2) {
           state.showEdgeLabel = false
@@ -381,6 +393,9 @@ const useSettingsStoreBase = create<SettingsState>()(
           if (!state.retrievalPromptDraft && state.querySettings?.prompt_overrides) {
             state.retrievalPromptDraft = state.querySettings.prompt_overrides
           }
+        }
+        if (version < 23) {
+          state.currentWorkspace = ''
         }
         return state
       }

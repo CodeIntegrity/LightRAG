@@ -2,7 +2,6 @@ import React from 'react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { renderToString } from 'react-dom/server'
 
-import i18n from '@/i18n'
 import type { GraphWorkbenchQueryRequest } from '@/api/lightrag'
 import en from '@/locales/en.json'
 import zh from '@/locales/zh.json'
@@ -21,7 +20,44 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true
 })
 
+let currentLanguage: 'en' | 'zh' = 'en'
+
+const resolveTranslation = (catalog: Record<string, unknown>, key: string): string | undefined => {
+  return key.split('.').reduce<unknown>((current, segment) => {
+    if (current && typeof current === 'object') {
+      return (current as Record<string, unknown>)[segment]
+    }
+    return undefined
+  }, catalog) as string | undefined
+}
+
+vi.mock('react-i18next', () => ({
+  initReactI18next: {
+    type: '3rdParty',
+    init: () => undefined
+  },
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, string | number>) => {
+      const catalog = currentLanguage === 'zh' ? (zh as Record<string, unknown>) : (en as Record<string, unknown>)
+      const template = resolveTranslation(catalog, key)
+      if (typeof template !== 'string') {
+        return key
+      }
+      if (!values) {
+        return template
+      }
+      return template.replace(/\{\{(\w+)\}\}/g, (_, token) => String(values[token] ?? ''))
+    }
+  })
+}))
+
 vi.mock('@/api/lightrag', () => ({
+  createGraphEntity: vi.fn(async () => ({ status: 'success' })),
+  createGraphRelation: vi.fn(async () => ({ status: 'success' })),
+  mergeGraphEntities: vi.fn(async () => ({ status: 'success' })),
+  deleteGraphEntity: vi.fn(async () => ({ status: 'success' })),
+  deleteGraphRelation: vi.fn(async () => ({ status: 'success' })),
+  fetchMergeSuggestions: vi.fn(async () => ({ candidates: [], meta: { llm_used: false } })),
   getGraphEntityTypes: vi.fn(async () => ['PERSON', 'ORGANIZATION']),
   getPopularLabels: vi.fn(async () => ['*', 'Tesla']),
   searchLabels: vi.fn(async (query: string) => [query])
@@ -43,7 +79,7 @@ const getValueAtPath = (obj: Record<string, unknown>, path: string): unknown => 
 
 describe('FilterWorkbench', () => {
   beforeEach(() => {
-    void i18n.changeLanguage('en')
+    currentLanguage = 'en'
     useGraphWorkbenchStore.getState().reset()
   })
 

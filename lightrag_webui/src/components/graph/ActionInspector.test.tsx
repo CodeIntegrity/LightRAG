@@ -1,7 +1,7 @@
 import React from 'react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { renderToString } from 'react-dom/server'
-import i18n from '@/i18n'
+import en from '@/locales/en.json'
 import {
   getDefaultGraphWorkbenchFilterDraft,
   normalizeWorkbenchMutationError,
@@ -17,6 +17,34 @@ Object.defineProperty(globalThis, 'localStorage', {
   },
   configurable: true
 })
+
+const resolveTranslation = (catalog: Record<string, unknown>, key: string): string | undefined => {
+  return key.split('.').reduce<unknown>((current, segment) => {
+    if (current && typeof current === 'object') {
+      return (current as Record<string, unknown>)[segment]
+    }
+    return undefined
+  }, catalog) as string | undefined
+}
+
+vi.mock('react-i18next', () => ({
+  initReactI18next: {
+    type: '3rdParty',
+    init: () => undefined
+  },
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, string | number>) => {
+      const template = resolveTranslation(en as Record<string, unknown>, key)
+      if (typeof template !== 'string') {
+        return key
+      }
+      if (!values) {
+        return template
+      }
+      return template.replace(/\{\{(\w+)\}\}/g, (_, token) => String(values[token] ?? ''))
+    }
+  })
+}))
 
 vi.mock('@/hooks/useLightragGraph', () => ({
   default: () => ({
@@ -70,7 +98,6 @@ const relationSelection: ActionInspectorSelection = {
 
 describe('ActionInspector', () => {
   beforeEach(() => {
-    void i18n.changeLanguage('en')
     useGraphWorkbenchStore.getState().reset()
   })
 

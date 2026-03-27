@@ -106,6 +106,12 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
         activePromptVersions: health.configuration?.active_prompt_versions || null,
         pipelineBusy: health.pipeline_busy
       })
+
+      const currentWorkspace = useSettingsStore.getState().currentWorkspace
+      const backendWorkspace = health.configuration?.workspace ?? ''
+      if (!currentWorkspace && backendWorkspace) {
+        useSettingsStore.getState().setCurrentWorkspace(backendWorkspace)
+      }
       return true
     }
     set({
