@@ -238,11 +238,28 @@ Server-side enforcement remains authoritative.
 
 Required behavior:
 
+- when guest creation is forbidden, the backend should return a stable `403` detail string:
+  - `"Workspace creation is not allowed for this session"`
 - if the frontend shows create enabled but the backend returns `403`, show a clear toast explaining that workspace creation is currently not allowed for this session
 - after such a `403`, trigger a health refresh so the UI re-syncs with server capabilities
 - preserve existing error handling for duplicate names, registry errors, and validation failures
 
 This prevents a stale health snapshot from leaving the UI in the wrong state for long.
+
+### Health Polling and Performance
+
+The frontend should reuse the existing backend health polling model rather than introducing extra preflight requests for workspace creation.
+
+Rules:
+
+- do not call `/health` immediately before every create attempt
+- use the capability already stored from the normal health-check cycle
+- trigger an extra health refresh only when:
+  - the normal polling loop runs
+  - a workspace create request returns `403`
+- if future `/health` work makes the endpoint significantly heavier, consider extracting a lighter capability endpoint later instead of adding speculative caching now
+
+This keeps the feature aligned with the current 15-second health polling pattern and avoids creating a new request hotspot just for button enablement.
 
 ## Testing Strategy
 
