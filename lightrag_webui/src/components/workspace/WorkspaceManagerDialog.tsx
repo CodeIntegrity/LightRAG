@@ -53,6 +53,31 @@ const operationStatusVariantMap: Record<string, 'default' | 'secondary' | 'destr
   completed: 'default'
 }
 
+export const getWorkspacesNeedingStats = (
+  workspaces: WorkspaceRecord[],
+  workspaceStats: Record<string, WorkspaceStatsResponse>
+): string[] =>
+  workspaces
+    .filter((item) => item.status === 'ready')
+    .map((item) => item.workspace)
+    .filter((workspaceName) => workspaceStats[workspaceName] === undefined)
+
+export const getWorkspacesNeedingOperationFetch = (
+  workspaces: WorkspaceRecord[],
+  workspaceOperations: Record<string, WorkspaceOperationResponse>
+): string[] =>
+  workspaces
+    .filter((item) => item.status !== 'ready')
+    .map((item) => item.workspace)
+    .filter((workspaceName) => workspaceOperations[workspaceName] === undefined)
+
+export const getRunningOperationWorkspaces = (
+  workspaceOperations: Record<string, WorkspaceOperationResponse>
+): string[] =>
+  Object.entries(workspaceOperations)
+    .filter(([, operation]) => operation?.state === 'running')
+    .map(([workspaceName]) => workspaceName)
+
 export default function WorkspaceManagerDialog({ open, onOpenChange }: WorkspaceManagerDialogProps) {
   const { t } = useTranslation()
   const currentWorkspace = useSettingsStore.use.currentWorkspace()
@@ -96,19 +121,24 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
   }, [open])
 
   useEffect(() => {
-    if (!open || !currentWorkspace) {
+    if (!open) {
+      return
+    }
+
+    const targets = getWorkspacesNeedingStats(workspaces, workspaceStats)
+    if (targets.length === 0) {
       return
     }
 
     let cancelled = false
 
-    const loadStats = async () => {
+    const loadStats = async (workspaceName: string) => {
       try {
-        const stats = await getWorkspaceStats(currentWorkspace)
+        const stats = await getWorkspaceStats(workspaceName)
         if (!cancelled) {
           setWorkspaceStats((current) => ({
             ...current,
-            [currentWorkspace]: stats
+            [workspaceName]: stats
           }))
         }
       } catch {
@@ -116,44 +146,58 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
       }
     }
 
-    void loadStats()
+    targets.forEach((workspaceName) => {
+      void loadStats(workspaceName)
+    })
 
     return () => {
       cancelled = true
     }
-  }, [open, currentWorkspace])
+  }, [open, workspaces, workspaceStats, currentWorkspace])
 
   useEffect(() => {
     if (!open) {
       return
     }
 
-    const runningWorkspaces = Object.entries(workspaceOperations)
-      .filter(([, operation]) => operation?.state === 'running')
-      .map(([workspaceName]) => workspaceName)
+    let cancelled = false
+
+    const fetchTargets = getWorkspacesNeedingOperationFetch(workspaces, workspaceOperations)
+    const runningWorkspaces = getRunningOperationWorkspaces(workspaceOperations)
+
+    const syncOperation = async (workspaceName: string) => {
+      try {
+        const operation = await getWorkspaceOperation(workspaceName)
+        if (!cancelled) {
+          setWorkspaceOperations((current) => ({
+            ...current,
+            [workspaceName]: operation
+          }))
+        }
+      } catch {
+        // keep previous operation state
+      }
+    }
+
+    fetchTargets.forEach((workspaceName) => {
+      void syncOperation(workspaceName)
+    })
 
     if (runningWorkspaces.length === 0) {
-      return
+      return () => {
+        cancelled = true
+      }
     }
 
     const interval = setInterval(() => {
-      void Promise.all(
-        runningWorkspaces.map(async (workspaceName) => {
-          try {
-            const operation = await getWorkspaceOperation(workspaceName)
-            setWorkspaceOperations((current) => ({
-              ...current,
-              [workspaceName]: operation
-            }))
-          } catch {
-            // keep previous operation state
-          }
-        })
-      )
+      void Promise.all(runningWorkspaces.map(syncOperation))
     }, 1500)
 
-    return () => clearInterval(interval)
-  }, [open, workspaceOperations])
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [open, workspaces, workspaceOperations])
 
   const handleCreate = async () => {
     try {

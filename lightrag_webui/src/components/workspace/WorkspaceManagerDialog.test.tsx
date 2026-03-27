@@ -83,6 +83,55 @@ afterEach(() => {
 })
 
 describe('WorkspaceManagerDialog', () => {
+  test('getWorkspacesNeedingStats returns ready workspaces missing cached stats', async () => {
+    const module = await import('./WorkspaceManagerDialog')
+
+    expect(
+      module.getWorkspacesNeedingStats(
+        [
+          { workspace: 'books', status: 'ready' },
+          { workspace: 'trash', status: 'hard_deleting' },
+          { workspace: 'notes', status: 'ready' }
+        ] as any,
+        {
+          books: {
+            document_count: 1,
+            entity_count: null,
+            relation_count: null,
+            chunk_count: null,
+            storage_size_bytes: null,
+            prompt_version_count: 1,
+            capabilities: {}
+          }
+        }
+      )
+    ).toEqual(['notes'])
+  })
+
+  test('getWorkspacesNeedingOperationSync distinguishes initial fetch and polling targets', async () => {
+    const module = await import('./WorkspaceManagerDialog')
+
+    const workspaces = [
+      { workspace: 'trash', status: 'hard_deleting' },
+      { workspace: 'archive', status: 'soft_deleted' },
+      { workspace: 'books', status: 'ready' }
+    ] as any
+
+    const operations = {
+      archive: {
+        workspace: 'archive',
+        state: 'failed'
+      },
+      trash: {
+        workspace: 'trash',
+        state: 'running'
+      }
+    } as any
+
+    expect(module.getWorkspacesNeedingOperationFetch(workspaces, {} as any)).toEqual(['trash', 'archive'])
+    expect(module.getRunningOperationWorkspaces(operations)).toEqual(['trash'])
+  })
+
   test('renders create workspace form when open', async () => {
     const module = await import('./WorkspaceManagerDialog')
     const WorkspaceManagerDialog = module.default
