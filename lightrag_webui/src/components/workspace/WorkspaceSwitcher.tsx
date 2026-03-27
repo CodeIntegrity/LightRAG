@@ -9,7 +9,12 @@ import { useSettingsStore } from '@/stores/settings'
 export default function WorkspaceSwitcher() {
   const { t } = useTranslation()
   const currentWorkspace = useSettingsStore.use.currentWorkspace()
+  const workspaceDisplayNames = useSettingsStore.use.workspaceDisplayNames()
   const [open, setOpen] = useState(false)
+  const currentWorkspaceLabel =
+    workspaceDisplayNames[currentWorkspace] ||
+    currentWorkspace ||
+    t('workspaceManager.defaultWorkspace', 'default')
 
   return (
     <>
@@ -20,7 +25,7 @@ export default function WorkspaceSwitcher() {
         onClick={() => setOpen(true)}
       >
         <FolderKanbanIcon className="size-4" />
-        <span>{currentWorkspace || t('workspaceManager.defaultWorkspace', 'default')}</span>
+        <span>{currentWorkspaceLabel}</span>
       </Button>
       <WorkspaceManagerDialog open={open} onOpenChange={setOpen} />
     </>

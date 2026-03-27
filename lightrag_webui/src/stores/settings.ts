@@ -11,6 +11,8 @@ type Tab = 'documents' | 'knowledge-graph' | 'prompt-management' | 'retrieval' |
 interface SettingsState {
   currentWorkspace: string
   setCurrentWorkspace: (workspace: string) => void
+  workspaceDisplayNames: Record<string, string>
+  setWorkspaceDisplayNames: (displayNames: Record<string, string>) => void
 
   // Document manager settings
   showFileName: boolean
@@ -125,6 +127,7 @@ const useSettingsStoreBase = create<SettingsState>()(
 
       apiKey: null,
       currentWorkspace: '',
+      workspaceDisplayNames: {},
 
       currentTab: 'documents',
       showFileName: false,
@@ -208,6 +211,10 @@ const useSettingsStoreBase = create<SettingsState>()(
           retrievalPromptVersionSelection: 'active',
           retrievalPromptDraft: undefined
         }),
+      setWorkspaceDisplayNames: (workspaceDisplayNames: Record<string, string>) =>
+        set({
+          workspaceDisplayNames
+        }),
 
       setCurrentTab: (tab: Tab) => set({ currentTab: tab }),
 
@@ -275,7 +282,7 @@ const useSettingsStoreBase = create<SettingsState>()(
     {
       name: 'settings-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 23,
+      version: 24,
       migrate: (state: any, version: number) => {
         if (version < 2) {
           state.showEdgeLabel = false
@@ -396,6 +403,9 @@ const useSettingsStoreBase = create<SettingsState>()(
         }
         if (version < 23) {
           state.currentWorkspace = ''
+        }
+        if (version < 24) {
+          state.workspaceDisplayNames = {}
         }
         return state
       }

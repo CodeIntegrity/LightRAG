@@ -22,18 +22,39 @@ vi.mock('react-i18next', () => ({
 }))
 
 describe('WorkspaceSwitcher', () => {
-  test('renders current workspace label', async () => {
+  test('renders cached display name for the current workspace', async () => {
     const settings = await import('@/stores/settings')
-    const originalSelector = settings.useSettingsStore.use.currentWorkspace
+    const originalCurrentSelector = settings.useSettingsStore.use.currentWorkspace
+    const originalDisplayNameSelector = (settings.useSettingsStore.use as any).workspaceDisplayNames
+
     ;(settings.useSettingsStore.use as any).currentWorkspace = () => 'books'
+    ;(settings.useSettingsStore.use as any).workspaceDisplayNames = () => ({
+      books: 'Books Library'
+    })
 
     const module = await import('./WorkspaceSwitcher')
-    const WorkspaceSwitcher = module.default
+    const html = renderToString(<module.default />)
 
-    const html = renderToString(<WorkspaceSwitcher />)
+    expect(html).toContain('Books Library')
+
+    ;(settings.useSettingsStore.use as any).currentWorkspace = originalCurrentSelector
+    ;(settings.useSettingsStore.use as any).workspaceDisplayNames = originalDisplayNameSelector
+  })
+
+  test('falls back to workspace key when no cached display name exists', async () => {
+    const settings = await import('@/stores/settings')
+    const originalCurrentSelector = settings.useSettingsStore.use.currentWorkspace
+    const originalDisplayNameSelector = (settings.useSettingsStore.use as any).workspaceDisplayNames
+
+    ;(settings.useSettingsStore.use as any).currentWorkspace = () => 'books'
+    ;(settings.useSettingsStore.use as any).workspaceDisplayNames = () => ({})
+
+    const module = await import('./WorkspaceSwitcher')
+    const html = renderToString(<module.default />)
 
     expect(html).toContain('books')
 
-    ;(settings.useSettingsStore.use as any).currentWorkspace = originalSelector
+    ;(settings.useSettingsStore.use as any).currentWorkspace = originalCurrentSelector
+    ;(settings.useSettingsStore.use as any).workspaceDisplayNames = originalDisplayNameSelector
   })
 })

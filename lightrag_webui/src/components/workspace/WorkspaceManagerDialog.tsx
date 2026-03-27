@@ -72,6 +72,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
   const { t } = useTranslation()
   const currentWorkspace = useSettingsStore.use.currentWorkspace()
   const setCurrentWorkspace = useSettingsStore.use.setCurrentWorkspace()
+  const setWorkspaceDisplayNames = useSettingsStore.use.setWorkspaceDisplayNames()
   const workspaceCreateAllowed = useBackendState.use.workspaceCreateAllowed()
 
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([])
@@ -98,6 +99,11 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
     try {
       const response = await listWorkspaces(true)
       setWorkspaces(response.workspaces)
+      setWorkspaceDisplayNames(
+        Object.fromEntries(
+          response.workspaces.map((record) => [record.workspace, record.display_name || record.workspace])
+        )
+      )
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
     } finally {
@@ -280,15 +286,16 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-6xl overflow-hidden p-0">
-        <DialogHeader className="border-b border-border/60 px-6 py-5">
+      <DialogContent className="flex max-h-[90vh] max-w-6xl flex-col overflow-hidden p-0">
+        <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-5">
           <DialogTitle>{t('workspaceManager.title', 'Workspace Management')}</DialogTitle>
           <DialogDescription>
             {t('workspaceManager.description', 'Create, switch, and manage workspaces for the current server.')}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 overflow-y-auto px-6 py-6">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+          <div className="space-y-6">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/60 p-4">
               <div className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
@@ -595,9 +602,10 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
               </Card>
             </section>
           </div>
+          </div>
         </div>
 
-        <DialogFooter className="border-t border-border/60 px-6 py-4">
+        <DialogFooter className="shrink-0 border-t border-border/60 px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('common.cancel', 'Close')}
           </Button>
