@@ -69,6 +69,7 @@ vi.mock('@/components/ui/Dialog', () => ({
 }))
 
 vi.mock('@/api/lightrag', () => ({
+  checkHealth: vi.fn(async () => ({ status: 'healthy', capabilities: {} })),
   createWorkspace: vi.fn(),
   getWorkspaceOperation: vi.fn(),
   getWorkspaceStats: vi.fn(),
@@ -78,13 +79,17 @@ vi.mock('@/api/lightrag', () => ({
   softDeleteWorkspace: vi.fn()
 }))
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks()
   const getItemMock = localStorage.getItem as unknown as ReturnType<typeof vi.fn>
   getItemMock.mockImplementation(() => null)
   useSettingsStore.setState({
     currentWorkspace: ''
   })
+  const { useBackendState } = await import('@/stores/state')
+  useBackendState.setState({
+    workspaceCreateAllowed: false
+  } as never)
 })
 
 describe('WorkspaceManagerDialog', () => {
@@ -150,6 +155,9 @@ describe('WorkspaceManagerDialog', () => {
   })
 
   test('keeps create button enabled for base64url admin tokens', async () => {
+    const { useBackendState } = await import('@/stores/state')
+    vi.spyOn(useBackendState.use, 'workspaceCreateAllowed').mockReturnValue(true)
+
     const getItemMock = localStorage.getItem as unknown as ReturnType<typeof vi.fn>
     getItemMock.mockImplementation((key: string) =>
       key === 'LIGHTRAG-API-TOKEN'
@@ -181,6 +189,81 @@ describe('WorkspaceManagerDialog', () => {
 
     expect(html).not.toContain('disabled=""')
     expect(html).toContain('Create Workspace')
+  })
+
+  test('shows guest create hint and enabled button when backend capability allows it', async () => {
+    const { useBackendState } = await import('@/stores/state')
+    vi.spyOn(useBackendState.use, 'workspaceCreateAllowed').mockReturnValue(true)
+
+    const getItemMock = localStorage.getItem as unknown as ReturnType<typeof vi.fn>
+    getItemMock.mockImplementation((key: string) =>
+      key === 'LIGHTRAG-API-TOKEN'
+        ? 'header.eyJyb2xlIjoiZ3Vlc3QiLCJzdWIiOiJndWVzdCJ9.signature'
+        : null
+    )
+
+    const ReactModule = await import('react')
+    const actualUseState = ReactModule.useState
+    const noop = () => undefined
+
+    vi.spyOn(ReactModule, 'useState')
+      .mockImplementationOnce((() => [[], noop]) as never)
+      .mockImplementationOnce((() => [false, noop]) as never)
+      .mockImplementationOnce((() => ['guest_ws', noop]) as never)
+      .mockImplementationOnce((() => ['Guest WS', noop]) as never)
+      .mockImplementationOnce((() => ['guest workspace', noop]) as never)
+      .mockImplementationOnce((() => ['private', noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementation(actualUseState as never)
+
+    const module = await import('./WorkspaceManagerDialog')
+    const html = renderToString(<module.default open onOpenChange={() => undefined} />)
+
+    expect(html).toContain('This workspace will be created as guest.')
+    expect(html).not.toContain('disabled=""')
+  })
+
+  test('shows login-required hint and disabled button when guest create capability is false', async () => {
+    const { useBackendState } = await import('@/stores/state')
+    vi.spyOn(useBackendState.use, 'workspaceCreateAllowed').mockReturnValue(false)
+
+    const getItemMock = localStorage.getItem as unknown as ReturnType<typeof vi.fn>
+    getItemMock.mockImplementation((key: string) =>
+      key === 'LIGHTRAG-API-TOKEN'
+        ? 'header.eyJyb2xlIjoiZ3Vlc3QiLCJzdWIiOiJndWVzdCJ9.signature'
+        : null
+    )
+
+    const ReactModule = await import('react')
+    const actualUseState = ReactModule.useState
+    const noop = () => undefined
+
+    vi.spyOn(ReactModule, 'useState')
+      .mockImplementationOnce((() => [[], noop]) as never)
+      .mockImplementationOnce((() => [false, noop]) as never)
+      .mockImplementationOnce((() => ['guest_ws', noop]) as never)
+      .mockImplementationOnce((() => ['Guest WS', noop]) as never)
+      .mockImplementationOnce((() => ['guest workspace', noop]) as never)
+      .mockImplementationOnce((() => ['private', noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementation(actualUseState as never)
+
+    const module = await import('./WorkspaceManagerDialog')
+    const html = renderToString(<module.default open onOpenChange={() => undefined} />)
+
+    expect(html).toContain('Log in to create workspaces.')
+    expect(html).toContain('disabled=""')
+  })
+
+  test('uses the approved responsive breakpoints for overview and main layout', async () => {
+    const module = await import('./WorkspaceManagerDialog')
+    const html = renderToString(<module.default open onOpenChange={() => undefined} />)
+
+    expect(html).toContain('sm:grid-cols-2 lg:grid-cols-3')
+    expect(html).toContain('lg:grid-cols-[minmax(320px,360px)_minmax(0,1fr)]')
+    expect(html).not.toContain('xl:grid-cols-[minmax(320px,360px)_minmax(0,1fr)]')
   })
 
   test('admin-only hard delete action is hidden when no admin token is present', async () => {

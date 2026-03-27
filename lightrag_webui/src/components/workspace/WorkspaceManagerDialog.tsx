@@ -28,6 +28,7 @@ import {
   DialogTitle
 } from '@/components/ui/Dialog'
 import { useSettingsStore } from '@/stores/settings'
+import { useBackendState } from '@/stores/state'
 import { getJwtRole } from '@/utils/jwt'
 
 interface WorkspaceManagerDialogProps {
@@ -71,6 +72,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
   const { t } = useTranslation()
   const currentWorkspace = useSettingsStore.use.currentWorkspace()
   const setCurrentWorkspace = useSettingsStore.use.setCurrentWorkspace()
+  const workspaceCreateAllowed = useBackendState.use.workspaceCreateAllowed()
 
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -190,7 +192,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
 
   const handleCreate = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault()
-    if (isGuestMode || workspace.trim().length === 0) {
+    if (workspace.trim().length === 0 || !workspaceCreateAllowed) {
       return
     }
 
@@ -207,7 +209,18 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
       setDescription('')
       await refresh()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error))
+      const message = error instanceof Error ? error.message : String(error)
+      const statusCode =
+        typeof error === 'object' && error !== null && 'response' in error
+          ? (error as { response?: { status?: number } }).response?.status
+          : undefined
+      if (
+        statusCode === 403 &&
+        message.includes('Workspace creation is not allowed for this session')
+      ) {
+        void useBackendState.getState().check()
+      }
+      toast.error(message)
     }
   }
 
@@ -267,7 +280,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
   const currentWorkspaceRecord = workspaces.find((item) => item.workspace === currentWorkspace)
   const currentWorkspaceLabel =
     currentWorkspaceRecord?.display_name || currentWorkspace || t('workspaceManager.summary.none', 'Not selected')
-  const canCreateWorkspace = !isGuestMode && workspace.trim().length > 0
+  const canCreateWorkspace = workspace.trim().length > 0 && workspaceCreateAllowed
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -280,7 +293,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
         </DialogHeader>
 
         <div className="space-y-6 overflow-y-auto px-6 py-6">
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/60 p-4">
               <div className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
                 {t('workspaceManager.summary.total', 'Total workspaces')}
@@ -310,7 +323,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
             </div>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(320px,360px)_minmax(0,1fr)]">
+          <div className="grid gap-6 lg:grid-cols-[minmax(320px,360px)_minmax(0,1fr)]">
             <section className="space-y-6">
               <Card className="overflow-hidden border-emerald-200/70 shadow-sm">
                 <CardHeader className="bg-emerald-50/50 pb-4">
@@ -376,10 +389,12 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
                     </div>
                     {isGuestMode && (
                       <div className="text-muted-foreground bg-muted/40 rounded-md border border-dashed px-3 py-2 text-xs">
-                        {t(
-                          'workspaceManager.guestHint',
-                          'Login is required to create or modify workspaces.'
-                        )}
+                        {workspaceCreateAllowed
+                          ? t(
+                              'workspaceManager.guestCreateHint',
+                              'This workspace will be created as guest.'
+                            )
+                          : t('workspaceManager.loginRequiredHint', 'Log in to create workspaces.')}
                       </div>
                     )}
                     <Button className="h-10 w-full" type="submit" disabled={!canCreateWorkspace}>
