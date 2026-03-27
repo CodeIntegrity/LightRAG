@@ -26,6 +26,7 @@ import useLightragGraph from '@/hooks/useLightragGraph'
 import { useSettingsStore } from '@/stores/settings'
 import { useGraphStore } from '@/stores/graph'
 import { labelColorDarkTheme, labelColorLightTheme } from '@/lib/constants'
+import { cn } from '@/lib/utils'
 
 import '@react-sigma/core/lib/style.css'
 import '@react-sigma/graph-search/lib/style.css'
@@ -113,6 +114,7 @@ const GraphViewer = () => {
   useLightragGraph()
 
   const [isThemeSwitching, setIsThemeSwitching] = useState(false)
+  const [isFilterWorkbenchCollapsed, setIsFilterWorkbenchCollapsed] = useState(false)
   const sigmaRef = useRef<any>(null)
   const prevTheme = useRef<string>('')
 
@@ -198,8 +200,18 @@ const GraphViewer = () => {
   return (
     <div className="relative h-full w-full overflow-hidden p-2">
       <div className="flex h-full w-full flex-col gap-2 lg:flex-row">
-        <aside className="min-h-[240px] max-h-[42%] lg:max-h-none lg:min-h-0 lg:w-[340px] lg:shrink-0">
-          <FilterWorkbench />
+        <aside
+          className={cn(
+            'overflow-hidden transition-all duration-200 ease-out lg:shrink-0',
+            isFilterWorkbenchCollapsed
+              ? 'min-h-[60px] max-h-[60px] lg:max-h-none lg:min-h-0 lg:w-[56px]'
+              : 'min-h-[240px] max-h-[42%] lg:max-h-none lg:min-h-0 lg:w-[340px]'
+          )}
+        >
+          <FilterWorkbench
+            collapsed={isFilterWorkbenchCollapsed}
+            onToggleCollapsed={() => setIsFilterWorkbenchCollapsed((collapsed) => !collapsed)}
+          />
         </aside>
 
         <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border">

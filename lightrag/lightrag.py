@@ -1143,6 +1143,43 @@ class LightRAG:
         text = await self.chunk_entity_relation_graph.get_all_labels()
         return text
 
+    async def get_graph_entity_types(self) -> list[str]:
+        labels = await self.chunk_entity_relation_graph.get_all_labels()
+        if not labels:
+            return []
+
+        nodes_by_label = await self.chunk_entity_relation_graph.get_nodes_batch(labels)
+        entity_types: list[str] = []
+        seen_entity_types: set[str] = set()
+
+        for label in labels:
+            node = nodes_by_label.get(label)
+            if not isinstance(node, dict):
+                continue
+            raw_value = node.get("entity_type")
+            if raw_value is None:
+                continue
+
+            if isinstance(raw_value, str):
+                raw_items = (
+                    raw_value.replace(GRAPH_FIELD_SEP, ",").split(",")
+                    if raw_value
+                    else []
+                )
+            elif isinstance(raw_value, (list, tuple, set)):
+                raw_items = [str(item) for item in raw_value]
+            else:
+                raw_items = [str(raw_value)]
+
+            for raw_item in raw_items:
+                normalized = raw_item.strip()
+                if not normalized or normalized in seen_entity_types:
+                    continue
+                seen_entity_types.add(normalized)
+                entity_types.append(normalized)
+
+        return sorted(entity_types, key=str.lower)
+
     async def get_knowledge_graph(
         self,
         node_label: str,
@@ -4439,6 +4476,19 @@ class LightRAG:
                 expected_revision_tokens,
             )
         )
+
+    async def aget_merge_suggestions(
+        self, request: dict[str, Any]
+    ) -> dict[str, Any]:
+        from lightrag.utils_graph import (
+            aget_merge_suggestions as aget_merge_suggestions_impl,
+        )
+
+        return await aget_merge_suggestions_impl(self, request)
+
+    def get_merge_suggestions(self, request: dict[str, Any]) -> dict[str, Any]:
+        loop = always_get_an_event_loop()
+        return loop.run_until_complete(self.aget_merge_suggestions(request))
 
     async def aexport_data(
         self,

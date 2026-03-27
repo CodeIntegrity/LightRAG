@@ -1,4 +1,4 @@
-import { ReactNode, useMemo, useState } from 'react'
+import { ReactNode, useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RawEdgeType, RawNodeType, useGraphStore } from '@/stores/graph'
 import { useGraphWorkbenchStore } from '@/stores/graphWorkbench'
@@ -102,9 +102,11 @@ const ActionInspector = ({
   const mutationError = useGraphWorkbenchStore.use.mutationError()
   const conflictError = useGraphWorkbenchStore.use.conflictError()
   const clearMutationError = useGraphWorkbenchStore.use.clearMutationError()
-  const getNode = (id: string) => rawGraph?.getNode(id) || null
-  const getEdge = (id: string, dynamicId: boolean = true) =>
-    rawGraph?.getEdge(id, dynamicId) || null
+  const getNode = useCallback((id: string) => rawGraph?.getNode(id) || null, [rawGraph])
+  const getEdge = useCallback(
+    (id: string, dynamicId: boolean = true) => rawGraph?.getEdge(id, dynamicId) || null,
+    [rawGraph]
+  )
 
   const currentSelection = useMemo(() => {
     if (selection !== undefined) {
@@ -183,8 +185,8 @@ const ActionInspector = ({
             {inspectPane ?? <PropertiesView panelClassName="max-w-none rounded-lg border p-2 text-xs" />}
           </TabsContent>
 
-          <TabsContent value="create" className="mt-3 min-h-0">
-            <div className="space-y-3">
+          <TabsContent value="create" className="mt-3 min-h-0 overflow-y-auto pr-1">
+            <div className="space-y-3 pb-1">
               <CreateNodeForm />
               <CreateRelationForm selection={currentSelection} />
             </div>

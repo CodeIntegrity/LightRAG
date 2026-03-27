@@ -499,6 +499,7 @@
         "activeGroups": "已激活分组 {{activeGroups}}"
       },
       "filter": {
+        "title": "筛选器",
         "sections": {
           "nodeFilters": "节点筛选",
           "edgeFilters": "边筛选",
@@ -535,10 +536,20 @@
         },
         "placeholders": {
           "entityTypes": "PERSON, ORGANIZATION",
+          "searchEntityTypes": "搜索实体类型...",
           "relationTypes": "owns, partner_of",
+          "startLabel": "* / Tesla",
+          "searchStartLabel": "搜索标签，或直接输入自定义标签...",
           "filePaths": "/inputs/a.md, /inputs/b.md"
         },
+        "messages": {
+          "noEntityTypeResults": "未找到匹配的实体类型。",
+          "noLabelResults": "未找到匹配的标签。"
+        },
         "actions": {
+          "collapse": "收起筛选器",
+          "expand": "展开筛选器",
+          "removeSelection": "移除 {{value}}",
           "apply": "应用",
           "reset": "重置"
         }
@@ -559,10 +570,12 @@
         "description": "最小载荷：实体名称 + 描述。",
         "fields": {
           "entityName": "实体名称",
+          "entityType": "类型",
           "description": "描述"
         },
         "placeholders": {
           "entityName": "Tesla",
+          "entityType": "选择已有实体类型",
           "description": "电动汽车制造商"
         },
         "errors": {
@@ -590,6 +603,7 @@
         "placeholders": {
           "source": "Elon Musk",
           "target": "Tesla",
+          "searchEntity": "搜索实体...",
           "description": "Elon Musk works for Tesla",
           "keywords": "works_for"
         },
@@ -603,25 +617,38 @@
           "create": "创建关系"
         },
         "messages": {
-          "created": "关系“{{source}} -> {{target}}”已创建。"
+          "created": "关系“{{source}} -> {{target}}”已创建。",
+          "noEntityResults": "未找到匹配的实体。"
         }
       },
       "deleteObject": {
         "title": "删除当前选择",
+        "fields": {
+          "entity": "实体",
+          "description": "描述",
+          "source": "源实体",
+          "target": "目标实体",
+          "summary": "摘要"
+        },
         "confirmation": {
           "emptySelection": "请先选择节点或关系。",
           "node": "你将删除实体“{{entity}}”。相关关系也会被一并删除。",
           "relationWithSummary": "你将删除关系“{{source}} -> {{target}}”（{{summary}}）。",
-          "relation": "你将删除关系“{{source}} -> {{target}}”。",
-          "inputLabel": "输入 {{keyword}} 以确认",
-          "inputPlaceholder": "{{keyword}}"
+          "relation": "你将删除关系“{{source}} -> {{target}}”。"
+        },
+        "dialog": {
+          "emptyTitle": "没有可删除的对象",
+          "nodeTitle": "删除实体“{{entity}}”",
+          "relationTitle": "删除关系“{{source}} -> {{target}}”"
         },
         "errors": {
           "deleteFailed": "删除失败"
         },
         "actions": {
+          "cancel": "取消",
           "deleting": "删除中...",
-          "delete": "删除"
+          "delete": "删除",
+          "confirmDelete": "确认删除"
         },
         "messages": {
           "entityDeleted": "实体“{{entity}}”已删除。",
@@ -643,6 +670,12 @@
           "help": {
             "sourceEntities": "支持逗号或换行分隔，系统会自动排除目标实体。"
           },
+          "actions": {
+            "focusSource": "定位第一个源实体：{{entity}}",
+            "focusSourceEmpty": "请先填写源实体",
+            "focusTarget": "定位目标实体：{{entity}}",
+            "focusTargetEmpty": "请先填写目标实体"
+          },
           "preview": "草稿预览：[{{sourceEntities}}] -> {{targetEntity}}",
           "targetRequired": "（需填写目标实体）"
         },
@@ -658,9 +691,17 @@
           "merging": "合并中...",
           "mergeEntities": "合并实体"
         },
+        "options": {
+          "useLlm": {
+            "label": "启用 LLM 重排",
+            "description": "让 LLM 对启发式候选进一步判断和排序；如果 LLM 不可用或调用失败，系统会自动回退到启发式结果。"
+          }
+        },
         "messages": {
           "noSuggestions": "当前范围内未找到合并建议。",
-          "merged": "已将 {{count}} 个源实体合并到“{{target}}”。"
+          "merged": "已将 {{count}} 个源实体合并到“{{target}}”。",
+          "llmFallback": "LLM 重排当前不可用，已自动回退为启发式建议。原因：{{reason}}",
+          "llmFallbackGeneric": "LLM 重排当前不可用，已自动回退为启发式建议。"
         },
         "suggestions": {
           "title": "合并建议",

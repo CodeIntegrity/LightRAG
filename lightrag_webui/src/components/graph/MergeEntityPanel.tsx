@@ -1,17 +1,20 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { LocateFixedIcon } from 'lucide-react'
 import {
   fetchMergeSuggestions,
   mergeGraphEntities
 } from '@/api/lightrag'
 import type {
+  GraphMergeSuggestionsResponse,
   GraphMergeSuggestionsRequest,
   GraphWorkbenchQueryRequest
 } from '@/api/lightrag'
 import Button from '@/components/ui/Button'
+import Checkbox from '@/components/ui/Checkbox'
 import Input from '@/components/ui/Input'
-import { useGraphStore } from '@/stores/graph'
+import { RawGraph, useGraphStore } from '@/stores/graph'
 import {
   normalizeWorkbenchMutationError,
   useGraphWorkbenchStore
@@ -29,8 +32,17 @@ type PostMergeFollowUpOutcome = {
   dismissActions: boolean
 }
 
+type MergeSuggestionTranslator = (key: string, options?: Record<string, unknown>) => string
+type MergeEntityNavigationField = 'source' | 'target'
+type MergeEntityNavigationPlan = {
+  entityName: string
+  nodeId: string | null
+  requiresQueryRefresh: boolean
+}
+
 const DEFAULT_SUGGESTION_LIMIT = 20
 const DEFAULT_SUGGESTION_MIN_SCORE = 0.6
+const MERGE_FOLLOW_UP_AUTO_DISMISS_MS = 8000
 
 const normalizeEntityName = (value: string): string => value.trim()
 
@@ -71,11 +83,64 @@ export const buildManualMergeDraftFromInput = (
   }
 }
 
+export const resolveMergeEntityNavigationValue = (
+  sourceEntitiesInput: string,
+  targetEntityInput: string,
+  field: MergeEntityNavigationField
+): string => {
+  const draft = buildManualMergeDraftFromInput(sourceEntitiesInput, targetEntityInput)
+  if (field === 'source') {
+    return draft.sourceEntities[0] ?? ''
+  }
+  return draft.targetEntity
+}
+
+const resolveGraphNodeIdForEntity = (
+  rawGraph: Pick<RawGraph, 'getNode' | 'nodes'> | null | undefined,
+  entityName: string
+): string | null => {
+  const normalizedEntityName = normalizeEntityName(entityName)
+  if (!normalizedEntityName || !rawGraph) {
+    return null
+  }
+
+  const directNode = rawGraph.getNode(normalizedEntityName)
+  if (directNode) {
+    return directNode.id
+  }
+
+  const matchedNode = rawGraph.nodes.find((node) => {
+    const entityId = String(node.properties?.entity_id ?? '').trim()
+    const name = String(node.properties?.name ?? '').trim()
+    return entityId === normalizedEntityName || name === normalizedEntityName
+  })
+
+  return matchedNode?.id ?? null
+}
+
+export const createMergeEntityNavigationPlan = (
+  rawGraph: Pick<RawGraph, 'getNode' | 'nodes'> | null | undefined,
+  entityName: string
+): MergeEntityNavigationPlan | null => {
+  const normalizedEntityName = normalizeEntityName(entityName)
+  if (!normalizedEntityName) {
+    return null
+  }
+
+  const nodeId = resolveGraphNodeIdForEntity(rawGraph, normalizedEntityName)
+  return {
+    entityName: normalizedEntityName,
+    nodeId,
+    requiresQueryRefresh: nodeId === null
+  }
+}
+
 export const buildMergeSuggestionsRequest = (
   appliedQuery: GraphWorkbenchQueryRequest | null,
   filterDraft: GraphWorkbenchQueryRequest,
   limit: number = DEFAULT_SUGGESTION_LIMIT,
-  minScore: number = DEFAULT_SUGGESTION_MIN_SCORE
+  minScore: number = DEFAULT_SUGGESTION_MIN_SCORE,
+  useLlm: boolean = false
 ): GraphMergeSuggestionsRequest => {
   const scope = appliedQuery?.scope ?? filterDraft.scope
   return {
@@ -86,8 +151,29 @@ export const buildMergeSuggestionsRequest = (
       only_matched_neighborhood: scope.only_matched_neighborhood
     },
     limit,
-    min_score: minScore
+    min_score: minScore,
+    use_llm: useLlm
   }
+}
+
+export const resolveMergeSuggestionFallbackNotice = (
+  meta: GraphMergeSuggestionsResponse['meta'] | null | undefined,
+  t?: MergeSuggestionTranslator
+): string | null => {
+  if (!meta?.llm_requested || meta.llm_used) {
+    return null
+  }
+
+  const reason = meta.llm_fallback_reason?.trim()
+  if (t) {
+    return reason
+      ? t('graphPanel.workbench.merge.messages.llmFallback', { reason })
+      : t('graphPanel.workbench.merge.messages.llmFallbackGeneric')
+  }
+
+  return reason
+    ? `LLM reranking unavailable. Fell back to heuristic suggestions: ${reason}`
+    : 'LLM reranking unavailable. Fell back to heuristic suggestions.'
 }
 
 const buildMergeDraftFromSelection = (
@@ -173,7 +259,7 @@ export const resolvePostMergeFollowUp = (
     return {
       focusTarget: targetEntity,
       shouldRefresh: false,
-      dismissActions: false
+      dismissActions: true
     }
   }
 
@@ -181,7 +267,7 @@ export const resolvePostMergeFollowUp = (
     return {
       focusTarget: null,
       shouldRefresh: true,
-      dismissActions: false
+      dismissActions: true
     }
   }
 
@@ -190,6 +276,17 @@ export const resolvePostMergeFollowUp = (
     shouldRefresh: false,
     dismissActions: true
   }
+}
+
+export const shouldAutoDismissMergeFollowUp = (
+  mergeFollowUp: { mergedAt: number } | null | undefined,
+  now: number = Date.now()
+): boolean => {
+  if (!mergeFollowUp) {
+    return false
+  }
+
+  return now - mergeFollowUp.mergedAt >= MERGE_FOLLOW_UP_AUTO_DISMISS_MS
 }
 
 type MergeEntityPanelProps = {
@@ -202,9 +299,13 @@ const MergeEntityPanel = ({ selection = null }: MergeEntityPanelProps) => {
   const [targetEntityInput, setTargetEntityInput] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [suggestionError, setSuggestionError] = useState<string | null>(null)
+  const [suggestionNotice, setSuggestionNotice] = useState<string | null>(null)
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false)
   const [isSubmittingMerge, setIsSubmittingMerge] = useState(false)
+  const [useLlmSuggestions, setUseLlmSuggestions] = useState(false)
+  const [pendingNavigationEntity, setPendingNavigationEntity] = useState<string | null>(null)
 
+  const rawGraph = useGraphStore.use.rawGraph()
   const filterDraft = useGraphWorkbenchStore.use.filterDraft()
   const appliedQuery = useGraphWorkbenchStore.use.appliedQuery()
   const mergeCandidates = useGraphWorkbenchStore.use.mergeCandidates()
@@ -238,24 +339,78 @@ const MergeEntityPanel = ({ selection = null }: MergeEntityPanelProps) => {
     setMergeDraft(prefilled)
   }, [selection, mergeDraft, setMergeDraft])
 
+  useEffect(() => {
+    if (!mergeFollowUp) {
+      return
+    }
+
+    const remainingMs = Math.max(
+      0,
+      MERGE_FOLLOW_UP_AUTO_DISMISS_MS - (Date.now() - mergeFollowUp.mergedAt)
+    )
+    const timer = window.setTimeout(() => {
+      clearMergeFollowUp()
+    }, remainingMs)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [mergeFollowUp, clearMergeFollowUp])
+
   const draftPreview = useMemo(
     () => buildManualMergeDraftFromInput(sourceEntitiesInput, targetEntityInput),
+    [sourceEntitiesInput, targetEntityInput]
+  )
+  const focusableSourceEntity = useMemo(
+    () => resolveMergeEntityNavigationValue(sourceEntitiesInput, targetEntityInput, 'source'),
+    [sourceEntitiesInput, targetEntityInput]
+  )
+  const focusableTargetEntity = useMemo(
+    () => resolveMergeEntityNavigationValue(sourceEntitiesInput, targetEntityInput, 'target'),
     [sourceEntitiesInput, targetEntityInput]
   )
 
   const canSubmitMerge = draftPreview.sourceEntities.length > 0 && !!draftPreview.targetEntity
 
+  useEffect(() => {
+    if (!pendingNavigationEntity) {
+      return
+    }
+
+    const plan = createMergeEntityNavigationPlan(rawGraph, pendingNavigationEntity)
+    if (!plan || !plan.nodeId) {
+      return
+    }
+
+    const graphStore = useGraphStore.getState()
+    graphStore.setFocusedNode(plan.nodeId)
+    graphStore.setSelectedNode(plan.nodeId, true)
+    setPendingNavigationEntity(null)
+  }, [rawGraph, pendingNavigationEntity])
+
   const handleLoadSuggestions = async () => {
     if (isLoadingSuggestions) return
 
     setSuggestionError(null)
+    setSuggestionNotice(null)
     setIsLoadingSuggestions(true)
     clearMutationError()
 
     try {
-      const request = buildMergeSuggestionsRequest(appliedQuery, filterDraft)
+      const request = buildMergeSuggestionsRequest(
+        appliedQuery,
+        filterDraft,
+        DEFAULT_SUGGESTION_LIMIT,
+        DEFAULT_SUGGESTION_MIN_SCORE,
+        useLlmSuggestions
+      )
       const response = await fetchMergeSuggestions(request)
       setMergeCandidates(response.candidates)
+      const fallbackNotice = resolveMergeSuggestionFallbackNotice(response.meta, t)
+      setSuggestionNotice(fallbackNotice)
+      if (fallbackNotice) {
+        toast.warning(fallbackNotice)
+      }
       if (!response.candidates.length) {
         toast.info(t('graphPanel.workbench.merge.messages.noSuggestions'))
       }
@@ -277,6 +432,28 @@ const MergeEntityPanel = ({ selection = null }: MergeEntityPanelProps) => {
     setErrorMessage(null)
     setSuggestionError(null)
     clearMutationError()
+  }
+
+  const navigateToEntity = (entityName: string) => {
+    const plan = createMergeEntityNavigationPlan(rawGraph, entityName)
+    if (!plan) {
+      return
+    }
+
+    const graphStore = useGraphStore.getState()
+    if (plan.nodeId) {
+      graphStore.setFocusedNode(plan.nodeId)
+      graphStore.setSelectedNode(plan.nodeId, true)
+      return
+    }
+
+    setPendingNavigationEntity(plan.entityName)
+    graphStore.setGraphDataFetchAttempted(false)
+    if (appliedQuery) {
+      applyScopeLabel(plan.entityName)
+    } else {
+      setQueryLabel(plan.entityName)
+    }
   }
 
   const handleSubmitMerge = async (event: FormEvent<HTMLFormElement>) => {
@@ -375,11 +552,30 @@ const MergeEntityPanel = ({ selection = null }: MergeEntityPanelProps) => {
           <label className="text-muted-foreground block text-[11px] font-medium tracking-wide uppercase">
             {t('graphPanel.workbench.merge.manual.fields.sourceEntities')}
           </label>
-          <Input
-            value={sourceEntitiesInput}
-            onChange={(event) => setSourceEntitiesInput(event.target.value)}
-            placeholder={t('graphPanel.workbench.merge.manual.placeholders.sourceEntities')}
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              value={sourceEntitiesInput}
+              onChange={(event) => setSourceEntitiesInput(event.target.value)}
+              placeholder={t('graphPanel.workbench.merge.manual.placeholders.sourceEntities')}
+            />
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="shrink-0"
+              tooltip={
+                focusableSourceEntity
+                  ? t('graphPanel.workbench.merge.manual.actions.focusSource', {
+                      entity: focusableSourceEntity
+                    })
+                  : t('graphPanel.workbench.merge.manual.actions.focusSourceEmpty')
+              }
+              onClick={() => navigateToEntity(focusableSourceEntity)}
+              disabled={!focusableSourceEntity}
+            >
+              <LocateFixedIcon />
+            </Button>
+          </div>
           <p className="text-muted-foreground text-[11px]">
             {t('graphPanel.workbench.merge.manual.help.sourceEntities')}
           </p>
@@ -389,11 +585,30 @@ const MergeEntityPanel = ({ selection = null }: MergeEntityPanelProps) => {
           <label className="text-muted-foreground block text-[11px] font-medium tracking-wide uppercase">
             {t('graphPanel.workbench.merge.manual.fields.targetEntity')}
           </label>
-          <Input
-            value={targetEntityInput}
-            onChange={(event) => setTargetEntityInput(event.target.value)}
-            placeholder={t('graphPanel.workbench.merge.manual.placeholders.targetEntity')}
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              value={targetEntityInput}
+              onChange={(event) => setTargetEntityInput(event.target.value)}
+              placeholder={t('graphPanel.workbench.merge.manual.placeholders.targetEntity')}
+            />
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="shrink-0"
+              tooltip={
+                focusableTargetEntity
+                  ? t('graphPanel.workbench.merge.manual.actions.focusTarget', {
+                      entity: focusableTargetEntity
+                    })
+                  : t('graphPanel.workbench.merge.manual.actions.focusTargetEmpty')
+              }
+              onClick={() => navigateToEntity(focusableTargetEntity)}
+              disabled={!focusableTargetEntity}
+            >
+              <LocateFixedIcon />
+            </Button>
+          </div>
         </div>
 
         <div className="text-muted-foreground rounded-md border border-dashed px-2 py-2 text-[11px]">
@@ -405,6 +620,24 @@ const MergeEntityPanel = ({ selection = null }: MergeEntityPanelProps) => {
         </div>
 
         {errorMessage && <p className="text-xs text-red-600 dark:text-red-300">{errorMessage}</p>}
+
+        <div className="rounded-md border border-dashed px-2 py-2">
+          <label className="flex items-start gap-2">
+            <Checkbox
+              checked={useLlmSuggestions}
+              onCheckedChange={(checked) => setUseLlmSuggestions(checked === true)}
+              className="mt-0.5"
+            />
+            <span className="space-y-1">
+              <span className="block text-xs font-medium">
+                {t('graphPanel.workbench.merge.options.useLlm.label')}
+              </span>
+              <span className="text-muted-foreground block text-[11px]">
+                {t('graphPanel.workbench.merge.options.useLlm.description')}
+              </span>
+            </span>
+          </label>
+        </div>
 
         <div className="flex items-center justify-end gap-2">
           <Button
@@ -431,6 +664,7 @@ const MergeEntityPanel = ({ selection = null }: MergeEntityPanelProps) => {
         selectedTargets={selectedMergeCandidateTargets}
         isLoading={isLoadingSuggestions}
         errorMessage={suggestionError}
+        noticeMessage={suggestionNotice}
         onImportCandidate={handleImportCandidate}
       />
 

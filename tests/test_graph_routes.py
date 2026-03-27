@@ -37,6 +37,7 @@ class _DummyRAG:
         self.last_relation_edit_request: dict[str, Any] | None = None
         self.last_merge_request: dict[str, Any] | None = None
         self.last_merge_suggestions_request: Any = None
+        self.graph_entity_types = ["ORGANIZATION", "PERSON", "PRODUCT"]
 
     async def get_knowledge_graph(
         self, node_label: str, max_depth: int, max_nodes: int
@@ -208,6 +209,9 @@ class _DummyRAG:
                 ],
             }
         ]
+
+    async def get_graph_entity_types(self) -> list[str]:
+        return list(self.graph_entity_types)
 
 
 class _DummyRAGNoMergeSupport:
@@ -537,6 +541,7 @@ def test_merge_suggestions_route_exists_and_returns_candidate_structure(graph_cl
             "scope": {"label": "Tesla", "max_depth": 1, "max_nodes": 64},
             "limit": 5,
             "min_score": 0.3,
+            "use_llm": True,
         },
     )
 
@@ -553,6 +558,7 @@ def test_merge_suggestions_route_exists_and_returns_candidate_structure(graph_cl
     assert rag.last_merge_suggestions_request is not None
     assert isinstance(rag.last_merge_suggestions_request, dict)
     assert rag.last_merge_suggestions_request["scope"]["label"] == "Tesla"
+    assert rag.last_merge_suggestions_request["use_llm"] is True
 
 
 def test_merge_suggestions_returns_501_when_rag_not_supported(monkeypatch):
@@ -580,3 +586,12 @@ def test_merge_suggestions_rejects_unknown_extra_fields(graph_client):
     )
 
     assert response.status_code == 422
+
+
+def test_graph_entity_type_list_returns_available_types(graph_client):
+    client, _ = graph_client
+
+    response = client.get("/graph/entity-type/list")
+
+    assert response.status_code == 200
+    assert response.json() == ["ORGANIZATION", "PERSON", "PRODUCT"]

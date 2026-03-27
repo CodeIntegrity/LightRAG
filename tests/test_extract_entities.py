@@ -149,6 +149,41 @@ async def test_gleaning_proceeds_when_tokens_within_limit():
 
 @pytest.mark.offline
 @pytest.mark.asyncio
+async def test_empty_gleaning_response_is_treated_as_noop():
+    from lightrag.operate import extract_entities
+
+    global_config = _make_global_config(
+        max_extract_input_tokens=999999,
+        entity_extract_max_gleaning=1,
+    )
+
+    llm_func = global_config["llm_model_func"]
+    llm_func.side_effect = [
+        _EXTRACTION_RESULT,
+        Exception("Received empty content from OpenAI API"),
+    ]
+
+    with patch("lightrag.operate.logger") as mock_logger:
+        chunk_results = await extract_entities(
+            chunks=_make_chunks(),
+            global_config=global_config,
+        )
+
+    assert llm_func.await_count == 2
+    assert len(chunk_results) == 1
+    maybe_nodes, maybe_edges = chunk_results[0]
+    assert "TEST_ENTITY" in maybe_nodes
+    assert maybe_edges == {}
+    warning_messages = [
+        call.args[0]
+        for call in mock_logger.warning.call_args_list
+        if call.args and isinstance(call.args[0], str)
+    ]
+    assert any("Gleaning returned empty content" in message for message in warning_messages)
+
+
+@pytest.mark.offline
+@pytest.mark.asyncio
 async def test_no_gleaning_when_max_gleaning_zero():
     """No gleaning when entity_extract_max_gleaning is 0, regardless of token limit."""
     from lightrag.operate import extract_entities

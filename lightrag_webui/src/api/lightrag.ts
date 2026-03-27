@@ -126,6 +126,7 @@ export type GraphMergeSuggestionsRequest = {
   scope: GraphQueryScope
   limit?: number
   min_score?: number
+  use_llm?: boolean
 }
 
 export type GraphMergeSuggestionsResponse = {
@@ -135,6 +136,11 @@ export type GraphMergeSuggestionsResponse = {
     requested_limit: number
     min_score: number
     returned_candidates: number
+    llm_requested?: boolean
+    llm_used?: boolean
+    llm_fallback_reason?: string | null
+    scoped_nodes?: number | null
+    evaluated_pairs?: number | null
   }
 }
 
@@ -685,6 +691,11 @@ export const fetchMergeSuggestions = async (
 
 export const getGraphLabels = async (): Promise<string[]> => {
   const response = await axiosInstance.get('/graph/label/list')
+  return response.data
+}
+
+export const getGraphEntityTypes = async (): Promise<string[]> => {
+  const response = await axiosInstance.get('/graph/entity-type/list')
   return response.data
 }
 

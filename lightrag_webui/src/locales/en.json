@@ -499,6 +499,7 @@
         "activeGroups": "Active Groups {{activeGroups}}"
       },
       "filter": {
+        "title": "Filters",
         "sections": {
           "nodeFilters": "Node Filters",
           "edgeFilters": "Edge Filters",
@@ -535,10 +536,20 @@
         },
         "placeholders": {
           "entityTypes": "PERSON, ORGANIZATION",
+          "searchEntityTypes": "Search entity types...",
           "relationTypes": "owns, partner_of",
+          "startLabel": "* / Tesla",
+          "searchStartLabel": "Search labels or enter a custom label...",
           "filePaths": "/inputs/a.md, /inputs/b.md"
         },
+        "messages": {
+          "noEntityTypeResults": "No matching entity types found.",
+          "noLabelResults": "No matching labels found."
+        },
         "actions": {
+          "collapse": "Collapse Filters",
+          "expand": "Expand Filters",
+          "removeSelection": "Remove {{value}}",
           "apply": "Apply",
           "reset": "Reset"
         }
@@ -559,10 +570,12 @@
         "description": "Minimal payload: entity name + description.",
         "fields": {
           "entityName": "Entity Name",
+          "entityType": "Type",
           "description": "Description"
         },
         "placeholders": {
           "entityName": "Tesla",
+          "entityType": "Select an existing entity type",
           "description": "Electric vehicle manufacturer"
         },
         "errors": {
@@ -590,6 +603,7 @@
         "placeholders": {
           "source": "Elon Musk",
           "target": "Tesla",
+          "searchEntity": "Search an entity...",
           "description": "Elon Musk works for Tesla",
           "keywords": "works_for"
         },
@@ -603,25 +617,38 @@
           "create": "Create Relation"
         },
         "messages": {
-          "created": "Relation \"{{source}} -> {{target}}\" created."
+          "created": "Relation \"{{source}} -> {{target}}\" created.",
+          "noEntityResults": "No matching entities found."
         }
       },
       "deleteObject": {
         "title": "Delete Selection",
+        "fields": {
+          "entity": "Entity",
+          "description": "Description",
+          "source": "Source",
+          "target": "Target",
+          "summary": "Summary"
+        },
         "confirmation": {
           "emptySelection": "Select a node or relation first.",
           "node": "You are deleting entity \"{{entity}}\". Related relations will also be removed.",
           "relationWithSummary": "You are deleting relation \"{{source}} -> {{target}}\" ({{summary}}).",
-          "relation": "You are deleting relation \"{{source}} -> {{target}}\".",
-          "inputLabel": "Type {{keyword}} to confirm",
-          "inputPlaceholder": "{{keyword}}"
+          "relation": "You are deleting relation \"{{source}} -> {{target}}\"."
+        },
+        "dialog": {
+          "emptyTitle": "Nothing to delete",
+          "nodeTitle": "Delete entity \"{{entity}}\"",
+          "relationTitle": "Delete relation \"{{source}} -> {{target}}\""
         },
         "errors": {
           "deleteFailed": "Delete failed"
         },
         "actions": {
+          "cancel": "Cancel",
           "deleting": "Deleting...",
-          "delete": "Delete"
+          "delete": "Delete",
+          "confirmDelete": "Confirm Delete"
         },
         "messages": {
           "entityDeleted": "Entity \"{{entity}}\" deleted.",
@@ -643,6 +670,12 @@
           "help": {
             "sourceEntities": "Comma/newline separated. Target entity will be excluded automatically."
           },
+          "actions": {
+            "focusSource": "Locate first source entity: {{entity}}",
+            "focusSourceEmpty": "Enter a source entity first",
+            "focusTarget": "Locate target entity: {{entity}}",
+            "focusTargetEmpty": "Enter a target entity first"
+          },
           "preview": "Draft preview: [{{sourceEntities}}] -> {{targetEntity}}",
           "targetRequired": "(target required)"
         },
@@ -658,9 +691,17 @@
           "merging": "Merging...",
           "mergeEntities": "Merge Entities"
         },
+        "options": {
+          "useLlm": {
+            "label": "Use LLM reranking",
+            "description": "Let the LLM refine heuristic suggestions. If the LLM is unavailable or fails, results automatically fall back to heuristics."
+          }
+        },
         "messages": {
           "noSuggestions": "No merge suggestions found for current scope.",
-          "merged": "Merged {{count}} source entities into \"{{target}}\"."
+          "merged": "Merged {{count}} source entities into \"{{target}}\".",
+          "llmFallback": "LLM reranking is unavailable, so heuristic suggestions are shown instead. Reason: {{reason}}",
+          "llmFallbackGeneric": "LLM reranking is unavailable, so heuristic suggestions are shown instead."
         },
         "suggestions": {
           "title": "Merge Suggestions",

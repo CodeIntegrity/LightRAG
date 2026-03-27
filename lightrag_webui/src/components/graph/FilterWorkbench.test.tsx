@@ -1,19 +1,33 @@
 import React from 'react'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { renderToString } from 'react-dom/server'
 
 import i18n from '@/i18n'
 import type { GraphWorkbenchQueryRequest } from '@/api/lightrag'
 import en from '@/locales/en.json'
 import zh from '@/locales/zh.json'
-import { useGraphWorkbenchStore, getDefaultGraphWorkbenchFilterDraft } from '@/stores/graphWorkbench'
 import {
-  FilterWorkbench,
-  applyWorkbenchFilters,
-  resetWorkbenchFilters,
-  updateDraftFromInput
-} from './FilterWorkbench'
+  useGraphWorkbenchStore,
+  getDefaultGraphWorkbenchFilterDraft
+} from '@/stores/graphWorkbench'
 import GraphWorkbenchSummary from './GraphWorkbenchSummary'
+
+Object.defineProperty(globalThis, 'localStorage', {
+  value: {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {}
+  },
+  configurable: true
+})
+
+vi.mock('@/api/lightrag', () => ({
+  getGraphEntityTypes: vi.fn(async () => ['PERSON', 'ORGANIZATION']),
+  getPopularLabels: vi.fn(async () => ['*', 'Tesla']),
+  searchLabels: vi.fn(async (query: string) => [query])
+}))
+
+const loadFilterWorkbenchModule = () => import('./FilterWorkbench')
 
 const cloneDraft = (draft: GraphWorkbenchQueryRequest): GraphWorkbenchQueryRequest =>
   JSON.parse(JSON.stringify(draft))
@@ -33,7 +47,8 @@ describe('FilterWorkbench', () => {
     useGraphWorkbenchStore.getState().reset()
   })
 
-  test('可渲染五类筛选区块', () => {
+  test('可渲染五类筛选区块', async () => {
+    const { FilterWorkbench } = await loadFilterWorkbenchModule()
     const html = renderToString(<FilterWorkbench />)
 
     expect(html).toContain('Node Filters')
@@ -43,7 +58,46 @@ describe('FilterWorkbench', () => {
     expect(html).toContain('View Controls')
   })
 
-  test('apply / reset 行为会更新 appliedQuery', () => {
+  test('收起状态会隐藏筛选内容并保留展开控件', async () => {
+    const { FilterWorkbench } = await loadFilterWorkbenchModule()
+    const html = renderToString(<FilterWorkbench collapsed onToggleCollapsed={() => undefined} />)
+
+    expect(html).toContain('aria-label="Expand Filters"')
+    expect(html).not.toContain('Node Filters')
+    expect(html).not.toContain('Apply')
+  })
+
+  test('成对字段在桌面侧栏宽度下不会固定双列挤压', async () => {
+    const { FilterWorkbench } = await loadFilterWorkbenchModule()
+    const html = renderToString(<FilterWorkbench />)
+
+    expect(html).toContain('sm:grid-cols-2')
+    expect(html).toContain('lg:grid-cols-1')
+    expect(html).not.toContain('grid grid-cols-2 gap-2')
+  })
+
+  test('实体类型和起始标签字段使用可搜索下拉', async () => {
+    const { FilterWorkbench } = await loadFilterWorkbenchModule()
+    const html = renderToString(<FilterWorkbench />)
+    const comboboxCount = html.match(/role="combobox"/g)?.length ?? 0
+
+    expect(comboboxCount).toBeGreaterThanOrEqual(4)
+    expect(html).toContain('aria-label="Entity Types"')
+    expect(html).toContain('aria-label="Source Entity Types"')
+    expect(html).toContain('aria-label="Target Entity Types"')
+    expect(html).toContain('aria-label="Start Label"')
+  })
+
+  test('空状态的筛选下拉不显示占位文字', async () => {
+    const { FilterWorkbench } = await loadFilterWorkbenchModule()
+    const html = renderToString(<FilterWorkbench />)
+
+    expect(html).not.toContain('PERSON, ORGANIZATION')
+    expect(html).not.toMatch(/aria-label="Start Label"[^>]*><div>\*<\/div>/)
+  })
+
+  test('apply / reset 行为会更新 appliedQuery', async () => {
+    const { applyWorkbenchFilters, resetWorkbenchFilters } = await loadFilterWorkbenchModule()
     const store = useGraphWorkbenchStore.getState()
     const beforeVersion = store.queryVersion
     const draft = getDefaultGraphWorkbenchFilterDraft()
@@ -95,7 +149,8 @@ describe('FilterWorkbench', () => {
     expect(normalizedHtml).toContain('Active Groups 3')
   })
 
-  test('输入变化会驱动 structured payload 更新', () => {
+  test('输入变化会驱动 structured payload 更新', async () => {
+    const { updateDraftFromInput } = await loadFilterWorkbenchModule()
     const draft = getDefaultGraphWorkbenchFilterDraft()
 
     const withEntityTypes = updateDraftFromInput(
@@ -133,12 +188,54 @@ describe('FilterWorkbench', () => {
     expect(clampedNodes.scope.max_nodes).toBe(1)
   })
 
+  test('结构化选择值会以克隆方式写回 draft', async () => {
+    const { updateDraftFromValue } = await loadFilterWorkbenchModule()
+    const draft = getDefaultGraphWorkbenchFilterDraft()
+
+    const withEntityTypes = updateDraftFromValue(draft, 'node_filters', 'entity_types', [
+      'PERSON',
+      'ORGANIZATION'
+    ])
+    expect(withEntityTypes.node_filters.entity_types).toEqual(['PERSON', 'ORGANIZATION'])
+    expect(draft.node_filters.entity_types).toEqual([])
+
+    const withLabel = updateDraftFromValue(withEntityTypes, 'scope', 'label', 'OpenAI')
+    expect(withLabel.scope.label).toBe('OpenAI')
+    expect(withEntityTypes.scope.label).toBe('*')
+  })
+
+  test('起始标签下拉选项会保留通配符和自定义输入', async () => {
+    const { buildLabelSelectOptions } = await loadFilterWorkbenchModule()
+    expect(buildLabelSelectOptions('', ['Tesla', '*'], '')).toEqual(['*', 'Tesla'])
+
+    expect(buildLabelSelectOptions('OpenAI', ['Tesla'], 'Anthropic')).toEqual([
+      '*',
+      'OpenAI',
+      'Tesla',
+      'Anthropic'
+    ])
+
+    expect(buildLabelSelectOptions('  Tesla ', ['Tesla', 'OpenAI'], 'Tesla')).toEqual([
+      '*',
+      'Tesla',
+      'OpenAI'
+    ])
+  })
+
   test('graph workbench 关键 i18n key 在 en 与 zh 中存在', () => {
     const keyPaths = [
       'graphPanel.workbench.summary.draftStatus',
       'graphPanel.workbench.summary.appliedStatus',
       'graphPanel.workbench.filter.sections.nodeFilters',
+      'graphPanel.workbench.filter.title',
+      'graphPanel.workbench.filter.actions.collapse',
+      'graphPanel.workbench.filter.actions.expand',
+      'graphPanel.workbench.filter.actions.removeSelection',
       'graphPanel.workbench.filter.actions.apply',
+      'graphPanel.workbench.filter.placeholders.searchEntityTypes',
+      'graphPanel.workbench.filter.placeholders.searchStartLabel',
+      'graphPanel.workbench.filter.messages.noEntityTypeResults',
+      'graphPanel.workbench.filter.messages.noLabelResults',
       'graphPanel.workbench.actionInspector.title',
       'graphPanel.workbench.actionInspector.tabs.merge',
       'graphPanel.workbench.merge.manual.title',

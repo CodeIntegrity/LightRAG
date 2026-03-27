@@ -41,6 +41,8 @@ export interface AsyncSelectProps<T> {
   loadingSkeleton?: React.ReactNode
   /** Currently selected value */
   value: string
+  /** Optional empty-state display inside trigger */
+  emptyDisplay?: React.ReactNode
   /** Callback when selection changes */
   onChange: (value: string) => void
   /** Callback before opening the dropdown (async supported) */
@@ -69,6 +71,8 @@ export interface AsyncSelectProps<T> {
   clearable?: boolean
   /** Debounce time in milliseconds */
   debounceTime?: number
+  /** Hide trigger text for specific values */
+  hideDisplayWhen?: (value: string) => boolean
 }
 
 export function AsyncSelect<T>({
@@ -84,6 +88,7 @@ export function AsyncSelect<T>({
   placeholder = 'Select...',
   searchPlaceholder,
   value,
+  emptyDisplay,
   onChange,
   onBeforeOpen,
   disabled = false,
@@ -93,7 +98,8 @@ export function AsyncSelect<T>({
   noResultsMessage,
   triggerTooltip,
   clearable = true,
-  debounceTime = 150
+  debounceTime = 150,
+  hideDisplayWhen
 }: AsyncSelectProps<T>) {
   const [mounted, setMounted] = useState(false)
   const [open, setOpen] = useState(false)
@@ -209,6 +215,17 @@ export function AsyncSelect<T>({
     [onBeforeOpen]
   )
 
+  const shouldHideDisplay = hideDisplayWhen?.(value) ?? false
+  const triggerDisplay = shouldHideDisplay ? (
+    (emptyDisplay ?? null)
+  ) : value === '*' ? (
+    <div>*</div>
+  ) : selectedOption ? (
+    getDisplayValue(selectedOption)
+  ) : (
+    initialValueDisplay || placeholder || emptyDisplay || null
+  )
+
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
@@ -226,7 +243,7 @@ export function AsyncSelect<T>({
           tooltip={triggerTooltip}
           side="bottom"
         >
-          {value === '*' ? <div>*</div> : (selectedOption ? getDisplayValue(selectedOption) : (initialValueDisplay || placeholder))}
+          {triggerDisplay}
           <ChevronsUpDown className="opacity-50" size={10} />
         </Button>
       </PopoverTrigger>
@@ -259,24 +276,20 @@ export function AsyncSelect<T>({
             {!loading &&
               !error &&
               options.length === 0 &&
-              (notFound || (
-                <CommandEmpty>
-                  {noResultsMessage || 'No results found.'}
-                </CommandEmpty>
-              ))}
+              (notFound || <CommandEmpty>{noResultsMessage || 'No results found.'}</CommandEmpty>)}
             <CommandGroup>
               {options.map((option) => {
-                const optionValue = getOptionValue(option);
+                const optionValue = getOptionValue(option)
                 // Fix cmdk filtering issue: use empty string when search is empty
                 // This ensures all items are shown when searchTerm is empty
-                const itemValue = searchTerm.trim() === '' ? '' : optionValue;
+                const itemValue = searchTerm.trim() === '' ? '' : optionValue
 
                 return (
                   <CommandItem
                     key={optionValue}
                     value={itemValue}
                     onSelect={() => {
-                      handleSelect(optionValue);
+                      handleSelect(optionValue)
                     }}
                     className="truncate"
                   >
@@ -288,7 +301,7 @@ export function AsyncSelect<T>({
                       )}
                     />
                   </CommandItem>
-                );
+                )
               })}
             </CommandGroup>
           </CommandList>

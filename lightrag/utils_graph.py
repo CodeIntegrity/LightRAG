@@ -4,13 +4,18 @@ import time
 import asyncio
 import hashlib
 import json
+import re
 from collections.abc import Mapping, Sequence
+from difflib import SequenceMatcher
+from functools import partial
 from typing import Any, cast
+
+import json_repair
 
 from .base import DeletionResult
 from .kg.shared_storage import get_storage_keyed_lock
 from .constants import GRAPH_FIELD_SEP
-from .utils import compute_mdhash_id, logger
+from .utils import compute_mdhash_id, logger, remove_think_tags
 from .base import StorageNameSpace
 
 
@@ -1849,6 +1854,730 @@ async def amerge_entities(
         except Exception as e:
             logger.error(f"Error merging entities: {e}")
             raise
+
+
+_MERGE_SUGGESTION_REASON_WEIGHTS: dict[str, float] = {
+    "name_similarity": 0.45,
+    "alias_overlap": 0.2,
+    "description_overlap": 0.12,
+    "shared_neighbors": 0.1,
+    "shared_sources": 0.06,
+    "shared_file_paths": 0.03,
+    "same_entity_type": 0.04,
+}
+_MERGE_SUGGESTION_MIN_PAIR_SCORE = 0.55
+_MERGE_SUGGESTION_LLM_SYSTEM_PROMPT = """
+You validate duplicate-entity merge suggestions for a knowledge graph.
+
+Return strict JSON only in this exact shape:
+{"scores":[{"candidate_id":"...", "score":0.0}]}
+
+Rules:
+- Keep every candidate_id exactly as provided.
+- score must be between 0.0 and 1.0.
+- Higher score means stronger confidence that the source_entities should merge into target_entity.
+- Use the heuristic evidence plus names, aliases, descriptions, neighbors, source overlap, and file overlap.
+- Do not add prose, markdown, or code fences.
+""".strip()
+_MERGE_SUGGESTION_COMMON_SUFFIXES = frozenset(
+    {
+        "inc",
+        "incorporated",
+        "corp",
+        "corporation",
+        "co",
+        "company",
+        "ltd",
+        "limited",
+        "llc",
+        "plc",
+        "group",
+        "holdings",
+        "holding",
+    }
+)
+_MERGE_SUGGESTION_STOPWORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "of",
+        "to",
+        "for",
+        "in",
+        "on",
+        "at",
+        "with",
+        "by",
+        "from",
+        "is",
+        "are",
+        "was",
+        "were",
+    }
+)
+
+
+def _merge_suggestion_model_dump(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump()
+        return dumped if isinstance(dumped, dict) else {}
+    if isinstance(value, Mapping):
+        return dict(value)
+    return {}
+
+
+def _merge_suggestion_split_values(value: Any) -> list[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        raw_values = re.split(rf"[,\n;|{re.escape(GRAPH_FIELD_SEP)}]+", value)
+    elif isinstance(value, set):
+        raw_values = [str(item) for item in value]
+    elif isinstance(value, Sequence) and not isinstance(
+        value, (str, bytes, bytearray)
+    ):
+        raw_values = []
+        for item in value:
+            if item is None:
+                continue
+            if isinstance(item, str):
+                raw_values.extend(
+                    re.split(rf"[,\n;|{re.escape(GRAPH_FIELD_SEP)}]+", item)
+                )
+            else:
+                raw_values.append(str(item))
+    else:
+        raw_values = [str(value)]
+
+    normalized_values: list[str] = []
+    seen_values: set[str] = set()
+    for raw_value in raw_values:
+        normalized = raw_value.strip()
+        if not normalized or normalized in seen_values:
+            continue
+        seen_values.add(normalized)
+        normalized_values.append(normalized)
+    return normalized_values
+
+
+def _merge_suggestion_normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return re.sub(r"\s+", " ", str(value)).strip()
+
+
+def _merge_suggestion_tokens(value: str) -> list[str]:
+    tokens = [
+        token.strip("_")
+        for token in re.findall(r"\w+", value.lower(), flags=re.UNICODE)
+    ]
+    return [token for token in tokens if token]
+
+
+def _merge_suggestion_compact(value: str) -> str:
+    return "".join(_merge_suggestion_tokens(value))
+
+
+def _merge_suggestion_base_tokens(tokens: list[str]) -> list[str]:
+    base_tokens = list(tokens)
+    while base_tokens and base_tokens[-1] in _MERGE_SUGGESTION_COMMON_SUFFIXES:
+        base_tokens.pop()
+    return base_tokens
+
+
+def _merge_suggestion_overlap_score(
+    left_values: set[str], right_values: set[str]
+) -> float:
+    if not left_values or not right_values:
+        return 0.0
+    intersection_size = len(left_values.intersection(right_values))
+    if intersection_size == 0:
+        return 0.0
+    return round(intersection_size / max(len(left_values), len(right_values)), 4)
+
+
+def _merge_suggestion_entity_name(node: dict[str, Any]) -> str:
+    properties = _merge_suggestion_model_dump(node.get("properties"))
+    for key in ("entity_id", "name"):
+        candidate = _merge_suggestion_normalize_text(properties.get(key))
+        if candidate:
+            return candidate
+    return _merge_suggestion_normalize_text(node.get("id"))
+
+
+def _merge_suggestion_entity_types(node: dict[str, Any]) -> set[str]:
+    properties = _merge_suggestion_model_dump(node.get("properties"))
+    entity_types = {
+        value.lower()
+        for value in _merge_suggestion_split_values(properties.get("entity_type"))
+    }
+    entity_types.update(
+        value.lower() for value in _merge_suggestion_split_values(node.get("labels"))
+    )
+    return {value for value in entity_types if value}
+
+
+def _merge_suggestion_description_tokens(description: str) -> set[str]:
+    return {
+        token
+        for token in _merge_suggestion_tokens(description)
+        if token not in _MERGE_SUGGESTION_STOPWORDS
+    }
+
+
+def _build_merge_suggestion_snapshot(node: dict[str, Any]) -> dict[str, Any] | None:
+    entity_name = _merge_suggestion_entity_name(node)
+    if not entity_name:
+        return None
+
+    properties = _merge_suggestion_model_dump(node.get("properties"))
+    normalized_name = _merge_suggestion_normalize_text(entity_name)
+    name_tokens = _merge_suggestion_tokens(normalized_name)
+    base_tokens = _merge_suggestion_base_tokens(name_tokens)
+
+    alias_values = _merge_alias_groups(
+        properties.get("aliases"),
+        properties.get("alias"),
+        properties.get("name"),
+        exclude={entity_name},
+    )
+    alias_compacts = {
+        _merge_suggestion_compact(alias) for alias in alias_values if alias.strip()
+    }
+
+    description = _merge_suggestion_normalize_text(properties.get("description"))
+
+    return {
+        "entity_name": entity_name,
+        "raw_node_id": _merge_suggestion_normalize_text(node.get("id")),
+        "normalized_name": normalized_name,
+        "compact_name": _merge_suggestion_compact(normalized_name),
+        "name_tokens": name_tokens,
+        "base_tokens": base_tokens,
+        "base_compact_name": "".join(base_tokens),
+        "aliases": alias_values,
+        "alias_compacts": alias_compacts,
+        "entity_types": _merge_suggestion_entity_types(node),
+        "description": description,
+        "description_tokens": _merge_suggestion_description_tokens(description),
+        "source_ids": set(_merge_suggestion_split_values(properties.get("source_id"))),
+        "file_paths": set(
+            _merge_suggestion_split_values(properties.get("file_path"))
+            + _merge_suggestion_split_values(properties.get("file_paths"))
+        ),
+        "neighbors": set(),
+        "degree": 0,
+    }
+
+
+def _augment_merge_suggestion_snapshots_with_edges(
+    snapshots: dict[str, dict[str, Any]], edges: list[dict[str, Any]]
+) -> None:
+    raw_id_to_entity = {
+        snapshot["raw_node_id"]: entity_name
+        for entity_name, snapshot in snapshots.items()
+        if snapshot["raw_node_id"]
+    }
+
+    for edge in edges:
+        properties = _merge_suggestion_model_dump(edge.get("properties"))
+        source = _merge_suggestion_normalize_text(edge.get("source"))
+        target = _merge_suggestion_normalize_text(edge.get("target"))
+        source_entity = raw_id_to_entity.get(source, source)
+        target_entity = raw_id_to_entity.get(target, target)
+
+        if source_entity not in snapshots or target_entity not in snapshots:
+            continue
+
+        edge_source_ids = set(_merge_suggestion_split_values(properties.get("source_id")))
+        edge_file_paths = set(
+            _merge_suggestion_split_values(properties.get("file_path"))
+            + _merge_suggestion_split_values(properties.get("file_paths"))
+        )
+
+        snapshots[source_entity]["neighbors"].add(target_entity)
+        snapshots[target_entity]["neighbors"].add(source_entity)
+        snapshots[source_entity]["degree"] += 1
+        snapshots[target_entity]["degree"] += 1
+        snapshots[source_entity]["source_ids"].update(edge_source_ids)
+        snapshots[target_entity]["source_ids"].update(edge_source_ids)
+        snapshots[source_entity]["file_paths"].update(edge_file_paths)
+        snapshots[target_entity]["file_paths"].update(edge_file_paths)
+
+
+def _merge_suggestion_name_similarity(
+    left_snapshot: dict[str, Any], right_snapshot: dict[str, Any]
+) -> float:
+    left_compact = left_snapshot["compact_name"]
+    right_compact = right_snapshot["compact_name"]
+    if not left_compact or not right_compact:
+        return 0.0
+
+    if left_compact == right_compact:
+        return 1.0
+
+    left_base = left_snapshot["base_compact_name"]
+    right_base = right_snapshot["base_compact_name"]
+    if left_base and left_base == right_base:
+        return 0.96
+
+    left_tokens = set(left_snapshot["name_tokens"])
+    right_tokens = set(right_snapshot["name_tokens"])
+    subset_bonus = 0.0
+    if left_tokens and right_tokens:
+        if left_tokens.issubset(right_tokens) or right_tokens.issubset(left_tokens):
+            subset_bonus = 0.82
+
+    compact_ratio = SequenceMatcher(None, left_compact, right_compact).ratio()
+    spaced_ratio = SequenceMatcher(
+        None,
+        left_snapshot["normalized_name"].lower(),
+        right_snapshot["normalized_name"].lower(),
+    ).ratio()
+    token_overlap = _merge_suggestion_overlap_score(left_tokens, right_tokens)
+    return round(max(compact_ratio, spaced_ratio, token_overlap, subset_bonus), 4)
+
+
+def _merge_suggestion_alias_overlap(
+    left_snapshot: dict[str, Any], right_snapshot: dict[str, Any]
+) -> float:
+    left_compact = left_snapshot["compact_name"]
+    right_compact = right_snapshot["compact_name"]
+
+    if left_compact and left_compact in right_snapshot["alias_compacts"]:
+        return 1.0
+    if right_compact and right_compact in left_snapshot["alias_compacts"]:
+        return 1.0
+    if left_snapshot["alias_compacts"].intersection(right_snapshot["alias_compacts"]):
+        return 0.94
+    return 0.0
+
+
+def _merge_suggestion_description_overlap(
+    left_snapshot: dict[str, Any], right_snapshot: dict[str, Any]
+) -> float:
+    return _merge_suggestion_overlap_score(
+        left_snapshot["description_tokens"], right_snapshot["description_tokens"]
+    )
+
+
+def _merge_suggestion_same_entity_type(
+    left_snapshot: dict[str, Any], right_snapshot: dict[str, Any]
+) -> float:
+    if left_snapshot["entity_types"].intersection(right_snapshot["entity_types"]):
+        return 1.0
+    return 0.0
+
+
+def _merge_suggestion_pair_reasons(
+    left_snapshot: dict[str, Any], right_snapshot: dict[str, Any]
+) -> tuple[list[dict[str, Any]], float]:
+    name_similarity = _merge_suggestion_name_similarity(left_snapshot, right_snapshot)
+    alias_overlap = _merge_suggestion_alias_overlap(left_snapshot, right_snapshot)
+    description_overlap = _merge_suggestion_description_overlap(
+        left_snapshot, right_snapshot
+    )
+    shared_neighbors = _merge_suggestion_overlap_score(
+        left_snapshot["neighbors"], right_snapshot["neighbors"]
+    )
+    shared_sources = _merge_suggestion_overlap_score(
+        left_snapshot["source_ids"], right_snapshot["source_ids"]
+    )
+    shared_file_paths = _merge_suggestion_overlap_score(
+        left_snapshot["file_paths"], right_snapshot["file_paths"]
+    )
+    same_entity_type = _merge_suggestion_same_entity_type(
+        left_snapshot, right_snapshot
+    )
+
+    reason_scores = {
+        "name_similarity": name_similarity,
+        "alias_overlap": alias_overlap,
+        "description_overlap": description_overlap,
+        "shared_neighbors": shared_neighbors,
+        "shared_sources": shared_sources,
+        "shared_file_paths": shared_file_paths,
+        "same_entity_type": same_entity_type,
+    }
+
+    identity_signal = (
+        alias_overlap >= 0.94
+        or name_similarity >= 0.78
+        or (
+            description_overlap >= 0.45
+            and same_entity_type > 0.0
+            and max(shared_neighbors, shared_sources, shared_file_paths) >= 0.2
+        )
+    )
+    if not identity_signal:
+        return [], 0.0
+
+    weighted_score = sum(
+        reason_scores[code] * weight
+        for code, weight in _MERGE_SUGGESTION_REASON_WEIGHTS.items()
+    )
+    if alias_overlap >= 0.94 and weighted_score < 0.72:
+        weighted_score = 0.72
+    if name_similarity >= 0.96 and weighted_score < 0.68:
+        weighted_score = 0.68
+    if weighted_score < _MERGE_SUGGESTION_MIN_PAIR_SCORE:
+        return [], 0.0
+
+    reasons = [
+        {"code": code, "score": round(score, 4)}
+        for code, score in reason_scores.items()
+        if score > 0.0
+    ]
+    reasons.sort(key=lambda reason: (-reason["score"], reason["code"]))
+    return reasons, round(weighted_score, 4)
+
+
+def _merge_suggestion_target_support(snapshot: dict[str, Any]) -> float:
+    return (
+        float(snapshot["degree"]) * 1.5
+        + float(len(snapshot["source_ids"])) * 1.0
+        + float(len(snapshot["file_paths"])) * 0.5
+        + float(len(snapshot["aliases"])) * 0.4
+        + float(len(snapshot["description_tokens"])) * 0.05
+    )
+
+
+def _select_merge_suggestion_target(
+    left_snapshot: dict[str, Any], right_snapshot: dict[str, Any]
+) -> tuple[str, str]:
+    left_name = left_snapshot["entity_name"]
+    right_name = right_snapshot["entity_name"]
+
+    if left_snapshot["compact_name"] in right_snapshot["alias_compacts"]:
+        return right_name, left_name
+    if right_snapshot["compact_name"] in left_snapshot["alias_compacts"]:
+        return left_name, right_name
+
+    left_base = set(left_snapshot["base_tokens"])
+    right_base = set(right_snapshot["base_tokens"])
+    if left_base and right_base and left_base == right_base:
+        if len(left_snapshot["name_tokens"]) != len(right_snapshot["name_tokens"]):
+            return (
+                (left_name, right_name)
+                if len(left_snapshot["name_tokens"]) < len(right_snapshot["name_tokens"])
+                else (right_name, left_name)
+            )
+
+    left_tokens = set(left_snapshot["name_tokens"])
+    right_tokens = set(right_snapshot["name_tokens"])
+    if left_tokens and right_tokens:
+        if left_tokens.issubset(right_tokens) and len(left_tokens) < len(right_tokens):
+            return left_name, right_name
+        if right_tokens.issubset(left_tokens) and len(right_tokens) < len(left_tokens):
+            return right_name, left_name
+
+    left_support = _merge_suggestion_target_support(left_snapshot)
+    right_support = _merge_suggestion_target_support(right_snapshot)
+    if left_support != right_support:
+        return (
+            (left_name, right_name)
+            if left_support > right_support
+            else (right_name, left_name)
+        )
+
+    if len(left_snapshot["compact_name"]) != len(right_snapshot["compact_name"]):
+        return (
+            (left_name, right_name)
+            if len(left_snapshot["compact_name"]) < len(right_snapshot["compact_name"])
+            else (right_name, left_name)
+        )
+
+    return (left_name, right_name) if left_name <= right_name else (right_name, left_name)
+
+
+def _build_merge_suggestion_pair_candidates(
+    snapshots: dict[str, dict[str, Any]]
+) -> tuple[list[dict[str, Any]], int]:
+    entity_names = sorted(snapshots.keys())
+    pair_candidates: list[dict[str, Any]] = []
+    evaluated_pairs = 0
+
+    for left_index, left_name in enumerate(entity_names):
+        for right_name in entity_names[left_index + 1 :]:
+            evaluated_pairs += 1
+            left_snapshot = snapshots[left_name]
+            right_snapshot = snapshots[right_name]
+            reasons, score = _merge_suggestion_pair_reasons(
+                left_snapshot, right_snapshot
+            )
+            if not reasons:
+                continue
+
+            target_entity, source_entity = _select_merge_suggestion_target(
+                left_snapshot, right_snapshot
+            )
+            pair_candidates.append(
+                {
+                    "target_entity": target_entity,
+                    "source_entity": source_entity,
+                    "score": score,
+                    "reasons": reasons,
+                }
+            )
+
+    pair_candidates.sort(
+        key=lambda candidate: (
+            -candidate["score"],
+            candidate["target_entity"],
+            candidate["source_entity"],
+        )
+    )
+    return pair_candidates, evaluated_pairs
+
+
+def _group_merge_suggestion_candidates(
+    pair_candidates: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    best_target_by_source: dict[str, dict[str, Any]] = {}
+    for pair_candidate in pair_candidates:
+        source_entity = pair_candidate["source_entity"]
+        current_best = best_target_by_source.get(source_entity)
+        if current_best is None or pair_candidate["score"] > current_best["score"]:
+            best_target_by_source[source_entity] = pair_candidate
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for pair_candidate in best_target_by_source.values():
+        target_entity = pair_candidate["target_entity"]
+        source_entity = pair_candidate["source_entity"]
+        group = grouped.setdefault(
+            target_entity,
+            {
+                "target_entity": target_entity,
+                "source_entities": [],
+                "pair_scores": [],
+                "reason_scores": {},
+            },
+        )
+        group["source_entities"].append(source_entity)
+        group["pair_scores"].append(pair_candidate["score"])
+        for reason in pair_candidate["reasons"]:
+            existing_score = group["reason_scores"].get(reason["code"], 0.0)
+            group["reason_scores"][reason["code"]] = max(
+                existing_score, reason["score"]
+            )
+
+    candidates: list[dict[str, Any]] = []
+    for group in grouped.values():
+        source_entities = sorted(set(group["source_entities"]))
+        if not source_entities:
+            continue
+
+        reasons = [
+            {"code": code, "score": round(score, 4)}
+            for code, score in sorted(
+                group["reason_scores"].items(), key=lambda item: (-item[1], item[0])
+            )
+        ]
+        score = round(sum(group["pair_scores"]) / len(group["pair_scores"]), 4)
+        candidates.append(
+            {
+                "target_entity": group["target_entity"],
+                "source_entities": source_entities,
+                "score": score,
+                "reasons": reasons,
+            }
+        )
+
+    candidates.sort(
+        key=lambda candidate: (-candidate["score"], candidate["target_entity"])
+    )
+    return candidates
+
+
+def _merge_suggestion_candidate_id(candidate: dict[str, Any]) -> str:
+    return (
+        f"{candidate['target_entity']}<-"
+        f"{'|'.join(sorted(candidate['source_entities']))}"
+    )
+
+
+def _merge_suggestion_snapshot_summary(snapshot: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "entity_name": snapshot["entity_name"],
+        "entity_types": sorted(snapshot["entity_types"]),
+        "aliases": snapshot["aliases"][:5],
+        "description": snapshot["description"][:240],
+        "degree": snapshot["degree"],
+        "neighbors": sorted(snapshot["neighbors"])[:8],
+        "source_ids_count": len(snapshot["source_ids"]),
+        "file_paths_count": len(snapshot["file_paths"]),
+    }
+
+
+async def _rerank_merge_suggestion_candidates_with_llm(
+    rag: Any,
+    candidates: list[dict[str, Any]],
+    snapshots: dict[str, dict[str, Any]],
+    llm_limit: int,
+) -> tuple[list[dict[str, Any]], bool, str | None]:
+    llm_model_func = getattr(rag, "llm_model_func", None)
+    if not callable(llm_model_func):
+        return candidates, False, "llm_model_func unavailable"
+
+    llm_model_func = cast(Any, partial(llm_model_func, _priority=5))
+
+    llm_candidates = candidates[:llm_limit]
+    prompt_payload = {
+        "task": "rerank_merge_suggestions",
+        "candidates": [
+            {
+                "candidate_id": _merge_suggestion_candidate_id(candidate),
+                "target_entity": candidate["target_entity"],
+                "source_entities": candidate["source_entities"],
+                "heuristic_score": candidate["score"],
+                "heuristic_reasons": candidate["reasons"],
+                "target_summary": _merge_suggestion_snapshot_summary(
+                    snapshots[candidate["target_entity"]]
+                ),
+                "source_summaries": [
+                    _merge_suggestion_snapshot_summary(snapshots[source_entity])
+                    for source_entity in candidate["source_entities"]
+                    if source_entity in snapshots
+                ],
+            }
+            for candidate in llm_candidates
+        ],
+    }
+
+    try:
+        raw_response = await llm_model_func(
+            json.dumps(prompt_payload, ensure_ascii=False),
+            system_prompt=_MERGE_SUGGESTION_LLM_SYSTEM_PROMPT,
+        )
+        if not isinstance(raw_response, str):
+            raise ValueError("LLM merge suggestion rerank did not return text")
+
+        parsed_response = json_repair.loads(remove_think_tags(raw_response))
+        score_items = parsed_response.get("scores", []) if isinstance(parsed_response, dict) else []
+        llm_scores: dict[str, float] = {}
+        if isinstance(score_items, Sequence) and not isinstance(
+            score_items, (str, bytes, bytearray)
+        ):
+            for item in score_items:
+                item_payload = _merge_suggestion_model_dump(item)
+                candidate_id = _merge_suggestion_normalize_text(
+                    item_payload.get("candidate_id")
+                )
+                if not candidate_id:
+                    continue
+                try:
+                    score = float(item_payload.get("score"))
+                except (TypeError, ValueError):
+                    continue
+                llm_scores[candidate_id] = max(0.0, min(1.0, score))
+
+        if not llm_scores:
+            raise ValueError("LLM rerank returned no candidate scores")
+
+        reranked_candidates: list[dict[str, Any]] = []
+        for candidate in candidates:
+            candidate_copy = {
+                "target_entity": candidate["target_entity"],
+                "source_entities": list(candidate["source_entities"]),
+                "score": candidate["score"],
+                "reasons": [dict(reason) for reason in candidate["reasons"]],
+            }
+            candidate_id = _merge_suggestion_candidate_id(candidate_copy)
+            llm_score = llm_scores.get(candidate_id)
+            if llm_score is not None:
+                candidate_copy["score"] = round(
+                    candidate_copy["score"] * 0.65 + llm_score * 0.35,
+                    4,
+                )
+            reranked_candidates.append(candidate_copy)
+
+        reranked_candidates.sort(
+            key=lambda candidate: (-candidate["score"], candidate["target_entity"])
+        )
+        return reranked_candidates, True, None
+    except Exception as e:
+        logger.warning(f"Falling back to heuristic merge suggestions: {e}")
+        return candidates, False, str(e)
+
+
+async def aget_merge_suggestions(
+    rag: Any, request: Mapping[str, Any] | dict[str, Any]
+) -> dict[str, Any]:
+    request_payload = _merge_suggestion_model_dump(request)
+    scope = _merge_suggestion_model_dump(request_payload.get("scope"))
+    scope_label = _merge_suggestion_normalize_text(scope.get("label")) or "*"
+    max_depth = int(scope.get("max_depth") or 3)
+    max_nodes = int(scope.get("max_nodes") or 1000)
+    min_score = float(request_payload.get("min_score") or 0.0)
+    limit = int(request_payload.get("limit") or 20)
+    use_llm = bool(request_payload.get("use_llm"))
+
+    raw_graph = await rag.get_knowledge_graph(
+        node_label=scope_label,
+        max_depth=max_depth,
+        max_nodes=max_nodes,
+    )
+    raw_graph_payload = _merge_suggestion_model_dump(raw_graph)
+    raw_nodes = raw_graph_payload.get("nodes", [])
+    raw_edges = raw_graph_payload.get("edges", [])
+    nodes: list[dict[str, Any]] = []
+    if isinstance(raw_nodes, Sequence) and not isinstance(raw_nodes, (str, bytes, bytearray)):
+        nodes = [_merge_suggestion_model_dump(node) for node in raw_nodes]
+
+    edges: list[dict[str, Any]] = []
+    if isinstance(raw_edges, Sequence) and not isinstance(raw_edges, (str, bytes, bytearray)):
+        edges = [_merge_suggestion_model_dump(edge) for edge in raw_edges]
+
+    snapshots: dict[str, dict[str, Any]] = {}
+    for node in nodes:
+        snapshot = _build_merge_suggestion_snapshot(node)
+        if snapshot is None:
+            continue
+        snapshots[snapshot["entity_name"]] = snapshot
+
+    _augment_merge_suggestion_snapshots_with_edges(snapshots, edges)
+    pair_candidates, evaluated_pairs = _build_merge_suggestion_pair_candidates(
+        snapshots
+    )
+    candidates = _group_merge_suggestion_candidates(pair_candidates)
+
+    meta: dict[str, Any] = {
+        "strategy": "heuristic_v1",
+        "llm_requested": use_llm,
+        "llm_used": False,
+        "llm_fallback_reason": None,
+        "scoped_nodes": len(snapshots),
+        "evaluated_pairs": evaluated_pairs,
+    }
+
+    if use_llm and candidates:
+        llm_limit = min(max(limit * 2, 6), 20, len(candidates))
+        candidates, llm_used, fallback_reason = (
+            await _rerank_merge_suggestion_candidates_with_llm(
+                rag, candidates, snapshots, llm_limit
+            )
+        )
+        meta["llm_used"] = llm_used
+        if llm_used:
+            meta["strategy"] = "heuristic_llm_rerank_v1"
+        elif fallback_reason:
+            meta["strategy"] = "heuristic_v1_fallback"
+            meta["llm_fallback_reason"] = fallback_reason
+
+    filtered_candidates = [
+        candidate for candidate in candidates if candidate["score"] >= min_score
+    ][:limit]
+
+    return {
+        "candidates": filtered_candidates,
+        "meta": meta,
+    }
 
 
 def _merge_attributes(

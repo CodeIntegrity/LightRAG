@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useGraphStore, RawNodeType, RawEdgeType } from '@/stores/graph'
 import Text from '@/components/ui/Text'
 import Button from '@/components/ui/Button'
@@ -23,9 +23,15 @@ const PropertiesView = ({ panelClassName }: PropertiesViewProps) => {
   const focusedEdge = useGraphStore.use.focusedEdge()
   const graphDataVersion = useGraphStore.use.graphDataVersion()
 
-  const getNode = (nodeId: string) => rawGraph?.getNode(nodeId) || null
-  const getEdge = (edgeId: string, dynamicId: boolean = true) =>
-    rawGraph?.getEdge(edgeId, dynamicId) || null
+  const getNode = useCallback(
+    (nodeId: string) => rawGraph?.getNode(nodeId) || null,
+    [rawGraph]
+  )
+  const getEdge = useCallback(
+    (edgeId: string, dynamicId: boolean = true) =>
+      rawGraph?.getEdge(edgeId, dynamicId) || null,
+    [rawGraph]
+  )
 
   const [currentElement, setCurrentElement] = useState<NodeType | EdgeType | null>(null)
   const [currentType, setCurrentType] = useState<'node' | 'edge' | null>(null)

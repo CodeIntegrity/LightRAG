@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { getPopularLabels, searchLabels, createGraphRelation } from '@/api/lightrag'
 import Button from '@/components/ui/Button'
+import { AsyncSelect } from '@/components/ui/AsyncSelect'
 import Input from '@/components/ui/Input'
 import Textarea from '@/components/ui/Textarea'
-import { createGraphRelation } from '@/api/lightrag'
 import { useGraphStore } from '@/stores/graph'
 import {
   normalizeWorkbenchMutationError,
@@ -20,40 +21,40 @@ export type CreateRelationDraft = {
   weight: string
 }
 
-export const deriveCreateRelationDraftFromSelection = (
-  selection: ActionInspectorSelection | null | undefined
-): CreateRelationDraft => {
-  if (!selection) {
-    return {
-      sourceEntity: '',
-      targetEntity: '',
-      description: '',
-      keywords: '',
-      weight: '1'
-    }
-  }
-
-  if (selection.kind === 'node') {
-    return {
-      sourceEntity: String(selection.node.properties?.entity_id ?? selection.node.id),
-      targetEntity: '',
-      description: '',
-      keywords: '',
-      weight: '1'
-    }
-  }
-
+export const getDefaultCreateRelationDraft = (): CreateRelationDraft => {
   return {
-    sourceEntity: String(
-      selection.edge.sourceNode?.properties?.entity_id ?? selection.edge.source
-    ),
-    targetEntity: String(
-      selection.edge.targetNode?.properties?.entity_id ?? selection.edge.target
-    ),
+    sourceEntity: '',
+    targetEntity: '',
     description: '',
     keywords: '',
     weight: '1'
   }
+}
+
+export const fetchCreateRelationEntityOptions = async (query?: string): Promise<string[]> => {
+  const normalizedQuery = query?.trim() ?? ''
+  if (!normalizedQuery) {
+    return await getPopularLabels()
+  }
+  return await searchLabels(normalizedQuery)
+}
+
+export const resolveCreateRelationSelectionFill = (
+  selection: ActionInspectorSelection | null | undefined,
+  activeField: 'source' | 'target' | null
+): Partial<Pick<CreateRelationDraft, 'sourceEntity' | 'targetEntity'>> | null => {
+  if (!selection || selection.kind !== 'node' || !activeField) {
+    return null
+  }
+
+  const entityId = String(selection.node.properties?.entity_id ?? selection.node.id ?? '').trim()
+  if (!entityId) {
+    return null
+  }
+
+  return activeField === 'source'
+    ? { sourceEntity: entityId }
+    : { targetEntity: entityId }
 }
 
 type CreateRelationFormProps = {
@@ -62,12 +63,12 @@ type CreateRelationFormProps = {
 
 const CreateRelationForm = ({ selection = null }: CreateRelationFormProps) => {
   const { t } = useTranslation()
-  const initialDraft = deriveCreateRelationDraftFromSelection(selection)
-  const [sourceEntity, setSourceEntity] = useState(initialDraft.sourceEntity)
-  const [targetEntity, setTargetEntity] = useState(initialDraft.targetEntity)
+  const [sourceEntity, setSourceEntity] = useState('')
+  const [targetEntity, setTargetEntity] = useState('')
   const [description, setDescription] = useState('')
   const [keywords, setKeywords] = useState('')
   const [weight, setWeight] = useState('1')
+  const [activeField, setActiveField] = useState<'source' | 'target' | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const setMutationError = useGraphWorkbenchStore.use.setMutationError()
@@ -75,14 +76,18 @@ const CreateRelationForm = ({ selection = null }: CreateRelationFormProps) => {
   const requestRefresh = useGraphWorkbenchStore.use.requestRefresh()
 
   useEffect(() => {
-    const prefilled = deriveCreateRelationDraftFromSelection(selection)
-    if (!sourceEntity.trim()) {
-      setSourceEntity(prefilled.sourceEntity)
+    const fill = resolveCreateRelationSelectionFill(selection, activeField)
+    if (!fill) {
+      return
     }
-    if (!targetEntity.trim()) {
-      setTargetEntity(prefilled.targetEntity)
+
+    if (typeof fill.sourceEntity === 'string') {
+      setSourceEntity(fill.sourceEntity)
     }
-  }, [selection, sourceEntity, targetEntity])
+    if (typeof fill.targetEntity === 'string') {
+      setTargetEntity(fill.targetEntity)
+    }
+  }, [selection])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -148,25 +153,61 @@ const CreateRelationForm = ({ selection = null }: CreateRelationFormProps) => {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="min-w-0 space-y-1">
           <label className="text-muted-foreground block text-[11px] font-medium tracking-wide uppercase">
             {t('graphPanel.workbench.createRelation.fields.source')}
           </label>
-          <Input
-            value={sourceEntity}
-            onChange={(event) => setSourceEntity(event.target.value)}
+          <AsyncSelect<string>
+            className="w-[var(--radix-popover-trigger-width)] min-w-[240px]"
+            triggerClassName="w-full min-w-0 justify-between overflow-hidden"
+            fetcher={fetchCreateRelationEntityOptions}
+            onBeforeOpen={() => setActiveField('source')}
+            renderOption={(item) => (
+              <div className="truncate" title={item}>
+                {item}
+              </div>
+            )}
+            getOptionValue={(item) => item}
+            getDisplayValue={(item) => (
+              <div className="min-w-0 flex-1 truncate text-left" title={item}>
+                {item}
+              </div>
+            )}
+            ariaLabel={t('graphPanel.workbench.createRelation.fields.source')}
             placeholder={t('graphPanel.workbench.createRelation.placeholders.source')}
+            searchPlaceholder={t('graphPanel.workbench.createRelation.placeholders.searchEntity')}
+            noResultsMessage={t('graphPanel.workbench.createRelation.messages.noEntityResults')}
+            value={sourceEntity}
+            onChange={(value) => setSourceEntity(value)}
           />
         </div>
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <label className="text-muted-foreground block text-[11px] font-medium tracking-wide uppercase">
             {t('graphPanel.workbench.createRelation.fields.target')}
           </label>
-          <Input
-            value={targetEntity}
-            onChange={(event) => setTargetEntity(event.target.value)}
+          <AsyncSelect<string>
+            className="w-[var(--radix-popover-trigger-width)] min-w-[240px]"
+            triggerClassName="w-full min-w-0 justify-between overflow-hidden"
+            fetcher={fetchCreateRelationEntityOptions}
+            onBeforeOpen={() => setActiveField('target')}
+            renderOption={(item) => (
+              <div className="truncate" title={item}>
+                {item}
+              </div>
+            )}
+            getOptionValue={(item) => item}
+            getDisplayValue={(item) => (
+              <div className="min-w-0 flex-1 truncate text-left" title={item}>
+                {item}
+              </div>
+            )}
+            ariaLabel={t('graphPanel.workbench.createRelation.fields.target')}
             placeholder={t('graphPanel.workbench.createRelation.placeholders.target')}
+            searchPlaceholder={t('graphPanel.workbench.createRelation.placeholders.searchEntity')}
+            noResultsMessage={t('graphPanel.workbench.createRelation.messages.noEntityResults')}
+            value={targetEntity}
+            onChange={(value) => setTargetEntity(value)}
           />
         </div>
       </div>
@@ -183,22 +224,23 @@ const CreateRelationForm = ({ selection = null }: CreateRelationFormProps) => {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="min-w-0 space-y-1">
           <label className="text-muted-foreground block text-[11px] font-medium tracking-wide uppercase">
             {t('graphPanel.workbench.createRelation.fields.keywords')}
           </label>
           <Input
+            className="w-full"
             value={keywords}
             onChange={(event) => setKeywords(event.target.value)}
             placeholder={t('graphPanel.workbench.createRelation.placeholders.keywords')}
           />
         </div>
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <label className="text-muted-foreground block text-[11px] font-medium tracking-wide uppercase">
             {t('graphPanel.workbench.createRelation.fields.weight')}
           </label>
-          <Input value={weight} onChange={(event) => setWeight(event.target.value)} type="number" step="0.1" />
+          <Input className="w-full" value={weight} onChange={(event) => setWeight(event.target.value)} type="number" step="0.1" />
         </div>
       </div>
 

@@ -96,6 +96,8 @@ describe('ActionInspector', () => {
     )
     expect(createHtml).toContain('Create Node')
     expect(createHtml).toContain('Create Relation')
+    expect(createHtml).toContain('Type')
+    expect(createHtml).toContain('overflow-y-auto')
 
     const deleteTab = resolveActionInspectorTab(createTab, 'delete')
     const deleteHtml = renderToString(
@@ -119,11 +121,36 @@ describe('ActionInspector', () => {
     expect(mergeHtml).toContain('Merge Suggestions')
   })
 
-  test('Create Relation 从当前选中节点预填 source', async () => {
-    const { deriveCreateRelationDraftFromSelection } = await import('./CreateRelationForm')
-    const draft = deriveCreateRelationDraftFromSelection(nodeSelection as any)
-    expect(draft.sourceEntity).toBe('Elon Musk')
+  test('Create Relation 默认草稿为空，不再使用当前选中节点自动预填', async () => {
+    const { getDefaultCreateRelationDraft } = await import('./CreateRelationForm')
+    const draft = getDefaultCreateRelationDraft()
+    expect(draft.sourceEntity).toBe('')
     expect(draft.targetEntity).toBe('')
+  })
+
+  test('Create Relation 搜索：空关键词走热门实体，非空关键词走搜索接口', async () => {
+    const api = await import('@/api/lightrag')
+    const popularSpy = vi.spyOn(api, 'getPopularLabels').mockResolvedValue(['Tesla'])
+    const searchSpy = vi.spyOn(api, 'searchLabels').mockResolvedValue(['OpenAI'])
+
+    const { fetchCreateRelationEntityOptions } = await import('./CreateRelationForm')
+
+    expect(await fetchCreateRelationEntityOptions('')).toEqual(['Tesla'])
+    expect(await fetchCreateRelationEntityOptions('open')).toEqual(['OpenAI'])
+    expect(popularSpy).toHaveBeenCalled()
+    expect(searchSpy).toHaveBeenCalledWith('open')
+  })
+
+  test('Create Relation 节点点击只填充当前活动字段', async () => {
+    const { resolveCreateRelationSelectionFill } = await import('./CreateRelationForm')
+
+    expect(resolveCreateRelationSelectionFill(nodeSelection as any, 'source')).toEqual({
+      sourceEntity: 'Elon Musk'
+    })
+    expect(resolveCreateRelationSelectionFill(nodeSelection as any, 'target')).toEqual({
+      targetEntity: 'Elon Musk'
+    })
+    expect(resolveCreateRelationSelectionFill(nodeSelection as any, null)).toBeNull()
   })
 
   test('delete confirmation copy 与错误保留', async () => {
@@ -165,6 +192,70 @@ describe('ActionInspector', () => {
     expect(draft.sourceEntities).toEqual(['Elon Msk', 'Ellon Musk'])
   })
 
+  test('merge: 源实体定位按钮优先定位第一个源实体', async () => {
+    const { resolveMergeEntityNavigationValue } = await import('./MergeEntityPanel')
+
+    expect(
+      resolveMergeEntityNavigationValue(
+        ' Elon Msk , Ellon Musk\nElon Msk ',
+        'Elon Musk',
+        'source'
+      )
+    ).toBe('Elon Msk')
+    expect(
+      resolveMergeEntityNavigationValue(
+        ' Elon Msk , Ellon Musk\nElon Msk ',
+        'Elon Musk',
+        'target'
+      )
+    ).toBe('Elon Musk')
+  })
+
+  test('merge: 定位逻辑会优先聚焦图内节点，否则切换查询实体', async () => {
+    const { createMergeEntityNavigationPlan } = await import('./MergeEntityPanel')
+
+    const graphNodePlan = createMergeEntityNavigationPlan(
+      {
+        getNode: (nodeId: string) =>
+          nodeId === 'neo4j-node-1'
+            ? {
+                id: 'neo4j-node-1',
+                labels: ['Tesla'],
+                properties: { entity_id: 'Tesla' }
+              }
+            : null,
+        nodes: [
+          {
+            id: 'neo4j-node-1',
+            labels: ['Tesla'],
+            properties: { entity_id: 'Tesla' }
+          }
+        ]
+      } as any,
+      'Tesla'
+    )
+
+    expect(graphNodePlan).toEqual({
+      entityName: 'Tesla',
+      nodeId: 'neo4j-node-1',
+      requiresQueryRefresh: false
+    })
+
+    const missingNodePlan = createMergeEntityNavigationPlan(
+      {
+        getNode: () => null,
+        nodes: []
+      } as any,
+      'OpenAI'
+    )
+
+    expect(missingNodePlan).toEqual({
+      entityName: 'OpenAI',
+      nodeId: null,
+      requiresQueryRefresh: true
+    })
+  })
+
   test('merge: suggested candidate evidence 可展示', async () => {
     const { buildMergeCandidateEvidence } = await import('./MergeSuggestionList')
     const candidate: GraphMergeSuggestionCandidate = {
@@ -192,11 +283,28 @@ describe('ActionInspector', () => {
     appliedQuery.scope.max_nodes = 128
     appliedQuery.scope.only_matched_neighborhood = true
 
-    const request = buildMergeSuggestionsRequest(appliedQuery, filterDraft, 12, 0.45)
+    const request = buildMergeSuggestionsRequest(appliedQuery, filterDraft, 12, 0.45, true)
     expect(request.scope.label).toBe('Tesla')
     expect(request.scope.max_depth).toBe(2)
     expect(request.limit).toBe(12)
     expect(request.min_score).toBe(0.45)
+    expect(request.use_llm).toBe(true)
+  })
+
+  test('merge: llm 回退提示会从 response meta 生成可展示文案', async () => {
+    const { resolveMergeSuggestionFallbackNotice } = await import('./MergeEntityPanel')
+
+    const notice = resolveMergeSuggestionFallbackNotice({
+      strategy: 'heuristic_v1_fallback',
+      requested_limit: 20,
+      min_score: 0.6,
+      returned_candidates: 2,
+      llm_requested: true,
+      llm_used: false,
+      llm_fallback_reason: 'llm timed out'
+    })
+
+    expect(notice).toContain('llm timed out')
   })
 
   test('merge: one-click candidate import into merge form', async () => {
@@ -239,14 +347,68 @@ describe('ActionInspector', () => {
 
     expect(focus.focusTarget).toBe('Elon Musk')
     expect(focus.shouldRefresh).toBe(false)
-    expect(focus.dismissActions).toBe(false)
+    expect(focus.dismissActions).toBe(true)
 
     expect(refresh.focusTarget).toBeNull()
     expect(refresh.shouldRefresh).toBe(true)
-    expect(refresh.dismissActions).toBe(false)
+    expect(refresh.dismissActions).toBe(true)
 
     expect(continueReview.focusTarget).toBeNull()
     expect(continueReview.shouldRefresh).toBe(false)
     expect(continueReview.dismissActions).toBe(true)
+  })
+
+  test('merge: follow-up 提示会在超时后自动关闭', async () => {
+    const { shouldAutoDismissMergeFollowUp } = await import('./MergeEntityPanel')
+
+    expect(
+      shouldAutoDismissMergeFollowUp({
+        targetEntity: 'Tesla',
+        sourceEntities: ['Tesla Motors'],
+        mergedAt: 1000
+      }, 1000 + 7999)
+    ).toBe(false)
+
+    expect(
+      shouldAutoDismissMergeFollowUp({
+        targetEntity: 'Tesla',
+        sourceEntities: ['Tesla Motors'],
+        mergedAt: 1000
+      }, 1000 + 8000)
+    ).toBe(true)
+  })
+
+  test('create relation: 窄布局下使用单列，较宽时再切双列，避免控件重叠', async () => {
+    const module = await import('./CreateRelationForm')
+    const CreateRelationForm = module.default
+
+    const html = renderToString(<CreateRelationForm selection={relationSelection as any} />)
+
+    expect(html).toContain('w-full')
+    expect(html).toContain('grid-cols-1')
+    expect(html).toContain('sm:grid-cols-2')
+  })
+
+  test('delete: 二次确认弹窗会展示待删除对象的关键信息', async () => {
+    const { buildDeleteDialogDetails } = await import('./DeleteGraphObjectPanel')
+
+    const nodeDetails = buildDeleteDialogDetails(nodeSelection as any)
+    expect(nodeDetails.title).toContain('Elon Musk')
+    expect(nodeDetails.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: 'Elon Musk' }),
+        expect.objectContaining({ value: 'CEO' })
+      ])
+    )
+
+    const relationDetails = buildDeleteDialogDetails(relationSelection as any)
+    expect(relationDetails.title).toContain('Elon Musk')
+    expect(relationDetails.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: 'Elon Musk' }),
+        expect.objectContaining({ value: 'Tesla' }),
+        expect.objectContaining({ value: 'works_for' })
+      ])
+    )
   })
 })

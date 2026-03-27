@@ -269,13 +269,19 @@ class GraphMergeSuggestionsRequest(BaseModel):
     scope: GraphQueryScope
     limit: int = Field(default=20, ge=1, le=200)
     min_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    use_llm: bool = False
 
 
 class GraphMergeSuggestionsMeta(BaseModel):
-    strategy: str = "placeholder_v1"
+    strategy: str = "heuristic_v1"
     requested_limit: int
     min_score: float
     returned_candidates: int
+    llm_requested: bool = False
+    llm_used: bool = False
+    llm_fallback_reason: str | None = None
+    scoped_nodes: int | None = None
+    evaluated_pairs: int | None = None
 
 
 class GraphMergeSuggestionsResponse(BaseModel):
@@ -329,6 +335,24 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
             logger.error(traceback.format_exc())
             raise HTTPException(
                 status_code=500, detail=f"Error getting graph labels: {str(e)}"
+            )
+
+    @router.get("/graph/entity-type/list", dependencies=[Depends(combined_auth)])
+    async def get_graph_entity_types():
+        """
+        Get all existing entity types in the knowledge graph.
+
+        Returns:
+            List[str]: Sorted list of unique entity types
+        """
+        try:
+            return await rag.get_graph_entity_types()
+        except Exception as e:
+            logger.error(f"Error getting graph entity types: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error getting graph entity types: {str(e)}",
             )
 
     @router.get("/graph/label/popular", dependencies=[Depends(combined_auth)])
@@ -505,9 +529,16 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
                 )
 
             request_payload = request.model_dump()
-            raw_candidates: list[dict[str, Any]] = await rag.aget_merge_suggestions(
-                request_payload
-            )
+            backend_result = await rag.aget_merge_suggestions(request_payload)
+            backend_meta: dict[str, Any] = {}
+
+            if isinstance(backend_result, dict) and "candidates" in backend_result:
+                raw_candidates = backend_result.get("candidates", [])
+                raw_meta = backend_result.get("meta", {})
+                if isinstance(raw_meta, dict):
+                    backend_meta = raw_meta
+            else:
+                raw_candidates = backend_result
 
             candidates = [
                 GraphMergeSuggestionCandidate.model_validate(candidate)
@@ -522,9 +553,29 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
             return GraphMergeSuggestionsResponse(
                 candidates=filtered_candidates,
                 meta=GraphMergeSuggestionsMeta(
-                    requested_limit=request.limit,
-                    min_score=request.min_score,
+                    strategy=str(backend_meta.get("strategy") or "heuristic_v1"),
+                    requested_limit=int(backend_meta.get("requested_limit") or request.limit),
+                    min_score=float(backend_meta.get("min_score") or request.min_score),
                     returned_candidates=len(filtered_candidates),
+                    llm_requested=bool(
+                        backend_meta.get("llm_requested", request.use_llm)
+                    ),
+                    llm_used=bool(backend_meta.get("llm_used", False)),
+                    llm_fallback_reason=(
+                        str(backend_meta["llm_fallback_reason"])
+                        if backend_meta.get("llm_fallback_reason")
+                        else None
+                    ),
+                    scoped_nodes=(
+                        int(backend_meta["scoped_nodes"])
+                        if backend_meta.get("scoped_nodes") is not None
+                        else None
+                    ),
+                    evaluated_pairs=(
+                        int(backend_meta["evaluated_pairs"])
+                        if backend_meta.get("evaluated_pairs") is not None
+                        else None
+                    ),
                 ),
             )
         except NotImplementedError as e:

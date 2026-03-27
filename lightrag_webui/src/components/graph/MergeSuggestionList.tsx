@@ -7,6 +7,7 @@ type MergeSuggestionListProps = {
   selectedTargets?: string[]
   isLoading?: boolean
   errorMessage?: string | null
+  noticeMessage?: string | null
   onImportCandidate: (candidate: GraphMergeSuggestionCandidate) => void
 }
 
@@ -46,6 +47,7 @@ const MergeSuggestionList = ({
   selectedTargets = [],
   isLoading = false,
   errorMessage = null,
+  noticeMessage = null,
   onImportCandidate
 }: MergeSuggestionListProps) => {
   const { t } = useTranslation()
@@ -59,6 +61,11 @@ const MergeSuggestionList = ({
       </div>
 
       {errorMessage && <p className="text-xs text-red-600 dark:text-red-300">{errorMessage}</p>}
+      {noticeMessage && (
+        <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-300">
+          {noticeMessage}
+        </p>
+      )}
       {isLoading && (
         <p className="text-muted-foreground text-xs">
           {t('graphPanel.workbench.merge.suggestions.loading')}
