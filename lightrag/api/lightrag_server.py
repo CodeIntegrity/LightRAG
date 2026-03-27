@@ -40,6 +40,7 @@ from lightrag import LightRAG, __version__ as core_version
 from lightrag.api import __api_version__
 from lightrag.types import GPTKeywordExtractionFormat
 from lightrag.utils import EmbeddingFunc
+from lightrag.base import DocStatus
 from lightrag.prompt_version_store import PromptVersionStore
 from lightrag.constants import (
     DEFAULT_LOG_MAX_BYTES,
@@ -529,6 +530,8 @@ def create_app(args):
 
         document_count: int | None = None
         document_capability = "unsupported_by_backend"
+        chunk_count: int | None = None
+        chunk_capability = "unsupported_by_backend"
 
         try:
             bundle = await runtime_manager.acquire_runtime(workspace)
@@ -537,12 +540,29 @@ def create_app(args):
 
         if bundle is not None:
             try:
+                # Keep document_count logic unchanged for compatibility with existing clients.
                 status_counts = await bundle.rag.doc_status.get_all_status_counts()
                 document_count = int(status_counts.get("all", 0))
                 document_capability = "available"
             except Exception:
                 document_count = None
                 document_capability = "unsupported_by_backend"
+            try:
+                total_chunks = 0
+                for status in DocStatus:
+                    docs_by_status = await bundle.rag.doc_status.get_docs_by_status(
+                        status
+                    )
+                    for doc_record in docs_by_status.values():
+                        chunks_count = getattr(doc_record, "chunks_count", 0)
+                        if chunks_count is None:
+                            continue
+                        total_chunks += int(chunks_count)
+                chunk_count = total_chunks
+                chunk_capability = "available"
+            except Exception:
+                chunk_count = None
+                chunk_capability = "unsupported_by_backend"
             finally:
                 await runtime_manager.release_runtime(workspace)
 
@@ -550,14 +570,14 @@ def create_app(args):
             "document_count": document_count,
             "entity_count": None,
             "relation_count": None,
-            "chunk_count": None,
+            "chunk_count": chunk_count,
             "storage_size_bytes": None,
             "prompt_version_count": prompt_version_count,
             "capabilities": {
                 "document_count": document_capability,
                 "entity_count": "unsupported_by_backend",
                 "relation_count": "unsupported_by_backend",
-                "chunk_count": "unsupported_by_backend",
+                "chunk_count": chunk_capability,
                 "storage_size_bytes": "unsupported_by_backend",
                 "prompt_version_count": "available",
             },

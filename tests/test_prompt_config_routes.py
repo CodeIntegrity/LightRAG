@@ -6,9 +6,30 @@ import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
 
+from lightrag.base import DocStatus
 from lightrag.prompt_version_store import PromptVersionStore
 
 pytestmark = pytest.mark.offline
+
+
+class _DummyDocStatus:
+    def __init__(self, workspace: str):
+        self.workspace = workspace
+
+    async def get_all_status_counts(self) -> dict[str, int]:
+        if self.workspace == "ws1":
+            return {"all": 2}
+        return {"all": 0}
+
+    async def get_docs_by_status(self, status: DocStatus) -> dict[str, object]:
+        if self.workspace != "ws1":
+            return {}
+        if status == DocStatus.PROCESSED:
+            return {
+                "doc-1": SimpleNamespace(chunks_count=3),
+                "doc-2": SimpleNamespace(chunks_count=2),
+            }
+        return {}
 
 
 class _DummyRAG:
@@ -16,6 +37,7 @@ class _DummyRAG:
         self.ollama_server_infos = kwargs.get("ollama_server_infos")
         self.working_dir = kwargs["working_dir"]
         self.workspace = kwargs.get("workspace", "")
+        self.doc_status = _DummyDocStatus(self.workspace or "default")
         self.prompt_version_store = PromptVersionStore(
             kwargs["working_dir"], workspace=kwargs.get("workspace", "")
         )
@@ -209,6 +231,35 @@ def test_workspace_stats_route_is_mounted_on_application(test_client):
     assert "document_count" in body
     assert "prompt_version_count" in body
     assert "capabilities" in body
+
+
+def test_workspace_stats_expose_chunk_count_capability(monkeypatch, tmp_path):
+    with _build_test_client(
+        monkeypatch, tmp_path, allow_guest_workspace_create=True
+    ) as client:
+        create_response = client.post(
+            "/workspaces",
+            json={
+                "workspace": "ws1",
+                "display_name": "Workspace 1",
+                "description": "stats test",
+                "visibility": "public",
+            },
+            headers={"Authorization": f"Bearer {_build_token('guest', 'guest')}"},
+        )
+        assert create_response.status_code == 201
+
+        response = client.get("/workspaces/ws1/stats")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["document_count"] == 2
+        assert body["chunk_count"] == 5
+        assert body["capabilities"]["document_count"] == "available"
+        assert body["capabilities"]["chunk_count"] == "available"
+        assert body["entity_count"] is None
+        assert body["relation_count"] is None
+        assert body["storage_size_bytes"] is None
 
 
 def test_health_exposes_workspace_create_capability_for_guest_when_enabled(
