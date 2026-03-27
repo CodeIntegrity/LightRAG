@@ -195,6 +195,7 @@ The registry must be safe under multi-process Gunicorn/Uvicorn deployments.
 Recommended rules:
 
 - use SQLite with WAL mode enabled
+- set `PRAGMA busy_timeout = 5000`
 - all registry writes occur inside transactions
 - state transitions that gate destructive actions use `BEGIN IMMEDIATE`
 - rely on unique constraints rather than "check then write" logic for workspace creation races
@@ -210,6 +211,12 @@ Why SQLite over JSON + file locks:
 - SQLite provides transactional semantics across workers
 - row-level state transition logic is easier to reason about than hand-rolled lock files
 - it avoids subtle races between registry mutation and operation status updates
+- workspace management writes are expected to be low-frequency enough that serialized SQLite writes are acceptable in first iteration
+
+If `busy_timeout` is exceeded during a registry write:
+
+- fail the operation rather than blocking indefinitely
+- return a retryable server error with `error_code=WORKSPACE_REGISTRY_BUSY`
 
 ### Workspace Name Rules
 
@@ -494,6 +501,14 @@ Suggested response:
 }
 ```
 
+Metric availability rules:
+
+- `document_count` should be returned when document status storage can answer it without a full destructive scan
+- `prompt_version_count` should be returned when the workspace prompt registry is readable
+- `entity_count`, `relation_count`, and `chunk_count` are optional best-effort fields and may be `null` on backends where counting is unavailable or too expensive
+- `storage_size_bytes` is typically only available for local filesystem-backed artifacts; remote database-backed workspaces should return `null` unless the backend exposes a cheap and trustworthy size signal
+- use `WORKSPACE_STATS_UNAVAILABLE` only when the stats request as a whole cannot be served; partial metric absence should prefer `null` fields in a successful response
+
 ### Soft Delete Workspace
 
 `POST /workspaces/{workspace}/soft-delete`
@@ -542,6 +557,59 @@ Behavior:
 - returns current hard delete operation metadata from registry
 - supports WebUI polling during long-running deletion
 
+### Example Responses
+
+`GET /workspaces`
+
+```json
+{
+  "workspaces": [
+    {
+      "workspace": "default",
+      "display_name": "default",
+      "status": "ready",
+      "visibility": "public",
+      "is_default": true,
+      "is_protected": true
+    },
+    {
+      "workspace": "books",
+      "display_name": "Books",
+      "status": "ready",
+      "visibility": "private",
+      "is_default": false,
+      "is_protected": false
+    }
+  ]
+}
+```
+
+`POST /workspaces/{workspace}/hard-delete` with `202 Accepted`
+
+```json
+{
+  "workspace": "books",
+  "status": "hard_deleting",
+  "operation": {
+    "kind": "hard_delete",
+    "state": "running",
+    "requested_by": "admin",
+    "started_at": "2026-03-27T09:00:00Z",
+    "error": null
+  }
+}
+```
+
+Error response example:
+
+```json
+{
+  "error_code": "WORKSPACE_PROTECTED",
+  "message": "Workspace 'default' is protected and cannot be deleted",
+  "details": {}
+}
+```
+
 ## Hard Delete Workflow
 
 Hard delete is the most dangerous flow and must be explicit.
@@ -570,6 +638,24 @@ Hard delete is the most dangerous flow and must be explicit.
    - prompt version directory cleanup
    - registry-owned artifacts cleanup
 7. Mark operation complete and set `status=hard_deleted`
+
+### Drain Timeout Rule
+
+The drain timeout must use an explicit fail-safe rule.
+
+Recommended first-iteration behavior:
+
+- `LIGHTRAG_WORKSPACE_DRAIN_TIMEOUT=30`
+- if active requests do not drain before timeout:
+  - abort the delete before any storage or filesystem cleanup begins
+  - restore workspace status from `hard_deleting` back to `ready`
+  - mark the operation as failed with `error_code=WORKSPACE_DRAIN_TIMEOUT`
+  - re-open the runtime to accept new requests
+
+Chosen safety posture:
+
+- do not force-close active runtime requests in the first iteration
+- prefer a failed delete attempt over potentially breaking in-flight user traffic
 
 ### Failure Handling
 
@@ -682,12 +768,14 @@ State behavior:
 
 - persist `currentWorkspace`
 - attach it to all API requests through axios interception
+- initialize an empty per-workspace state namespace on first access rather than assuming it already exists
 - prefer workspace-scoped state namespaces for feature state that benefits from recall across switches:
   - `stateByWorkspace[workspace].promptManagement`
   - `stateByWorkspace[workspace].retrieval`
   - `stateByWorkspace[workspace].documents`
   - `stateByWorkspace[workspace].graph`
 - still clear truly unsafe transient state on switch, such as in-flight page-local results tied to another workspace
+- bound remembered workspace-scoped client state with an LRU cap so dormant workspace tabs do not accumulate unbounded memory
 
 Keep these global preferences unchanged:
 
@@ -731,6 +819,10 @@ Suggested first-iteration codes:
 - `WORKSPACE_DELETE_BUSY`
 - `WORKSPACE_DELETE_FAILED`
 - `WORKSPACE_OPERATION_ALREADY_RUNNING`
+- `WORKSPACE_DRAIN_TIMEOUT`
+- `WORKSPACE_MIGRATION_FAILED`
+- `WORKSPACE_STATS_UNAVAILABLE`
+- `WORKSPACE_REGISTRY_BUSY`
 
 ## Migration and Upgrade Path
 
@@ -749,6 +841,29 @@ Suggested migration outputs:
 - validation failures
 - ownership / visibility defaults applied during migration
 
+### Migration Utility Design
+
+The migration tool should be a CLI-first operational utility, not a normal end-user WebUI action.
+
+Recommended shape:
+
+- command name: `lightrag-migrate-workspaces`
+- trigger mode: manual only
+- startup behavior: no automatic legacy scan during normal server boot
+
+Recommended modes:
+
+- `--workspace <name>` repeated to register explicit legacy workspaces
+- `--discover-local` to discover candidate local workspaces from known filesystem clues such as:
+  - `input_dir/*`
+  - workspace-relative prompt version directories under `working_dir`
+- `--dry-run` to preview what would be imported
+
+Important boundary:
+
+- local filesystem discovery is best-effort only
+- external-database-only workspaces should be registered by explicit name because automatic discovery is not trustworthy there
+
 ## Observability
 
 Add a dedicated observability layer for workspace management.
@@ -766,6 +881,9 @@ Recommended metrics:
 - per-workspace request count
 - runtime cache size
 - runtime cache eviction count
+- workspace registry lock wait duration
+- workspace stats query duration
+- workspace migration count
 - hard delete duration
 - hard delete success / failure count
 - hard delete drain wait duration
@@ -780,6 +898,36 @@ Suggested namespaces:
 - `workspaceManager.*`
 - `workspaceErrors.*`
 - `workspaceDelete.*`
+
+## Configuration Reference
+
+Suggested first-iteration configuration additions:
+
+```bash
+# Registry
+LIGHTRAG_WORKSPACE_REGISTRY_PATH=./workspaces/registry.sqlite3
+LIGHTRAG_WORKSPACE_REGISTRY_BUSY_TIMEOUT_MS=5000
+
+# Runtime manager
+LIGHTRAG_MAX_CACHED_WORKSPACES=10
+LIGHTRAG_WORKSPACE_RUNTIME_IDLE_TTL=3600
+
+# Hard delete
+LIGHTRAG_WORKSPACE_DRAIN_TIMEOUT=30
+LIGHTRAG_HARD_DELETE_EXECUTOR_WORKERS=2
+
+# Auth
+AUTH_ADMIN_USERS=admin,superuser
+```
+
+Deliberately omitted:
+
+- `LIGHTRAG_STRICT_WORKSPACE`
+
+Reason:
+
+- strict registry enforcement is the default product behavior in this design
+- first iteration does not introduce a compatibility toggle that re-enables implicit workspace adoption
 
 ## Performance and Capacity Assumptions
 
