@@ -888,6 +888,8 @@ LightRAG WebUI now includes a global workspace switcher in the header and a work
 
 On the server side, workspace management is exposed through `/workspaces*` APIs. Switching is request-scoped via the `LIGHTRAG-WORKSPACE` header rather than a server-global toggle.
 
+Guest/login-free workspace creation is opt-in: set `ALLOW_GUEST_WORKSPACE_CREATE=true` to allow `guest` sessions to create workspaces. Guest-created workspaces are recorded as `created_by='guest'` and `owners=['guest']`.
+
 For legacy data, import existing workspaces into the managed registry explicitly:
 
 ```bash

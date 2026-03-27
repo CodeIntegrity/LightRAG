@@ -888,6 +888,8 @@ LightRAG WebUI 现在在顶栏提供全局 workspace 切换器，并配有 works
 
 在服务端，这些能力通过 `/workspaces*` 接口暴露。workspace 切换是请求级行为，通过 `LIGHTRAG-WORKSPACE` 请求头指定，而不是修改服务器全局状态。
 
+guest/免登录会话创建 workspace 采用显式开关控制：仅当 `ALLOW_GUEST_WORKSPACE_CREATE=true` 时，`guest` 会话才可创建 workspace。guest 创建的 workspace 会记录为 `created_by='guest'` 且 `owners=['guest']`。
+
 对于已有 legacy 数据，建议显式导入到受管 registry：
 
 ```bash

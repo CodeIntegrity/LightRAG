@@ -409,6 +409,7 @@ WebUI 仅支持查询时（query-time）的 `prompt_overrides`，不支持修改
 - 激活新的 `indexing` 版本不会自动重写已有图谱数据
 
 `/health` 现在还会暴露 `configuration.active_prompt_versions`，客户端可据此显示当前激活的 indexing / retrieval 版本摘要。
+`/health` 同时会返回 `capabilities.workspace_create`，用于表示当前会话是否可以立即创建 workspace。
 
 ### Workspace 管理接口
 
@@ -427,6 +428,9 @@ WebUI 仅支持查询时（query-time）的 `prompt_overrides`，不支持修改
 
 - workspace 切换是请求级行为，不会修改服务器全局默认 workspace。客户端通过 `LIGHTRAG-WORKSPACE` 请求头指定当前工作区。
 - 未注册的 workspace 默认会被拒绝，而不是随请求流量自动创建。
+- guest/免登录会话创建 workspace 采用显式开关控制，由 `ALLOW_GUEST_WORKSPACE_CREATE=true` 启用。
+- 仅当 `ALLOW_GUEST_WORKSPACE_CREATE=true` 时，`POST /workspaces` 才允许 guest 会话创建；guest 创建记录会写入 `created_by='guest'` 和 `owners=['guest']`。
+- 该开关只影响 workspace 创建能力，不会放大 `hard-delete` 等高风险 admin-only 操作权限。
 - `soft-delete` 只会把 workspace 从常规选择器中隐藏，底层数据仍然保留。
 - `hard-delete` 是异步操作，接口返回 `202 Accepted`；客户端应轮询 `/workspaces/{workspace}/operation` 查看进度。
 - `GET /workspaces/{workspace}/stats` 采用 best-effort 返回，并通过 `capabilities` 字段解释为什么某些统计值可能为 `null`。

@@ -409,6 +409,7 @@ Important semantics:
 - activating a new `indexing` version does not rewrite existing graph data
 
 `/health` now also exposes `configuration.active_prompt_versions`, which clients can use to show the current active indexing/retrieval version summary.
+`/health` also includes `capabilities.workspace_create`, which indicates whether the current session can create workspaces right now.
 
 ### Workspace Management APIs
 
@@ -427,6 +428,9 @@ Important semantics:
 
 - Workspace switching is request-scoped, not server-global. Clients select the active workspace by sending the `LIGHTRAG-WORKSPACE` header.
 - Unknown workspaces are rejected by default instead of being created from request traffic.
+- Guest/login-free workspace creation is opt-in and controlled by `ALLOW_GUEST_WORKSPACE_CREATE=true`.
+- `POST /workspaces` accepts `guest` sessions only when `ALLOW_GUEST_WORKSPACE_CREATE=true`; guest-created records are stored as `created_by='guest'` and `owners=['guest']`.
+- The guest-create toggle affects only workspace creation and does not widen dangerous admin-only operations such as `hard-delete`.
 - `soft-delete` hides a workspace from the normal selector but keeps the underlying data.
 - `hard-delete` is asynchronous and returns `202 Accepted`; clients should poll `/workspaces/{workspace}/operation` for progress.
 - `GET /workspaces/{workspace}/stats` is best-effort and includes a `capabilities` object explaining why some fields may be `null`.
