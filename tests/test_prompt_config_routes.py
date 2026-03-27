@@ -35,7 +35,13 @@ class _DummyOllamaAPI:
         self.router = APIRouter()
 
 
-def _build_test_client(monkeypatch, tmp_path):
+def _build_token(username: str, role: str) -> str:
+    from lightrag.api.auth import auth_handler
+
+    return auth_handler.create_token(username, role=role)
+
+
+def _build_test_client(monkeypatch, tmp_path, *, allow_guest_workspace_create: bool = False):
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
 
     from lightrag.api import config as api_config
@@ -80,6 +86,7 @@ def _build_test_client(monkeypatch, tmp_path):
 
     args = api_config.parse_args()
     args.workspace_registry_path = str(tmp_path / "workspaces" / "registry.sqlite3")
+    args.allow_guest_workspace_create = allow_guest_workspace_create
     app = lightrag_server.create_app(args)
     return TestClient(app)
 
@@ -202,3 +209,60 @@ def test_workspace_stats_route_is_mounted_on_application(test_client):
     assert "document_count" in body
     assert "prompt_version_count" in body
     assert "capabilities" in body
+
+
+def test_health_exposes_workspace_create_capability_for_guest_when_enabled(
+    monkeypatch, tmp_path
+):
+    with _build_test_client(
+        monkeypatch, tmp_path, allow_guest_workspace_create=True
+    ) as client:
+        response = client.get(
+            "/health",
+            headers={"Authorization": f"Bearer {_build_token('guest', 'guest')}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["capabilities"]["workspace_create"] is True
+
+
+def test_health_exposes_workspace_create_capability_for_guest_when_disabled(
+    monkeypatch, tmp_path
+):
+    with _build_test_client(
+        monkeypatch, tmp_path, allow_guest_workspace_create=False
+    ) as client:
+        response = client.get(
+            "/health",
+            headers={"Authorization": f"Bearer {_build_token('guest', 'guest')}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["capabilities"]["workspace_create"] is False
+
+
+def test_health_exposes_workspace_create_capability_for_logged_in_user(
+    monkeypatch, tmp_path
+):
+    with _build_test_client(
+        monkeypatch, tmp_path, allow_guest_workspace_create=False
+    ) as client:
+        response = client.get(
+            "/health",
+            headers={"Authorization": f"Bearer {_build_token('alice', 'user')}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["capabilities"]["workspace_create"] is True
+
+
+def test_health_exposes_workspace_create_capability_as_false_without_authorization(
+    monkeypatch, tmp_path
+):
+    with _build_test_client(
+        monkeypatch, tmp_path, allow_guest_workspace_create=True
+    ) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["capabilities"]["workspace_create"] is False

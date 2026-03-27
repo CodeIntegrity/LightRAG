@@ -171,6 +171,25 @@ def test_create_workspace_as_guest_sets_creator_and_owner_when_enabled(
     assert stored["owners"] == ["guest"]
 
 
+def test_create_workspace_without_authorization_header_returns_403_even_when_guest_create_enabled(
+    workspace_app_factory,
+):
+    client, _, _ = workspace_app_factory(allow_guest_create=True)
+
+    response = client.post(
+        "/workspaces",
+        json={
+            "workspace": "guest_books",
+            "display_name": "Guest Books",
+            "description": "guest workspace",
+            "visibility": "private",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Workspace creation is not allowed for this session"
+
+
 def test_hard_delete_requires_admin_and_returns_accepted(workspace_app):
     client, store, scheduler = workspace_app
 

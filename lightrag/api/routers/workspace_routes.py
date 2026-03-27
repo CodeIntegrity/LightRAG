@@ -105,7 +105,11 @@ def create_workspace_routes(
     def _require_workspace_creator(identity: dict[str, str | None]) -> str:
         if identity["role"] in {"user", "admin"} and identity["username"]:
             return identity["username"]
-        if identity["role"] == "guest" and allow_guest_create:
+        if (
+            identity["role"] == "guest"
+            and identity["username"]
+            and allow_guest_create
+        ):
             return "guest"
         raise HTTPException(
             status_code=403,

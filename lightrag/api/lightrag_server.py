@@ -746,6 +746,28 @@ def create_app(args):
             workspace = default_workspace
         return workspace or ""
 
+    def _workspace_create_capability_for_request(request: Request) -> bool:
+        authorization = request.headers.get("Authorization", "").strip()
+        if not authorization or not authorization.startswith("Bearer "):
+            return False
+
+        token = authorization.removeprefix("Bearer ").strip()
+        if not token:
+            return False
+
+        try:
+            token_info = auth_handler.validate_token(token)
+        except Exception:
+            return False
+
+        role = token_info.get("role", "user")
+        username = token_info.get("username")
+        if role in {"user", "admin"} and username:
+            return True
+        return bool(
+            role == "guest" and username and args.allow_guest_workspace_create
+        )
+
     # Create working directory if it doesn't exist
     Path(args.working_dir).mkdir(parents=True, exist_ok=True)
 
@@ -1386,6 +1408,7 @@ def create_app(args):
             workspace_initializer=initialize_workspace_assets,
             stats_provider=get_workspace_stats,
             api_key=api_key,
+            allow_guest_create=args.allow_guest_workspace_create,
         )
     )
     app.include_router(create_graph_routes(rag_proxy, api_key))
@@ -1607,6 +1630,9 @@ def create_app(args):
                     "active_prompt_versions": active_prompt_versions,
                 },
                 "auth_mode": auth_mode,
+                "capabilities": {
+                    "workspace_create": _workspace_create_capability_for_request(request),
+                },
                 "pipeline_busy": pipeline_status.get("busy", False),
                 "keyed_locks": keyed_lock_info,
                 "core_version": core_version,
