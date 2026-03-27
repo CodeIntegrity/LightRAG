@@ -30,6 +30,7 @@ def auth_module(monkeypatch):
         token_expire_hours=48,
         guest_token_expire_hours=24,
         auth_accounts="admin:admin_pass",
+        auth_admin_users="admin,root",
     )
 
     monkeypatch.setattr(config, "global_args", mock_global_args)
@@ -106,3 +107,20 @@ def test_hash_password_cli_outputs_auth_accounts_entry(capsys):
     assert hashed.startswith(BCRYPT_PASSWORD_PREFIX)
     raw_hash = hashed[len(BCRYPT_PASSWORD_PREFIX) :]
     assert bcrypt.checkpw("secret".encode("utf-8"), raw_hash.encode("utf-8"))
+
+
+def test_resolve_role_returns_admin_for_configured_user(auth_module):
+    handler = auth_module.AuthHandler()
+
+    assert handler.resolve_role("admin") == "admin"
+    assert handler.resolve_role("regular_user") == "user"
+
+
+def test_create_token_preserves_resolved_admin_role(auth_module):
+    handler = auth_module.AuthHandler()
+
+    token = handler.create_token("admin", role=handler.resolve_role("admin"))
+    payload = handler.validate_token(token)
+
+    assert payload["username"] == "admin"
+    assert payload["role"] == "admin"

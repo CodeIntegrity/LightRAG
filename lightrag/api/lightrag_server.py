@@ -11,6 +11,7 @@ from fastapi.openapi.docs import (
 )
 import os
 import re
+import shutil
 import logging
 import logging.config
 import sys
@@ -39,6 +40,7 @@ from lightrag import LightRAG, __version__ as core_version
 from lightrag.api import __api_version__
 from lightrag.types import GPTKeywordExtractionFormat
 from lightrag.utils import EmbeddingFunc
+from lightrag.prompt_version_store import PromptVersionStore
 from lightrag.constants import (
     DEFAULT_LOG_MAX_BYTES,
     DEFAULT_LOG_BACKUP_COUNT,
@@ -51,9 +53,19 @@ from lightrag.api.routers.document_routes import (
     create_document_routes,
 )
 from lightrag.api.routers.prompt_config_routes import create_prompt_config_routes
+from lightrag.api.routers.workspace_routes import create_workspace_routes
 from lightrag.api.routers.query_routes import create_query_routes
 from lightrag.api.routers.graph_routes import create_graph_routes
 from lightrag.api.routers.ollama_api import OllamaAPI
+from lightrag.api.workspace_registry import WorkspaceRegistryStore
+from lightrag.api.workspace_runtime import (
+    WorkspaceRuntimeBundle,
+    WorkspaceRuntimeManager,
+    WorkspaceRuntimeProxy,
+    WorkspaceStateError,
+    bind_current_runtime,
+    reset_current_runtime,
+)
 
 from lightrag.utils import logger, set_verbose_debug
 from lightrag.kg.shared_storage import (
@@ -347,6 +359,205 @@ def create_app(args):
 
     # Initialize document manager with workspace support for data isolation
     doc_manager = DocumentManager(args.input_dir, workspace=args.workspace)
+    workspace_registry = WorkspaceRegistryStore(
+        args.workspace_registry_path,
+        busy_timeout_ms=args.workspace_registry_busy_timeout_ms,
+    )
+
+    async def initialize_workspace_assets(workspace: str) -> None:
+        DocumentManager(args.input_dir, workspace=workspace)
+        PromptVersionStore(args.working_dir, workspace=workspace).initialize(locale="zh")
+
+    async def build_runtime_bundle(workspace: str) -> WorkspaceRuntimeBundle:
+        if workspace == args.workspace:
+            return WorkspaceRuntimeBundle(
+                workspace=workspace,
+                rag=rag,
+                doc_manager=doc_manager,
+            )
+
+        runtime_doc_manager = DocumentManager(args.input_dir, workspace=workspace)
+        runtime_rag = LightRAG(
+            working_dir=args.working_dir,
+            workspace=workspace,
+            llm_model_func=create_llm_model_func(args.llm_binding),
+            llm_model_name=args.llm_model,
+            llm_model_max_async=args.max_async,
+            summary_max_tokens=args.summary_max_tokens,
+            summary_context_size=args.summary_context_size,
+            chunk_token_size=int(args.chunk_size),
+            chunk_overlap_token_size=int(args.chunk_overlap_size),
+            llm_model_kwargs=create_llm_model_kwargs(
+                args.llm_binding, args, llm_timeout
+            ),
+            embedding_func=embedding_func,
+            default_llm_timeout=llm_timeout,
+            default_embedding_timeout=embedding_timeout,
+            kv_storage=args.kv_storage,
+            graph_storage=args.graph_storage,
+            vector_storage=args.vector_storage,
+            doc_status_storage=args.doc_status_storage,
+            vector_db_storage_cls_kwargs={
+                "cosine_better_than_threshold": args.cosine_threshold
+            },
+            enable_llm_cache_for_entity_extract=args.enable_llm_cache_for_extract,
+            enable_llm_cache=args.enable_llm_cache,
+            rerank_model_func=rerank_model_func,
+            max_parallel_insert=args.max_parallel_insert,
+            max_graph_nodes=args.max_graph_nodes,
+            addon_params={
+                "language": args.summary_language,
+                "entity_types": args.entity_types,
+            },
+            ollama_server_infos=ollama_server_infos,
+        )
+        await runtime_rag.initialize_storages()
+        await runtime_rag.check_and_migrate_data()
+        return WorkspaceRuntimeBundle(
+            workspace=workspace,
+            rag=runtime_rag,
+            doc_manager=runtime_doc_manager,
+        )
+
+    async def close_runtime_bundle(bundle: WorkspaceRuntimeBundle) -> None:
+        if bundle.rag is rag:
+            return
+        await bundle.rag.finalize_storages()
+
+    runtime_manager = WorkspaceRuntimeManager(
+        build_runtime_bundle,
+        close_bundle=close_runtime_bundle,
+        max_cached_workspaces=args.max_cached_workspaces,
+        idle_ttl_seconds=args.workspace_runtime_idle_ttl,
+    )
+
+    rag_proxy = WorkspaceRuntimeProxy(lambda bundle: bundle.rag)
+    doc_manager_proxy = WorkspaceRuntimeProxy(lambda bundle: bundle.doc_manager)
+
+    def should_bind_runtime(path: str) -> bool:
+        runtime_prefixes = (
+            "/documents",
+            "/query",
+            "/graph",
+            "/graphs",
+            "/api",
+        )
+        return any(path.startswith(prefix) for prefix in runtime_prefixes)
+
+    async def delete_workspace_data(workspace: str, requested_by: str) -> None:
+        delete_bundle: WorkspaceRuntimeBundle | None = None
+        delete_timeout = args.workspace_drain_timeout
+        try:
+            await runtime_manager.mark_workspace_draining(workspace)
+            drained = await runtime_manager.wait_for_drain(
+                workspace, timeout_seconds=delete_timeout
+            )
+            if not drained:
+                await workspace_registry.fail_hard_delete(
+                    workspace, "WORKSPACE_DRAIN_TIMEOUT"
+                )
+                await runtime_manager.mark_workspace_ready(workspace)
+                return
+
+            delete_bundle = await build_runtime_bundle(workspace)
+
+            storages = [
+                delete_bundle.rag.text_chunks,
+                delete_bundle.rag.full_docs,
+                delete_bundle.rag.full_entities,
+                delete_bundle.rag.full_relations,
+                delete_bundle.rag.entity_chunks,
+                delete_bundle.rag.relation_chunks,
+                delete_bundle.rag.entities_vdb,
+                delete_bundle.rag.relationships_vdb,
+                delete_bundle.rag.chunks_vdb,
+                delete_bundle.rag.chunk_entity_relation_graph,
+                delete_bundle.rag.doc_status,
+            ]
+            for storage in storages:
+                if storage is not None:
+                    await storage.drop()
+            await workspace_registry.update_hard_delete_progress(
+                workspace, {"storages": "done"}
+            )
+
+            shutil.rmtree(delete_bundle.doc_manager.input_dir, ignore_errors=True)
+            await workspace_registry.update_hard_delete_progress(
+                workspace, {"storages": "done", "input_dir": "done"}
+            )
+
+            prompt_dir = Path(args.working_dir) / workspace / "prompt_versions"
+            shutil.rmtree(prompt_dir, ignore_errors=True)
+            await workspace_registry.update_hard_delete_progress(
+                workspace,
+                {
+                    "storages": "done",
+                    "input_dir": "done",
+                    "prompt_versions": "done",
+                },
+            )
+
+            try:
+                await runtime_manager.evict_runtime(workspace)
+            except WorkspaceStateError:
+                pass
+
+            await workspace_registry.complete_hard_delete(workspace)
+            await runtime_manager.mark_workspace_ready(workspace)
+        except Exception as exc:
+            logger.error(f"Error hard deleting workspace '{workspace}': {exc}")
+            await workspace_registry.fail_hard_delete(workspace, str(exc))
+            await runtime_manager.mark_workspace_ready(workspace)
+        finally:
+            if delete_bundle is not None:
+                await delete_bundle.rag.finalize_storages()
+
+    async def get_workspace_stats(workspace: str) -> dict[str, object]:
+        prompt_store = PromptVersionStore(args.working_dir, workspace=workspace)
+        prompt_version_count = 0
+        for group_type in ("indexing", "retrieval"):
+            try:
+                prompt_version_count += len(
+                    prompt_store.list_versions(group_type).get("versions", [])
+                )
+            except Exception:
+                pass
+
+        document_count: int | None = None
+        document_capability = "unsupported_by_backend"
+
+        try:
+            bundle = await runtime_manager.acquire_runtime(workspace)
+        except WorkspaceStateError:
+            bundle = None
+
+        if bundle is not None:
+            try:
+                status_counts = await bundle.rag.doc_status.get_all_status_counts()
+                document_count = int(status_counts.get("all", 0))
+                document_capability = "available"
+            except Exception:
+                document_count = None
+                document_capability = "unsupported_by_backend"
+            finally:
+                await runtime_manager.release_runtime(workspace)
+
+        return {
+            "document_count": document_count,
+            "entity_count": None,
+            "relation_count": None,
+            "chunk_count": None,
+            "storage_size_bytes": None,
+            "prompt_version_count": prompt_version_count,
+            "capabilities": {
+                "document_count": document_capability,
+                "entity_count": "unsupported_by_backend",
+                "relation_count": "unsupported_by_backend",
+                "chunk_count": "unsupported_by_backend",
+                "storage_size_bytes": "unsupported_by_backend",
+                "prompt_version_count": "available",
+            },
+        }
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -355,6 +566,7 @@ def create_app(args):
         app.state.background_tasks = set()
 
         try:
+            await workspace_registry.initialize(default_workspace=args.workspace)
             # Initialize database connections
             # Note: initialize_storages() now auto-initializes pipeline_status for rag.workspace
             await rag.initialize_storages()
@@ -407,6 +619,42 @@ def create_app(args):
     }
 
     app = FastAPI(**app_kwargs)
+
+    @app.middleware("http")
+    async def workspace_runtime_binding(request: Request, call_next):
+        if not should_bind_runtime(request.url.path):
+            return await call_next(request)
+
+        workspace = resolve_request_workspace(request)
+        try:
+            workspace_record = await workspace_registry.get_workspace(workspace)
+        except Exception:
+            return JSONResponse(
+                status_code=404,
+                content={"detail": f"Workspace '{workspace}' is not registered"},
+            )
+
+        if workspace_record["status"] != "ready":
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": f"Workspace '{workspace}' is not ready (status={workspace_record['status']})"
+                },
+            )
+
+        try:
+            bundle = await runtime_manager.acquire_runtime(workspace)
+        except WorkspaceStateError as exc:
+            return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+        tokens = bind_current_runtime(bundle)
+        request.state.workspace_runtime = bundle
+        try:
+            response = await call_next(request)
+        finally:
+            reset_current_runtime(tokens)
+            await runtime_manager.release_runtime(workspace)
+        return response
 
     # Add custom validation error handler for /query/data endpoint
     @app.exception_handler(RequestValidationError)
@@ -490,6 +738,13 @@ def create_app(args):
                 workspace = sanitized
 
         return workspace
+
+    def resolve_request_workspace(request: Request) -> str:
+        workspace = get_workspace_from_request(request)
+        default_workspace = get_default_workspace()
+        if workspace is None:
+            workspace = default_workspace
+        return workspace or ""
 
     # Create working directory if it doesn't exist
     Path(args.working_dir).mkdir(parents=True, exist_ok=True)
@@ -1104,24 +1359,40 @@ def create_app(args):
     # Add routes
     app.include_router(
         create_document_routes(
-            rag,
-            doc_manager,
+            rag_proxy,
+            doc_manager_proxy,
             api_key,
         )
     )
     app.include_router(
         create_query_routes(
-            rag,
+            rag_proxy,
             api_key,
             args.top_k,
             args.allow_prompt_overrides_via_api,
         )
     )
-    app.include_router(create_prompt_config_routes(rag, api_key))
-    app.include_router(create_graph_routes(rag, api_key))
+    app.include_router(
+        create_prompt_config_routes(
+            rag,
+            api_key,
+            workspace_resolver=resolve_request_workspace,
+        )
+    )
+    app.include_router(
+        create_workspace_routes(
+            registry_store=workspace_registry,
+            delete_scheduler=delete_workspace_data,
+            workspace_initializer=initialize_workspace_assets,
+            stats_provider=get_workspace_stats,
+            api_key=api_key,
+        )
+    )
+    app.include_router(create_graph_routes(rag_proxy, api_key))
 
     # Add Ollama API routes
     ollama_api = OllamaAPI(rag, top_k=args.top_k, api_key=api_key)
+    ollama_api.rag = rag_proxy
     app.include_router(ollama_api.router, prefix="/api")
 
     # Custom Swagger UI endpoint for offline support
@@ -1203,8 +1474,9 @@ def create_app(args):
             raise HTTPException(status_code=401, detail="Incorrect credentials")
 
         # Regular user login
+        resolved_role = auth_handler.resolve_role(username)
         user_token = auth_handler.create_token(
-            username=username, role="user", metadata={"auth_mode": "enabled"}
+            username=username, role=resolved_role, metadata={"auth_mode": "enabled"}
         )
         return {
             "access_token": user_token,
@@ -1253,10 +1525,7 @@ def create_app(args):
     async def get_status(request: Request):
         """Get current system status including WebUI availability"""
         try:
-            workspace = get_workspace_from_request(request)
-            default_workspace = get_default_workspace()
-            if workspace is None:
-                workspace = default_workspace
+            workspace = resolve_request_workspace(request)
             pipeline_status = await get_namespace_data(
                 "pipeline_status", workspace=workspace
             )
@@ -1278,13 +1547,14 @@ def create_app(args):
                     "active_version_name": None,
                 },
             }
-            if hasattr(rag, "prompt_version_store"):
+            prompt_version_store = PromptVersionStore(args.working_dir, workspace=workspace)
+            if prompt_version_store is not None:
                 for group_type in ("indexing", "retrieval"):
-                    group_registry = rag.prompt_version_store.list_versions(group_type)
+                    group_registry = prompt_version_store.list_versions(group_type)
                     active_version_id = group_registry.get("active_version_id")
                     if not active_version_id:
                         continue
-                    active_version = rag.prompt_version_store.get_version(
+                    active_version = prompt_version_store.get_version(
                         group_type, active_version_id
                     )
                     active_prompt_versions[group_type] = {
@@ -1314,7 +1584,7 @@ def create_app(args):
                     "vector_storage": args.vector_storage,
                     "enable_llm_cache_for_extract": args.enable_llm_cache_for_extract,
                     "enable_llm_cache": args.enable_llm_cache,
-                    "workspace": default_workspace,
+                    "workspace": workspace,
                     "max_graph_nodes": args.max_graph_nodes,
                     # Rerank configuration
                     "enable_rerank": rerank_model_func is not None,

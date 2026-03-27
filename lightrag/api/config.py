@@ -395,6 +395,7 @@ def parse_args() -> argparse.Namespace:
 
     # For JWT Auth
     args.auth_accounts = get_env_value("AUTH_ACCOUNTS", "")
+    args.auth_admin_users = get_env_value("AUTH_ADMIN_USERS", "")
     args.token_secret = get_env_value(
         "TOKEN_SECRET", "lightrag-jwt-default-secret-key!"
     )
@@ -462,6 +463,26 @@ def parse_args() -> argparse.Namespace:
         "MAX_UPLOAD_SIZE", 104857600, int, special_none=True
     )
 
+    # Workspace management configuration
+    args.workspace_registry_path = get_env_value(
+        "LIGHTRAG_WORKSPACE_REGISTRY_PATH", "./workspaces/registry.sqlite3"
+    )
+    args.workspace_registry_busy_timeout_ms = get_env_value(
+        "LIGHTRAG_WORKSPACE_REGISTRY_BUSY_TIMEOUT_MS", 5000, int
+    )
+    args.max_cached_workspaces = get_env_value(
+        "LIGHTRAG_MAX_CACHED_WORKSPACES", 10, int
+    )
+    args.workspace_runtime_idle_ttl = get_env_value(
+        "LIGHTRAG_WORKSPACE_RUNTIME_IDLE_TTL", 3600, int
+    )
+    args.workspace_drain_timeout = get_env_value(
+        "LIGHTRAG_WORKSPACE_DRAIN_TIMEOUT", 30, int
+    )
+    args.hard_delete_executor_workers = get_env_value(
+        "LIGHTRAG_HARD_DELETE_EXECUTOR_WORKERS", 2, int
+    )
+
     ollama_server_infos.LIGHTRAG_NAME = args.simulated_model_name
     ollama_server_infos.LIGHTRAG_TAG = args.simulated_model_tag
 
@@ -475,6 +496,9 @@ def parse_args() -> argparse.Namespace:
                 "Only alphanumeric characters and underscores are allowed."
             )
             args.workspace = sanitized
+
+    if args.workspace_registry_path:
+        args.workspace_registry_path = os.path.abspath(args.workspace_registry_path)
 
     return args
 

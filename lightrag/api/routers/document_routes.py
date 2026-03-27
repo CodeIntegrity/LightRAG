@@ -29,6 +29,7 @@ from lightrag.utils import (
     sanitize_text_for_encoding,
 )
 from lightrag.api.utils_api import get_combined_auth_dependency
+from lightrag.api.workspace_runtime import get_current_runtime
 from ..config import global_args
 
 
@@ -2248,6 +2249,12 @@ def create_document_routes(
     # Create combined auth dependency for document routes
     combined_auth = get_combined_auth_dependency(api_key)
 
+    def _current_runtime_objects() -> tuple[LightRAG, DocumentManager]:
+        runtime = get_current_runtime()
+        if runtime is None:
+            return rag, doc_manager
+        return runtime.rag, runtime.doc_manager
+
     @router.post(
         "/rebuild_from_indexing_version",
         response_model=RebuildDocumentsResponse,
@@ -2282,10 +2289,11 @@ def create_document_routes(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
         track_id = generate_track_id("rebuild")
+        current_rag, current_doc_manager = _current_runtime_objects()
         background_tasks.add_task(
             background_rebuild_documents_from_indexing_version,
-            rag,
-            doc_manager,
+            current_rag,
+            current_doc_manager,
             request.version_id,
             track_id,
         )
@@ -2311,9 +2319,12 @@ def create_document_routes(
         """
         # Generate track_id with "scan" prefix for scanning operation
         track_id = generate_track_id("scan")
+        current_rag, current_doc_manager = _current_runtime_objects()
 
         # Start the scanning process in the background with track_id
-        background_tasks.add_task(run_scanning_process, rag, doc_manager, track_id)
+        background_tasks.add_task(
+            run_scanning_process, current_rag, current_doc_manager, track_id
+        )
         return ScanResponse(
             status="scanning_started",
             message="Scanning process has been initiated in the background",
@@ -2470,9 +2481,12 @@ def create_document_routes(
                 )
 
             track_id = generate_track_id("upload")
+            current_rag, _ = _current_runtime_objects()
 
             # Add to background tasks and get track_id
-            background_tasks.add_task(pipeline_index_file, rag, file_path, track_id)
+            background_tasks.add_task(
+                pipeline_index_file, current_rag, file_path, track_id
+            )
 
             return InsertResponse(
                 status="success",
@@ -2547,10 +2561,11 @@ def create_document_routes(
 
             # Generate track_id for text insertion
             track_id = generate_track_id("insert")
+            current_rag, _ = _current_runtime_objects()
 
             background_tasks.add_task(
                 pipeline_index_texts,
-                rag,
+                current_rag,
                 [request.text],
                 file_sources=[request.file_source],
                 track_id=track_id,
@@ -2630,10 +2645,11 @@ def create_document_routes(
 
             # Generate track_id for texts insertion
             track_id = generate_track_id("insert")
+            current_rag, _ = _current_runtime_objects()
 
             background_tasks.add_task(
                 pipeline_index_texts,
-                rag,
+                current_rag,
                 request.texts,
                 file_sources=request.file_sources,
                 track_id=track_id,
@@ -3112,10 +3128,11 @@ def create_document_routes(
                     )
 
             # Add deletion task to background tasks
+            current_rag, current_doc_manager = _current_runtime_objects()
             background_tasks.add_task(
                 background_delete_documents,
-                rag,
-                doc_manager,
+                current_rag,
+                current_doc_manager,
                 doc_ids,
                 delete_request.delete_file,
                 delete_request.delete_llm_cache,
@@ -3461,7 +3478,9 @@ def create_document_routes(
         try:
             # Start the reprocessing in the background
             # Note: Reprocessed documents retain their original track_id from initial upload
-            background_tasks.add_task(rag.apipeline_process_enqueue_documents)
+            runtime = get_current_runtime()
+            current_rag = runtime.rag if runtime is not None else rag
+            background_tasks.add_task(current_rag.apipeline_process_enqueue_documents)
             logger.info("Reprocessing of failed documents initiated")
 
             return ReprocessResponse(

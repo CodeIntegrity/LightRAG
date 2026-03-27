@@ -14,6 +14,8 @@ pytestmark = pytest.mark.offline
 class _DummyRAG:
     def __init__(self, *args, **kwargs):
         self.ollama_server_infos = kwargs.get("ollama_server_infos")
+        self.working_dir = kwargs["working_dir"]
+        self.workspace = kwargs.get("workspace", "")
         self.prompt_version_store = PromptVersionStore(
             kwargs["working_dir"], workspace=kwargs.get("workspace", "")
         )
@@ -33,7 +35,7 @@ class _DummyOllamaAPI:
         self.router = APIRouter()
 
 
-def _build_test_client(monkeypatch):
+def _build_test_client(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
 
     from lightrag.api import config as api_config
@@ -77,13 +79,15 @@ def _build_test_client(monkeypatch):
     monkeypatch.setattr(lightrag_server, "get_namespace_data", _fake_get_namespace_data)
 
     args = api_config.parse_args()
+    args.workspace_registry_path = str(tmp_path / "workspaces" / "registry.sqlite3")
     app = lightrag_server.create_app(args)
     return TestClient(app)
 
 
 @pytest.fixture
-def test_client(monkeypatch):
-    return _build_test_client(monkeypatch)
+def test_client(monkeypatch, tmp_path):
+    with _build_test_client(monkeypatch, tmp_path) as client:
+        yield client
 
 
 def test_initialize_prompt_config_creates_seed_versions(test_client):
@@ -153,3 +157,48 @@ def test_health_exposes_active_prompt_version_summary(test_client):
         "active_version_id": active_id,
         "active_version_name": active_name,
     }
+
+
+def test_health_reports_request_workspace_instead_of_default(test_client):
+    response = test_client.get("/health", headers={"LIGHTRAG-WORKSPACE": "alt_ws"})
+
+    assert response.status_code == 200
+    assert response.json()["configuration"]["workspace"] == "alt_ws"
+
+
+def test_prompt_config_routes_are_scoped_by_workspace_header(test_client):
+    seeded_ws1 = test_client.post(
+        "/prompt-config/initialize", headers={"LIGHTRAG-WORKSPACE": "ws1"}
+    )
+    ws1_groups = test_client.get(
+        "/prompt-config/groups", headers={"LIGHTRAG-WORKSPACE": "ws1"}
+    )
+    ws2_groups = test_client.get(
+        "/prompt-config/groups", headers={"LIGHTRAG-WORKSPACE": "ws2"}
+    )
+
+    assert seeded_ws1.status_code == 200
+    assert ws1_groups.status_code == 200
+    assert ws2_groups.status_code == 200
+    assert ws1_groups.json()["retrieval"]["versions"]
+    assert ws2_groups.json()["retrieval"]["versions"] == []
+
+
+def test_workspace_routes_are_mounted_on_application(test_client):
+    response = test_client.get("/workspaces")
+
+    assert response.status_code == 200
+    assert "workspaces" in response.json()
+
+
+def test_workspace_stats_route_is_mounted_on_application(test_client):
+    workspaces = test_client.get("/workspaces").json()["workspaces"]
+    workspace = workspaces[0]["workspace"]
+    workspace_path = workspace if workspace else "default"
+    response = test_client.get(f"/workspaces/{workspace_path}/stats")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "document_count" in body
+    assert "prompt_version_count" in body
+    assert "capabilities" in body

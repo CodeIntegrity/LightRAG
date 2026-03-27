@@ -32,6 +32,11 @@ class AuthHandler:
         self.algorithm = global_args.jwt_algorithm
         self.expire_hours = global_args.token_expire_hours
         self.guest_expire_hours = global_args.guest_token_expire_hours
+        self.admin_users = {
+            item.strip()
+            for item in getattr(global_args, "auth_admin_users", "").split(",")
+            if item.strip()
+        }
         self.accounts = {}
         auth_accounts = global_args.auth_accounts
         invalid_accounts = []
@@ -103,7 +108,11 @@ class AuthHandler:
             sub=username, exp=expire, role=role, metadata=metadata or {}
         )
 
-        return jwt.encode(payload.dict(), self.secret, algorithm=self.algorithm)
+        return jwt.encode(payload.model_dump(), self.secret, algorithm=self.algorithm)
+
+    def resolve_role(self, username: str) -> str:
+        """Resolve the JWT role for an authenticated user."""
+        return "admin" if username in self.admin_users else "user"
 
     def validate_token(self, token: str) -> dict:
         """
