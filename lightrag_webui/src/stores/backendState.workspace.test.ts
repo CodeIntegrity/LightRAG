@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
+Object.defineProperty(globalThis, 'localStorage', {
+  value: {
+    getItem: () => null,
+    setItem: () => undefined,
+    removeItem: () => undefined,
+  },
+  configurable: true
+})
+
 vi.mock('@/api/lightrag', async () => {
   return {
     checkHealth: vi.fn(),
@@ -41,7 +50,7 @@ describe('backend workspace create capability', () => {
     capabilities: {
       workspace_create: true,
     },
-    pipeline_busy: false,
+    pipeline_busy: true,
   }
 
   afterEach(async () => {
@@ -81,6 +90,7 @@ describe('backend workspace create capability', () => {
 
     expect(useBackendState.getState().workspaceCreateAllowed).toBe(false)
     expect(useBackendState.getState().status).toBeNull()
+    expect(useBackendState.getState().pipelineBusy).toBe(false)
   })
 
   test('setErrorMessage clears stale status and workspace create capability', async () => {
@@ -94,6 +104,7 @@ describe('backend workspace create capability', () => {
 
     expect(useBackendState.getState().workspaceCreateAllowed).toBe(false)
     expect(useBackendState.getState().status).toBeNull()
+    expect(useBackendState.getState().pipelineBusy).toBe(false)
   })
 
   test('check error response clears stale status and workspace create capability', async () => {
@@ -111,5 +122,6 @@ describe('backend workspace create capability', () => {
     expect(ok).toBe(false)
     expect(useBackendState.getState().workspaceCreateAllowed).toBe(false)
     expect(useBackendState.getState().status).toBeNull()
+    expect(useBackendState.getState().pipelineBusy).toBe(false)
   })
 })

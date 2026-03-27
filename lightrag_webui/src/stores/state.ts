@@ -126,7 +126,8 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
       status: null,
       workspaceCreateAllowed: false,
       allowPromptOverridesViaApi: false,
-      activePromptVersions: null
+      activePromptVersions: null,
+      pipelineBusy: false,
     })
     return false
   },
@@ -140,6 +141,7 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
       workspaceCreateAllowed: false,
       allowPromptOverridesViaApi: false,
       activePromptVersions: null,
+      pipelineBusy: false,
     })
   },
 
@@ -152,6 +154,7 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
       workspaceCreateAllowed: false,
       allowPromptOverridesViaApi: false,
       activePromptVersions: null,
+      pipelineBusy: false,
     })
   },
 
