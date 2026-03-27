@@ -55,6 +55,19 @@ describe('workspace api helpers', () => {
     expect(state.retrievalPromptDraft).toBeUndefined()
   })
 
+  test('clearWorkspaceDisplayNames removes cached workspace labels', async () => {
+    const { useSettingsStore } = await import('@/stores/settings')
+
+    useSettingsStore.setState({
+      workspaceDisplayNames: {
+        books: 'Books Library'
+      }
+    })
+
+    useSettingsStore.getState().clearWorkspaceDisplayNames()
+    expect(useSettingsStore.getState().workspaceDisplayNames).toEqual({})
+  })
+
   test('workspaceManager locale keys exist across supported languages', () => {
     const locales = [ar, de, en, fr, ja, ko, ru, uk, vi, zh, zhTW] as Record<string, unknown>[]
     const requiredPaths = [

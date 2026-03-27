@@ -38,6 +38,7 @@ class NavigationService {
     if (!preserveHistory) {
       useSettingsStore.getState().setRetrievalHistory([]);
     }
+    useSettingsStore.getState().clearWorkspaceDisplayNames();
 
     // Clear authentication state
     sessionStorage.clear();

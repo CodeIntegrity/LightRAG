@@ -13,6 +13,7 @@ interface SettingsState {
   setCurrentWorkspace: (workspace: string) => void
   workspaceDisplayNames: Record<string, string>
   setWorkspaceDisplayNames: (displayNames: Record<string, string>) => void
+  clearWorkspaceDisplayNames: () => void
 
   // Document manager settings
   showFileName: boolean
@@ -214,6 +215,10 @@ const useSettingsStoreBase = create<SettingsState>()(
       setWorkspaceDisplayNames: (workspaceDisplayNames: Record<string, string>) =>
         set({
           workspaceDisplayNames
+        }),
+      clearWorkspaceDisplayNames: () =>
+        set({
+          workspaceDisplayNames: {}
         }),
 
       setCurrentTab: (tab: Tab) => set({ currentTab: tab }),
