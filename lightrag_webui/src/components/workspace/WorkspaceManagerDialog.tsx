@@ -210,12 +210,8 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
       await refresh()
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      const statusCode =
-        typeof error === 'object' && error !== null && 'response' in error
-          ? (error as { response?: { status?: number } }).response?.status
-          : undefined
       if (
-        statusCode === 403 &&
+        message.includes('/workspaces') &&
         message.includes('Workspace creation is not allowed for this session')
       ) {
         void useBackendState.getState().check()

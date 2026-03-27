@@ -1,9 +1,31 @@
 import React from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { renderToString } from 'react-dom/server'
+import { toast } from 'sonner'
 
 import en from '@/locales/en.json'
 import { useSettingsStore } from '@/stores/settings'
+
+let autoSubmitWorkspaceCreateForm = false
+
+const triggerWorkspaceCreateSubmit = (node: React.ReactNode): void => {
+  if (!autoSubmitWorkspaceCreateForm || !React.isValidElement(node)) {
+    return
+  }
+
+  if (node.type === 'form' && typeof (node.props as { onSubmit?: unknown }).onSubmit === 'function') {
+    ;((node.props as { onSubmit: (event?: { preventDefault?: () => void }) => void }).onSubmit)({
+      preventDefault: () => undefined
+    })
+    return
+  }
+
+  const props = node.props as { children?: React.ReactNode }
+  const children = React.Children.toArray(props.children)
+  children.forEach((child) => {
+    triggerWorkspaceCreateSubmit(child)
+  })
+}
 
 Object.defineProperty(globalThis, 'localStorage', {
   value: {
@@ -60,7 +82,10 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('@/components/ui/Dialog', () => ({
-  Dialog: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Dialog: ({ children }: { children: React.ReactNode }) => {
+    triggerWorkspaceCreateSubmit(children)
+    return <div>{children}</div>
+  },
   DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -90,6 +115,7 @@ afterEach(async () => {
   useBackendState.setState({
     workspaceCreateAllowed: false
   } as never)
+  autoSubmitWorkspaceCreateForm = false
 })
 
 describe('WorkspaceManagerDialog', () => {
@@ -264,6 +290,43 @@ describe('WorkspaceManagerDialog', () => {
     expect(html).toContain('sm:grid-cols-2 lg:grid-cols-3')
     expect(html).toContain('lg:grid-cols-[minmax(320px,360px)_minmax(0,1fr)]')
     expect(html).not.toContain('xl:grid-cols-[minmax(320px,360px)_minmax(0,1fr)]')
+  })
+
+  test('refreshes backend capability when create is denied by session policy', async () => {
+    const { useBackendState } = await import('@/stores/state')
+    vi.spyOn(useBackendState.use, 'workspaceCreateAllowed').mockReturnValue(true)
+    const checkSpy = vi.spyOn(useBackendState.getState(), 'check').mockResolvedValue(true)
+
+    const api = await import('@/api/lightrag')
+    const createWorkspaceMock = api.createWorkspace as unknown as ReturnType<typeof vi.fn>
+    createWorkspaceMock.mockRejectedValue(
+      new Error('403 Forbidden\n{"detail":"Workspace creation is not allowed for this session"}\n/workspaces')
+    )
+
+    const ReactModule = await import('react')
+    const actualUseState = ReactModule.useState
+    const noop = () => undefined
+
+    vi.spyOn(ReactModule, 'useState')
+      .mockImplementationOnce((() => [[], noop]) as never)
+      .mockImplementationOnce((() => [false, noop]) as never)
+      .mockImplementationOnce((() => ['guest_ws', noop]) as never)
+      .mockImplementationOnce((() => ['Guest WS', noop]) as never)
+      .mockImplementationOnce((() => ['guest workspace', noop]) as never)
+      .mockImplementationOnce((() => ['private', noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementation(actualUseState as never)
+
+    const module = await import('./WorkspaceManagerDialog')
+    autoSubmitWorkspaceCreateForm = true
+    renderToString(<module.default open onOpenChange={() => undefined} />)
+    await Promise.resolve()
+    await Promise.resolve()
+    autoSubmitWorkspaceCreateForm = false
+
+    expect(toast.error).toHaveBeenCalled()
+    expect(checkSpy).toHaveBeenCalledTimes(1)
   })
 
   test('admin-only hard delete action is hidden when no admin token is present', async () => {
