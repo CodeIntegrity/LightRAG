@@ -866,6 +866,8 @@
     "hardDelete": "Hard Delete",
     "defaultWorkspace": "default",
     "guestHint": "Login is required to create or modify workspaces.",
+    "guestCreateHint": "This workspace will be created as guest.",
+    "loginRequiredHint": "Log in to create workspaces.",
     "emptyReady": "No ready workspaces yet.",
     "emptyDeleted": "No deleted or pending workspaces.",
     "softDeleteConfirm": "Soft delete {{workspace}}?",

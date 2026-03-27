@@ -242,6 +242,9 @@ export type LightragStatus = {
   status: 'healthy'
   working_directory: string
   input_directory: string
+  capabilities?: {
+    workspace_create?: boolean
+  }
   configuration: {
     llm_binding: string
     llm_binding_host: string

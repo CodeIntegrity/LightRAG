@@ -10,6 +10,7 @@ interface BackendState {
   message: string | null
   messageTitle: string | null
   status: LightragStatus | null
+  workspaceCreateAllowed: boolean
   allowPromptOverridesViaApi: boolean
   activePromptVersions: Record<PromptConfigGroup, ActivePromptVersionSummary> | null
   lastCheckTime: number
@@ -52,6 +53,7 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
   messageTitle: null,
   lastCheckTime: Date.now(),
   status: null,
+  workspaceCreateAllowed: false,
   allowPromptOverridesViaApi: false,
   activePromptVersions: null,
   pipelineBusy: false,
@@ -103,6 +105,7 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
         messageTitle: null,
         lastCheckTime: Date.now(),
         status: health,
+        workspaceCreateAllowed: health.capabilities?.workspace_create === true,
         allowPromptOverridesViaApi: health.configuration?.allow_prompt_overrides_via_api === true,
         activePromptVersions: health.configuration?.active_prompt_versions || null,
         pipelineBusy: health.pipeline_busy
@@ -121,6 +124,7 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
       messageTitle: 'Backend Health Check Error!',
       lastCheckTime: Date.now(),
       status: null,
+      workspaceCreateAllowed: false,
       allowPromptOverridesViaApi: false,
       activePromptVersions: null
     })
@@ -128,11 +132,25 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
   },
 
   clear: () => {
-    set({ health: true, message: null, messageTitle: null, allowPromptOverridesViaApi: false, activePromptVersions: null })
+    set({
+      health: true,
+      message: null,
+      messageTitle: null,
+      workspaceCreateAllowed: false,
+      allowPromptOverridesViaApi: false,
+      activePromptVersions: null,
+    })
   },
 
   setErrorMessage: (message: string, messageTitle: string) => {
-    set({ health: false, message, messageTitle, allowPromptOverridesViaApi: false, activePromptVersions: null })
+    set({
+      health: false,
+      message,
+      messageTitle,
+      workspaceCreateAllowed: false,
+      allowPromptOverridesViaApi: false,
+      activePromptVersions: null,
+    })
   },
 
   setPipelineBusy: (busy: boolean) => {

@@ -93,4 +93,19 @@ describe('workspace api helpers', () => {
       })
     })
   })
+
+  test('guest workspace create copy exists in primary locales', () => {
+    const getValueAtPath = (obj: Record<string, unknown>, path: string): unknown =>
+      path.split('.').reduce<unknown>((current, segment) => {
+        if (current && typeof current === 'object') {
+          return (current as Record<string, unknown>)[segment]
+        }
+        return undefined
+      }, obj)
+
+    ;[en, zh].forEach((locale) => {
+      expect(getValueAtPath(locale as Record<string, unknown>, 'workspaceManager.guestCreateHint')).toBeTruthy()
+      expect(getValueAtPath(locale as Record<string, unknown>, 'workspaceManager.loginRequiredHint')).toBeTruthy()
+    })
+  })
 })

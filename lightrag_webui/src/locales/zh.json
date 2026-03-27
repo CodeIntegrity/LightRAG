@@ -866,6 +866,8 @@
     "hardDelete": "硬删除",
     "defaultWorkspace": "默认",
     "guestHint": "需要先登录，才能创建或修改工作区。",
+    "guestCreateHint": "当前将以 guest 身份创建工作区。",
+    "loginRequiredHint": "请先登录后再创建工作区。",
     "emptyReady": "当前还没有可用工作区。",
     "emptyDeleted": "当前没有已删除或处理中的工作区。",
     "softDeleteConfirm": "确定软删除 {{workspace}} 吗？",
