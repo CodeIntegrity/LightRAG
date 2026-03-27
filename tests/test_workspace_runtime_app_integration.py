@@ -42,6 +42,12 @@ class _DummyRAG:
     async def get_graph_labels(self):
         return [self.workspace or "default"]
 
+    async def aquery_llm(self, query: str, param=None):
+        return {
+            "llm_response": {"content": f"{self.workspace or 'default'}:{query}"},
+            "data": {"references": []},
+        }
+
 
 class _DummyOllamaAPI:
     def __init__(self, rag, top_k=60, api_key=None):
@@ -56,6 +62,35 @@ def _build_token(username: str, role: str) -> str:
 
 @pytest.fixture
 def graph_test_client(monkeypatch, tmp_path):
+    app = _build_runtime_test_app(
+        monkeypatch,
+        tmp_path,
+        include_query_routes=False,
+        include_graph_routes=True,
+    )
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
+def query_test_client(monkeypatch, tmp_path):
+    app = _build_runtime_test_app(
+        monkeypatch,
+        tmp_path,
+        include_query_routes=True,
+        include_graph_routes=False,
+    )
+    with TestClient(app) as client:
+        yield client
+
+
+def _build_runtime_test_app(
+    monkeypatch,
+    tmp_path,
+    *,
+    include_query_routes: bool,
+    include_graph_routes: bool,
+):
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
 
     from lightrag.api import config as api_config
@@ -66,9 +101,14 @@ def graph_test_client(monkeypatch, tmp_path):
     monkeypatch.setattr(
         lightrag_server, "create_document_routes", lambda *args, **kwargs: APIRouter()
     )
-    monkeypatch.setattr(
-        lightrag_server, "create_query_routes", lambda *args, **kwargs: APIRouter()
-    )
+    if not include_query_routes:
+        monkeypatch.setattr(
+            lightrag_server, "create_query_routes", lambda *args, **kwargs: APIRouter()
+        )
+    if not include_graph_routes:
+        monkeypatch.setattr(
+            lightrag_server, "create_graph_routes", lambda *args, **kwargs: APIRouter()
+        )
     monkeypatch.setattr(lightrag_server, "check_frontend_build", lambda: (False, False))
     monkeypatch.setattr(
         lightrag_server, "get_combined_auth_dependency", lambda *_: (lambda: None)
@@ -105,9 +145,7 @@ def graph_test_client(monkeypatch, tmp_path):
     args.input_dir = str(tmp_path / "inputs")
     args.workspace = ""
     args.workspace_registry_path = str(tmp_path / "workspaces" / "registry.sqlite3")
-    app = lightrag_server.create_app(args)
-    with TestClient(app) as client:
-        yield client
+    return lightrag_server.create_app(args)
 
 
 def test_graph_routes_resolve_runtime_from_workspace_header(graph_test_client):
@@ -130,6 +168,30 @@ def test_graph_routes_resolve_runtime_from_workspace_header(graph_test_client):
 
     assert response.status_code == 200
     assert response.json() == ["ws1"]
+
+
+def test_query_routes_resolve_runtime_from_workspace_header(query_test_client):
+    create_response = query_test_client.post(
+        "/workspaces",
+        json={
+            "workspace": "ws1",
+            "display_name": "Workspace 1",
+            "description": "query test",
+            "visibility": "public",
+        },
+        headers={"Authorization": f"Bearer {_build_token('alice', 'user')}"},
+    )
+
+    assert create_response.status_code == 201
+
+    response = query_test_client.post(
+        "/query",
+        json={"query": "workspace aware"},
+        headers={"LIGHTRAG-WORKSPACE": "ws1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["response"] == "ws1:workspace aware"
 
 
 def test_create_app_does_not_require_bound_runtime_for_ollama_startup(
