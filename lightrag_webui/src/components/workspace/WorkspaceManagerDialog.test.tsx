@@ -80,6 +80,11 @@ vi.mock('@/api/lightrag', () => ({
 
 afterEach(() => {
   vi.restoreAllMocks()
+  const getItemMock = localStorage.getItem as unknown as ReturnType<typeof vi.fn>
+  getItemMock.mockImplementation(() => null)
+  useSettingsStore.setState({
+    currentWorkspace: ''
+  })
 })
 
 describe('WorkspaceManagerDialog', () => {
@@ -142,6 +147,40 @@ describe('WorkspaceManagerDialog', () => {
 
     expect(html).toContain('Create Workspace')
     expect(html).toContain('workspace_name')
+  })
+
+  test('keeps create button enabled for base64url admin tokens', async () => {
+    const getItemMock = localStorage.getItem as unknown as ReturnType<typeof vi.fn>
+    getItemMock.mockImplementation((key: string) =>
+      key === 'LIGHTRAG-API-TOKEN'
+        ? 'header.eyJyb2xlIjoiYWRtaW4iLCJzdWIiOiJhbGljZSIsIm1ldGFkYXRhIjp7IngiOiJ-fiJ9fQ.signature'
+        : null
+    )
+
+    const ReactModule = await import('react')
+    const actualUseState = ReactModule.useState
+    const noop = () => undefined
+
+    vi.spyOn(ReactModule, 'useState')
+      .mockImplementationOnce((() => [[], noop]) as never)
+      .mockImplementationOnce((() => [false, noop]) as never)
+      .mockImplementationOnce((() => ['workspace-alpha', noop]) as never)
+      .mockImplementationOnce((() => ['Workspace Alpha', noop]) as never)
+      .mockImplementationOnce((() => ['A shared workspace', noop]) as never)
+      .mockImplementationOnce((() => ['private', noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementation(actualUseState as never)
+
+    const module = await import('./WorkspaceManagerDialog')
+    const WorkspaceManagerDialog = module.default
+
+    const html = renderToString(
+      <WorkspaceManagerDialog open onOpenChange={() => undefined} />
+    )
+
+    expect(html).not.toContain('disabled=""')
+    expect(html).toContain('Create Workspace')
   })
 
   test('admin-only hard delete action is hidden when no admin token is present', async () => {

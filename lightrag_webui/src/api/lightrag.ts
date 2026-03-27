@@ -4,6 +4,7 @@ import { errorMessage } from '@/lib/utils'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/state'
 import { navigationService } from '@/services/navigation'
+import { parseJwtPayload } from '@/utils/jwt'
 
 // Types
 export type LightragNodeType = {
@@ -626,9 +627,9 @@ axiosInstance.interceptors.response.use(
 
       // Update auth state with renewal tracking
       try {
-        const payload = JSON.parse(atob(newToken.split('.')[1]));
+        const payload = parseJwtPayload<{ sub?: string; exp?: number }>(newToken)
         const authStore = useAuthStore.getState();
-        if (authStore.isAuthenticated) {
+        if (authStore.isAuthenticated && payload) {
           // Track token renewal time and expiration
           const renewalTime = Date.now();
           const expiresAt = payload.exp ? payload.exp * 1000 : 0;

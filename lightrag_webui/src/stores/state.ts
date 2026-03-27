@@ -3,6 +3,7 @@ import { createSelectors } from '@/lib/utils'
 import { ActivePromptVersionSummary, checkHealth, LightragStatus, PromptConfigGroup } from '@/api/lightrag'
 import { useSettingsStore } from './settings'
 import { healthCheckInterval } from '@/lib/constants'
+import { parseJwtPayload } from '@/utils/jwt'
 
 interface BackendState {
   health: boolean
@@ -185,18 +186,8 @@ const formatTimestampToLocalString = (timestamp: number): string => {
   return `${localTime} (UTC${offsetSign}${offsetHours})`;
 };
 
-const parseTokenPayload = (token: string): { sub?: string; role?: string; exp?: number } => {
-  try {
-    // JWT tokens are in the format: header.payload.signature
-    const parts = token.split('.');
-    if (parts.length !== 3) return {};
-    const payload = JSON.parse(atob(parts[1]));
-    return payload;
-  } catch (e) {
-    console.error('Error parsing token payload:', e);
-    return {};
-  }
-};
+const parseTokenPayload = (token: string): { sub?: string; role?: string; exp?: number } =>
+  parseJwtPayload(token) ?? {}
 
 const getUsernameFromToken = (token: string): string | null => {
   const payload = parseTokenPayload(token);

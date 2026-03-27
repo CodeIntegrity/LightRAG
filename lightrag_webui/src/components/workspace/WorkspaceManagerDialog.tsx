@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -17,6 +17,7 @@ import {
 } from '@/api/lightrag'
 import Badge from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import Input from '@/components/ui/Input'
 import {
   Dialog,
@@ -27,19 +28,7 @@ import {
   DialogTitle
 } from '@/components/ui/Dialog'
 import { useSettingsStore } from '@/stores/settings'
-
-function getCurrentRole(): string | null {
-  const token = localStorage.getItem('LIGHTRAG-API-TOKEN')
-  if (!token) {
-    return null
-  }
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]))
-    return typeof payload.role === 'string' ? payload.role : null
-  } catch {
-    return null
-  }
-}
+import { getJwtRole } from '@/utils/jwt'
 
 interface WorkspaceManagerDialogProps {
   open: boolean
@@ -92,7 +81,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
   const [workspaceStats, setWorkspaceStats] = useState<Record<string, WorkspaceStatsResponse>>({})
   const [workspaceOperations, setWorkspaceOperations] = useState<Record<string, WorkspaceOperationResponse>>({})
 
-  const role = useMemo(() => getCurrentRole(), [open])
+  const role = useMemo(() => getJwtRole(localStorage.getItem('LIGHTRAG-API-TOKEN')), [open])
   const isAdmin = role === 'admin'
   const isGuestMode = role === 'guest' || role === null
   const translateCapabilityLabel = (key: string) =>
@@ -199,7 +188,12 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
     }
   }, [open, workspaces, workspaceOperations])
 
-  const handleCreate = async () => {
+  const handleCreate = async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault()
+    if (isGuestMode || workspace.trim().length === 0) {
+      return
+    }
+
     try {
       await createWorkspace({
         workspace: workspace.trim(),
@@ -270,185 +264,329 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
 
   const readyWorkspaces = workspaces.filter((item) => item.status === 'ready')
   const deletedWorkspaces = workspaces.filter((item) => item.status !== 'ready')
+  const currentWorkspaceRecord = workspaces.find((item) => item.workspace === currentWorkspace)
+  const currentWorkspaceLabel =
+    currentWorkspaceRecord?.display_name || currentWorkspace || t('workspaceManager.summary.none', 'Not selected')
+  const canCreateWorkspace = !isGuestMode && workspace.trim().length > 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl">
-        <DialogHeader>
+      <DialogContent className="max-h-[90vh] max-w-6xl overflow-hidden p-0">
+        <DialogHeader className="border-b border-border/60 px-6 py-5">
           <DialogTitle>{t('workspaceManager.title', 'Workspace Management')}</DialogTitle>
           <DialogDescription>
             {t('workspaceManager.description', 'Create, switch, and manage workspaces for the current server.')}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-6 md:grid-cols-2">
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold">{t('workspaceManager.readyTitle', 'Workspaces')}</h3>
-              <Button variant="outline" size="sm" onClick={() => void refresh()}>
-                {isLoading ? t('workspaceManager.loading', 'Loading...') : t('workspaceManager.refresh', 'Refresh')}
-              </Button>
+        <div className="space-y-6 overflow-y-auto px-6 py-6">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/60 p-4">
+              <div className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                {t('workspaceManager.summary.total', 'Total workspaces')}
+              </div>
+              <div className="mt-3 text-3xl font-semibold">{workspaces.length}</div>
+              <div className="text-muted-foreground mt-1 text-xs">
+                {t('workspaceManager.readyTitle', 'Workspaces')}: {readyWorkspaces.length}
+              </div>
             </div>
-            <div className="space-y-2">
-              {readyWorkspaces.map((record) => (
-                <div key={record.workspace} className="rounded-md border p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-medium">{record.display_name || record.workspace}</div>
-                      <div className="text-muted-foreground text-xs">{record.workspace || 'default'}</div>
+            <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+              <div className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                {t('workspaceManager.summary.current', 'Active workspace')}
+              </div>
+              <div className="mt-3 truncate text-lg font-semibold">{currentWorkspaceLabel}</div>
+              <div className="text-muted-foreground mt-1 text-xs">
+                {currentWorkspace || t('workspaceManager.defaultWorkspace', 'default')}
+              </div>
+            </div>
+            <div className="rounded-xl border border-amber-200/70 bg-amber-50/60 p-4">
+              <div className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                {t('workspaceManager.summary.pending', 'Pending changes')}
+              </div>
+              <div className="mt-3 text-3xl font-semibold">{deletedWorkspaces.length}</div>
+              <div className="text-muted-foreground mt-1 text-xs">
+                {t('workspaceManager.deletedTitle', 'Deleted / Pending')}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-[minmax(320px,360px)_minmax(0,1fr)]">
+            <section className="space-y-6">
+              <Card className="overflow-hidden border-emerald-200/70 shadow-sm">
+                <CardHeader className="bg-emerald-50/50 pb-4">
+                  <CardTitle className="text-base">{t('workspaceManager.createTitle', 'Create Workspace')}</CardTitle>
+                  <CardDescription>
+                    {t(
+                      'workspaceManager.createDescription',
+                      'Set a stable workspace key, a friendly display name, and the visibility you want to share.'
+                    )}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6">
+                  <form className="space-y-4" onSubmit={(event) => void handleCreate(event)}>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium" htmlFor="workspace-name">
+                        {t('workspaceManager.workspaceLabel', 'Workspace key')}
+                      </label>
+                      <Input
+                        id="workspace-name"
+                        value={workspace}
+                        onChange={(event) => setWorkspace(event.target.value)}
+                        placeholder={t('workspaceManager.workspacePlaceholder', 'workspace_name')}
+                        className="h-10"
+                      />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant={record.workspace === currentWorkspace ? 'secondary' : 'outline'}
-                        size="sm"
-                        onClick={() => handleSwitch(record)}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium" htmlFor="workspace-display-name">
+                        {t('workspaceManager.displayNameLabel', 'Display name')}
+                      </label>
+                      <Input
+                        id="workspace-display-name"
+                        value={displayName}
+                        onChange={(event) => setDisplayName(event.target.value)}
+                        placeholder={t('workspaceManager.displayNamePlaceholder', 'Display name')}
+                        className="h-10"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium" htmlFor="workspace-description">
+                        {t('workspaceManager.descriptionLabel', 'Description')}
+                      </label>
+                      <textarea
+                        id="workspace-description"
+                        className="border-input placeholder:text-muted-foreground focus-visible:ring-ring min-h-24 w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm transition-colors focus-visible:ring-1 focus-visible:outline-none"
+                        value={description}
+                        onChange={(event) => setDescription(event.target.value)}
+                        placeholder={t('workspaceManager.descriptionPlaceholder', 'Description')}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium" htmlFor="workspace-visibility">
+                        {t('workspaceManager.visibilityLabel', 'Visibility')}
+                      </label>
+                      <select
+                        id="workspace-visibility"
+                        className="border-input bg-background h-10 w-full rounded-md border px-3 py-2 text-sm"
+                        value={visibility}
+                        onChange={(event) => setVisibility(event.target.value as WorkspaceVisibility)}
                       >
-                        {record.workspace === currentWorkspace
-                          ? t('workspaceManager.current', 'Current')
-                          : t('workspaceManager.switch', 'Switch')}
-                      </Button>
-                      {!isGuestMode && !record.is_protected && (
-                        <Button variant="ghost" size="sm" onClick={() => void handleSoftDelete(record)}>
-                          {t('workspaceManager.softDelete', 'Soft Delete')}
-                        </Button>
-                      )}
+                        <option value="private">{t('workspaceManager.private', 'Private')}</option>
+                        <option value="public">{t('workspaceManager.public', 'Public')}</option>
+                      </select>
                     </div>
-                  </div>
-                  {record.description && <div className="text-muted-foreground mt-2 text-xs">{record.description}</div>}
-                  {workspaceStats[record.workspace] && (
-                    <div className="mt-3 space-y-2 text-xs">
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div className="bg-muted/40 rounded-md border px-3 py-2">
-                          <div className="text-muted-foreground">
-                            {t('workspaceManager.stats.docs', {
-                              count: workspaceStats[record.workspace].document_count ?? '-',
-                              defaultValue: '{{count}} docs'
-                            })}
-                          </div>
-                        </div>
-                        <div className="bg-muted/40 rounded-md border px-3 py-2">
-                          <div className="text-muted-foreground">
-                            {t('workspaceManager.stats.promptVersions', {
-                              count: workspaceStats[record.workspace].prompt_version_count ?? '-',
-                              defaultValue: '{{count}} prompt versions'
-                            })}
-                          </div>
-                        </div>
+                    {isGuestMode && (
+                      <div className="text-muted-foreground bg-muted/40 rounded-md border border-dashed px-3 py-2 text-xs">
+                        {t(
+                          'workspaceManager.guestHint',
+                          'Login is required to create or modify workspaces.'
+                        )}
                       </div>
-                      <div className="bg-muted/30 rounded-md border border-dashed px-3 py-2">
-                        <div className="text-muted-foreground mb-2 font-medium">
-                          {t('workspaceManager.stats.capabilities', { defaultValue: 'Capabilities' })}
-                        </div>
-                      {Object.entries(workspaceStats[record.workspace].capabilities || {}).map(([key, value]) => (
-                        <div key={`${record.workspace}-capability-${key}`} className="text-muted-foreground">
-                          {translateCapabilityLabel(key)}: {translateCapabilityStatus(value)}
+                    )}
+                    <Button className="h-10 w-full" type="submit" disabled={!canCreateWorkspace}>
+                      {t('workspaceManager.create', 'Create Workspace')}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </section>
+
+            <section className="space-y-6">
+              <Card className="overflow-hidden shadow-sm">
+                <CardHeader className="flex flex-col gap-3 border-b border-border/60 pb-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="space-y-1">
+                    <CardTitle className="text-base">{t('workspaceManager.readyTitle', 'Workspaces')}</CardTitle>
+                    <CardDescription>
+                      {t(
+                        'workspaceManager.readyDescription',
+                        'Switch between active workspaces and review each workspace summary at a glance.'
+                      )}
+                    </CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => void refresh()}>
+                    {isLoading ? t('workspaceManager.loading', 'Loading...') : t('workspaceManager.refresh', 'Refresh')}
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-3 pt-6">
+                  {readyWorkspaces.length === 0 && (
+                    <div className="text-muted-foreground bg-muted/30 rounded-lg border border-dashed px-4 py-6 text-sm">
+                      {t('workspaceManager.emptyReady', 'No ready workspaces yet.')}
+                    </div>
+                  )}
+                  {readyWorkspaces.length > 0 && (
+                    <div className="max-h-[26rem] space-y-3 overflow-y-auto pr-1">
+                      {readyWorkspaces.map((record) => (
+                        <div
+                          key={record.workspace}
+                          className={`rounded-xl border p-4 shadow-sm transition-colors ${
+                            record.workspace === currentWorkspace
+                              ? 'border-emerald-300/70 bg-emerald-50/40'
+                              : 'bg-background'
+                          }`}
+                        >
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="min-w-0 space-y-3">
+                              <div className="space-y-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <div className="truncate text-base font-semibold">
+                                    {record.display_name || record.workspace}
+                                  </div>
+                                  {record.workspace === currentWorkspace && (
+                                    <Badge variant="secondary">{t('workspaceManager.current', 'Current')}</Badge>
+                                  )}
+                                  <Badge variant="outline">
+                                    {record.visibility === 'public'
+                                      ? t('workspaceManager.public', 'Public')
+                                      : t('workspaceManager.private', 'Private')}
+                                  </Badge>
+                                  {record.is_protected && (
+                                    <Badge variant="outline">{t('workspaceManager.defaultWorkspace', 'default')}</Badge>
+                                  )}
+                                </div>
+                                <div className="text-muted-foreground font-mono text-xs">
+                                  {record.workspace || t('workspaceManager.defaultWorkspace', 'default')}
+                                </div>
+                              </div>
+                              {record.description && (
+                                <div className="text-muted-foreground text-sm">{record.description}</div>
+                              )}
+                              {workspaceStats[record.workspace] && (
+                                <div className="space-y-3 text-xs">
+                                  <div className="grid gap-2 sm:grid-cols-2">
+                                    <div className="bg-muted/40 rounded-md border px-3 py-2">
+                                      <div className="text-muted-foreground">
+                                        {t('workspaceManager.stats.docs', {
+                                          count: workspaceStats[record.workspace].document_count ?? '-',
+                                          defaultValue: '{{count}} docs'
+                                        })}
+                                      </div>
+                                    </div>
+                                    <div className="bg-muted/40 rounded-md border px-3 py-2">
+                                      <div className="text-muted-foreground">
+                                        {t('workspaceManager.stats.promptVersions', {
+                                          count: workspaceStats[record.workspace].prompt_version_count ?? '-',
+                                          defaultValue: '{{count}} prompt versions'
+                                        })}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="bg-muted/30 rounded-md border border-dashed px-3 py-2">
+                                    <div className="text-muted-foreground mb-2 font-medium">
+                                      {t('workspaceManager.stats.capabilities', { defaultValue: 'Capabilities' })}
+                                    </div>
+                                    {Object.entries(workspaceStats[record.workspace].capabilities || {}).map(([key, value]) => (
+                                      <div key={`${record.workspace}-capability-${key}`} className="text-muted-foreground">
+                                        {translateCapabilityLabel(key)}: {translateCapabilityStatus(value)}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                              <Button
+                                variant={record.workspace === currentWorkspace ? 'secondary' : 'outline'}
+                                size="sm"
+                                onClick={() => handleSwitch(record)}
+                              >
+                                {record.workspace === currentWorkspace
+                                  ? t('workspaceManager.current', 'Current')
+                                  : t('workspaceManager.switch', 'Switch')}
+                              </Button>
+                              {!isGuestMode && !record.is_protected && (
+                                <Button variant="ghost" size="sm" onClick={() => void handleSoftDelete(record)}>
+                                  {t('workspaceManager.softDelete', 'Soft Delete')}
+                                </Button>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       ))}
-                      </div>
                     </div>
                   )}
-                </div>
-              ))}
-            </div>
-          </section>
+                </CardContent>
+              </Card>
 
-          <section className="space-y-3">
-            <h3 className="text-sm font-semibold">{t('workspaceManager.createTitle', 'Create Workspace')}</h3>
-            <div className="space-y-2">
-              <Input
-                value={workspace}
-                onChange={(event) => setWorkspace(event.target.value)}
-                placeholder={t('workspaceManager.workspacePlaceholder', 'workspace_name')}
-              />
-              <Input
-                value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
-                placeholder={t('workspaceManager.displayNamePlaceholder', 'Display name')}
-              />
-              <Input
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder={t('workspaceManager.descriptionPlaceholder', 'Description')}
-              />
-              <select
-                className="border-input bg-background w-full rounded-md border px-3 py-2 text-sm"
-                value={visibility}
-                onChange={(event) => setVisibility(event.target.value as WorkspaceVisibility)}
-              >
-                <option value="private">{t('workspaceManager.private', 'Private')}</option>
-                <option value="public">{t('workspaceManager.public', 'Public')}</option>
-              </select>
-              <Button
-                className="w-full"
-                onClick={() => void handleCreate()}
-                disabled={isGuestMode || workspace.trim().length === 0}
-              >
-                {t('workspaceManager.create', 'Create Workspace')}
-              </Button>
-            </div>
-
-            <div className="space-y-2 pt-4">
-              <h3 className="text-sm font-semibold">{t('workspaceManager.deletedTitle', 'Deleted / Pending')}</h3>
-              {deletedWorkspaces.map((record) => (
-                <div key={record.workspace} className="rounded-md border border-dashed p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-medium">{record.display_name || record.workspace}</div>
-                      <div className="text-muted-foreground text-xs">
-                        {(record.workspace || 'default')} · {record.status}
-                      </div>
+              <Card className="overflow-hidden border-dashed shadow-sm">
+                <CardHeader className="border-b border-border/60 pb-4">
+                  <CardTitle className="text-base">{t('workspaceManager.deletedTitle', 'Deleted / Pending')}</CardTitle>
+                  <CardDescription>
+                    {t(
+                      'workspaceManager.deletedDescription',
+                      'Track deleted workspaces, restores, and any hard-delete jobs that are still running.'
+                    )}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 pt-6">
+                  {deletedWorkspaces.length === 0 && (
+                    <div className="text-muted-foreground bg-muted/30 rounded-lg border border-dashed px-4 py-6 text-sm">
+                      {t('workspaceManager.emptyDeleted', 'No deleted or pending workspaces.')}
                     </div>
-                    <div className="flex items-center gap-2">
-                      {!isGuestMode && record.status === 'soft_deleted' && (
-                        <Button variant="outline" size="sm" onClick={() => void handleRestore(record)}>
-                          {t('workspaceManager.restore', 'Restore')}
-                        </Button>
-                      )}
-                      {isAdmin && !record.is_protected && (
-                        <Button variant="destructive" size="sm" onClick={() => void handleHardDelete(record)}>
-                          {t('workspaceManager.hardDelete', 'Hard Delete')}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                  {workspaceOperations[record.workspace] && (
-                    <div className="mt-3 space-y-2 text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground">
-                          {t('workspaceManager.operation.state', { defaultValue: 'State' })}:
-                        </span>
-                        <Badge
-                          variant={
-                            operationStatusVariantMap[workspaceOperations[record.workspace].state] || 'outline'
-                          }
-                        >
-                          {translateOperationStatus(workspaceOperations[record.workspace].state)}
-                        </Badge>
-                      </div>
-                      {workspaceOperations[record.workspace].progress && (
-                        <div className="bg-muted/30 rounded-md border border-dashed px-3 py-2">
-                          <div className="text-muted-foreground mb-2 font-medium">
-                            {t('workspaceManager.operation.progress', { defaultValue: 'Progress' })}
+                  )}
+                  {deletedWorkspaces.map((record) => (
+                    <div key={record.workspace} className="rounded-xl border border-dashed p-4">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0 space-y-2">
+                          <div className="font-semibold">{record.display_name || record.workspace}</div>
+                          <div className="text-muted-foreground font-mono text-xs">
+                            {(record.workspace || t('workspaceManager.defaultWorkspace', 'default'))} · {record.status}
                           </div>
-                          {Object.entries(workspaceOperations[record.workspace].progress!).map(([key, value]) => (
-                            <div key={`${record.workspace}-progress-${key}`} className="text-muted-foreground">
-                              {key}: {String(value)}
+                          {record.description && (
+                            <div className="text-muted-foreground text-sm">{record.description}</div>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                          {!isGuestMode && record.status === 'soft_deleted' && (
+                            <Button variant="outline" size="sm" onClick={() => void handleRestore(record)}>
+                              {t('workspaceManager.restore', 'Restore')}
+                            </Button>
+                          )}
+                          {isAdmin && !record.is_protected && (
+                            <Button variant="destructive" size="sm" onClick={() => void handleHardDelete(record)}>
+                              {t('workspaceManager.hardDelete', 'Hard Delete')}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      {workspaceOperations[record.workspace] && (
+                        <div className="mt-3 space-y-2 text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">
+                              {t('workspaceManager.operation.state', { defaultValue: 'State' })}:
+                            </span>
+                            <Badge
+                              variant={
+                                operationStatusVariantMap[workspaceOperations[record.workspace].state] || 'outline'
+                              }
+                            >
+                              {translateOperationStatus(workspaceOperations[record.workspace].state)}
+                            </Badge>
+                          </div>
+                          {workspaceOperations[record.workspace].progress && (
+                            <div className="bg-muted/30 rounded-md border border-dashed px-3 py-2">
+                              <div className="text-muted-foreground mb-2 font-medium">
+                                {t('workspaceManager.operation.progress', { defaultValue: 'Progress' })}
+                              </div>
+                              {Object.entries(workspaceOperations[record.workspace].progress!).map(([key, value]) => (
+                                <div key={`${record.workspace}-progress-${key}`} className="text-muted-foreground">
+                                  {key}: {String(value)}
+                                </div>
+                              ))}
                             </div>
-                          ))}
+                          )}
                         </div>
                       )}
+                      {record.delete_error && (
+                        <div className="text-destructive mt-2 text-xs">{record.delete_error}</div>
+                      )}
                     </div>
-                  )}
-                  {record.delete_error && (
-                    <div className="text-destructive mt-2 text-xs">{record.delete_error}</div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
+                  ))}
+                </CardContent>
+              </Card>
+            </section>
+          </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="border-t border-border/60 px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('common.cancel', 'Close')}
           </Button>
