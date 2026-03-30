@@ -72,7 +72,10 @@ async def test_begin_hard_delete_records_running_operation(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_complete_and_fail_hard_delete_update_workspace_state(tmp_path: Path):
-    from lightrag.api.workspace_registry import WorkspaceRegistryStore
+    from lightrag.api.workspace_registry import (
+        WorkspaceNotFoundError,
+        WorkspaceRegistryStore,
+    )
 
     store = WorkspaceRegistryStore(tmp_path / "registry.sqlite3")
     await store.initialize(default_workspace="")
@@ -92,8 +95,76 @@ async def test_complete_and_fail_hard_delete_update_workspace_state(tmp_path: Pa
 
     await store.begin_hard_delete("books", requested_by="admin")
     await store.complete_hard_delete("books")
-    deleted = await store.get_workspace("books")
-    operation = await store.get_workspace_operation("books")
+    with pytest.raises(WorkspaceNotFoundError):
+        await store.get_workspace("books")
+    with pytest.raises(WorkspaceNotFoundError):
+        await store.get_workspace_operation("books")
 
-    assert deleted["status"] == "hard_deleted"
-    assert operation["state"] == "completed"
+    records = await store.list_workspaces()
+    assert [record["workspace"] for record in records] == [""]
+
+    with store._connect() as conn:
+        operation_row = conn.execute(
+            "SELECT workspace FROM workspace_operations WHERE workspace = ?",
+            ("books",),
+        ).fetchone()
+    assert operation_row is None
+
+
+@pytest.mark.asyncio
+async def test_initialize_purges_legacy_hard_deleted_workspaces(tmp_path: Path):
+    from lightrag.api.workspace_registry import WorkspaceRegistryStore
+
+    db_path = tmp_path / "registry.sqlite3"
+    store = WorkspaceRegistryStore(db_path)
+    await store.initialize(default_workspace="")
+    await store.create_workspace(
+        workspace="legacy_deleted",
+        display_name="Legacy Deleted",
+        description="legacy",
+        created_by="alice",
+        visibility="private",
+    )
+
+    with store._connect() as conn:
+        conn.execute(
+            """
+            UPDATE workspaces
+            SET status = 'hard_deleted',
+                deleted_at = ?,
+                deleted_by = ?
+            WHERE workspace = ?
+            """,
+            ("2026-03-30T00:00:00+00:00", "admin", "legacy_deleted"),
+        )
+        conn.execute(
+            """
+            UPDATE workspace_operations
+            SET kind = 'hard_delete',
+                state = 'completed',
+                requested_by = ?,
+                started_at = ?,
+                finished_at = ?
+            WHERE workspace = ?
+            """,
+            (
+                "admin",
+                "2026-03-30T00:00:00+00:00",
+                "2026-03-30T00:00:01+00:00",
+                "legacy_deleted",
+            ),
+        )
+        conn.commit()
+
+    reloaded = WorkspaceRegistryStore(db_path)
+    await reloaded.initialize(default_workspace="")
+    records = await reloaded.list_workspaces()
+
+    assert [record["workspace"] for record in records] == [""]
+
+    with reloaded._connect() as conn:
+        operation_row = conn.execute(
+            "SELECT workspace FROM workspace_operations WHERE workspace = ?",
+            ("legacy_deleted",),
+        ).fetchone()
+    assert operation_row is None

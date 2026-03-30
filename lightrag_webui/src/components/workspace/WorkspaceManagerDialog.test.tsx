@@ -7,6 +7,23 @@ import en from '@/locales/en.json'
 import { useSettingsStore } from '@/stores/settings'
 
 let autoSubmitWorkspaceCreateForm = false
+let capturedWorkspaceSwitchClick: (() => void) | null = null
+let capturedHardDeleteClick: (() => void) | null = null
+
+const getNodeText = (node: React.ReactNode): string => {
+  if (typeof node === 'string' || typeof node === 'number') {
+    return String(node)
+  }
+
+  if (!React.isValidElement(node)) {
+    return ''
+  }
+
+  const props = node.props as { children?: React.ReactNode }
+  return React.Children.toArray(props.children)
+    .map((child) => getNodeText(child))
+    .join('')
+}
 
 const triggerWorkspaceCreateSubmit = (node: React.ReactNode): void => {
   if (!autoSubmitWorkspaceCreateForm || !React.isValidElement(node)) {
@@ -81,16 +98,62 @@ vi.mock('sonner', () => ({
   }
 }))
 
+vi.mock('@/components/ui/Button', () => ({
+  default: ({ children, onClick, ...props }: { children: React.ReactNode; onClick?: () => void }) => {
+    const text = getNodeText(children)
+
+    if (typeof onClick === 'function' && text.includes('Switch')) {
+      capturedWorkspaceSwitchClick = onClick
+    }
+
+    if (typeof onClick === 'function' && text.includes('Hard Delete')) {
+      capturedHardDeleteClick = onClick
+    }
+
+    return <button onClick={onClick} {...props}>{children}</button>
+  }
+}))
+
 vi.mock('@/components/ui/Dialog', () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => {
     triggerWorkspaceCreateSubmit(children)
     return <div>{children}</div>
   },
-  DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
+  DialogContent: ({
+    children,
+    className
+  }: {
+    children: React.ReactNode
+    className?: string
+  }) => <div className={className}>{children}</div>,
+  DialogDescription: ({
+    children,
+    className
+  }: {
+    children: React.ReactNode
+    className?: string
+  }) => <div className={className}>{children}</div>,
+  DialogFooter: ({
+    children,
+    className
+  }: {
+    children: React.ReactNode
+    className?: string
+  }) => <div className={className}>{children}</div>,
+  DialogHeader: ({
+    children,
+    className
+  }: {
+    children: React.ReactNode
+    className?: string
+  }) => <div className={className}>{children}</div>,
+  DialogTitle: ({
+    children,
+    className
+  }: {
+    children: React.ReactNode
+    className?: string
+  }) => <div className={className}>{children}</div>
 }))
 
 vi.mock('@/api/lightrag', () => ({
@@ -109,13 +172,16 @@ afterEach(async () => {
   const getItemMock = localStorage.getItem as unknown as ReturnType<typeof vi.fn>
   getItemMock.mockImplementation(() => null)
   useSettingsStore.setState({
-    currentWorkspace: ''
+    currentWorkspace: '',
+    workspaceDisplayNames: {}
   })
   const { useBackendState } = await import('@/stores/state')
   useBackendState.setState({
     workspaceCreateAllowed: false
   } as never)
   autoSubmitWorkspaceCreateForm = false
+  capturedWorkspaceSwitchClick = null
+  capturedHardDeleteClick = null
 })
 
 describe('WorkspaceManagerDialog', () => {
@@ -166,6 +232,22 @@ describe('WorkspaceManagerDialog', () => {
 
     expect(module.getWorkspacesNeedingOperationFetch(workspaces, {} as any)).toEqual(['trash', 'archive'])
     expect(module.getRunningOperationWorkspaces(operations)).toEqual(['trash'])
+  })
+
+  test('shouldRefreshWorkspacesAfterOperationError returns true for missing workspaces only', async () => {
+    const module = await import('./WorkspaceManagerDialog')
+
+    expect(module.shouldRefreshWorkspacesAfterOperationError({ response: { status: 404 } })).toBe(true)
+    expect(module.shouldRefreshWorkspacesAfterOperationError(new Error('boom'))).toBe(false)
+    expect(module.shouldRefreshWorkspacesAfterOperationError({ response: { status: 500 } })).toBe(false)
+  })
+
+  test('shouldDisableSoftDelete returns true only for the current workspace', async () => {
+    const module = await import('./WorkspaceManagerDialog')
+
+    expect(module.shouldDisableSoftDelete('books', 'books')).toBe(true)
+    expect(module.shouldDisableSoftDelete('books', 'notes')).toBe(false)
+    expect(module.shouldDisableSoftDelete('books', '')).toBe(false)
   })
 
   test('renders create workspace form when open', async () => {
@@ -292,6 +374,15 @@ describe('WorkspaceManagerDialog', () => {
     expect(html).not.toContain('xl:grid-cols-[minmax(320px,360px)_minmax(0,1fr)]')
   })
 
+  test('uses a dedicated scroll container so low-height screens can reach hidden actions', async () => {
+    const module = await import('./WorkspaceManagerDialog')
+    const html = renderToString(<module.default open onOpenChange={() => undefined} />)
+
+    expect(html).toContain('flex max-h-[90vh] max-w-6xl flex-col overflow-hidden p-0')
+    expect(html).toContain('min-h-0 flex-1 overflow-y-auto px-6 py-6')
+    expect(html).toContain('shrink-0 border-t border-border/60 px-6 py-4')
+  })
+
   test('refreshes backend capability when create is denied by session policy', async () => {
     const { useBackendState } = await import('@/stores/state')
     vi.spyOn(useBackendState.use, 'workspaceCreateAllowed').mockReturnValue(true)
@@ -358,6 +449,239 @@ describe('WorkspaceManagerDialog', () => {
     )
 
     expect(html).not.toContain('Hard Delete')
+  })
+
+  test('hard delete action is hidden for hard-deleting and hard-deleted workspaces', async () => {
+    const getItemMock = localStorage.getItem as unknown as ReturnType<typeof vi.fn>
+    getItemMock.mockImplementation((key: string) =>
+      key === 'LIGHTRAG-API-TOKEN'
+        ? 'header.eyJyb2xlIjoiYWRtaW4iLCJzdWIiOiJhbGljZSJ9.signature'
+        : null
+    )
+
+    const ReactModule = await import('react')
+    const actualUseState = ReactModule.useState
+    const noop = () => undefined
+
+    vi.spyOn(ReactModule, 'useState')
+      .mockImplementationOnce((() => [[
+        {
+          workspace: 'trash',
+          display_name: 'Trash',
+          description: 'running delete',
+          status: 'hard_deleting',
+          visibility: 'private',
+          created_by: 'alice',
+          owners: ['alice'],
+          is_default: false,
+          is_protected: false
+        },
+        {
+          workspace: 'archive',
+          display_name: 'Archive',
+          description: 'already deleted',
+          status: 'hard_deleted',
+          visibility: 'private',
+          created_by: 'alice',
+          owners: ['alice'],
+          is_default: false,
+          is_protected: false
+        }
+      ], noop]) as never)
+      .mockImplementation(actualUseState as never)
+
+    const module = await import('./WorkspaceManagerDialog')
+    const html = renderToString(<module.default open onOpenChange={() => undefined} />)
+
+    expect(html).not.toContain('Hard Delete')
+  })
+
+  test('hard delete action remains available for delete-failed workspaces', async () => {
+    const getItemMock = localStorage.getItem as unknown as ReturnType<typeof vi.fn>
+    getItemMock.mockImplementation((key: string) =>
+      key === 'LIGHTRAG-API-TOKEN'
+        ? 'header.eyJyb2xlIjoiYWRtaW4iLCJzdWIiOiJhbGljZSJ9.signature'
+        : null
+    )
+
+    const ReactModule = await import('react')
+    const actualUseState = ReactModule.useState
+    const noop = () => undefined
+
+    vi.spyOn(ReactModule, 'useState')
+      .mockImplementationOnce((() => [[
+        {
+          workspace: 'archive',
+          display_name: 'Archive',
+          description: 'failed delete',
+          status: 'delete_failed',
+          visibility: 'private',
+          created_by: 'alice',
+          owners: ['alice'],
+          is_default: false,
+          is_protected: false,
+          delete_error: 'boom'
+        }
+      ], noop]) as never)
+      .mockImplementation(actualUseState as never)
+
+    const module = await import('./WorkspaceManagerDialog')
+    const html = renderToString(<module.default open onOpenChange={() => undefined} />)
+
+    expect(html).toContain('Hard Delete')
+  })
+
+  test('reloads the page after switching workspace', async () => {
+    useSettingsStore.setState({
+      currentWorkspace: 'books',
+      workspaceDisplayNames: {
+        books: 'Books',
+        notes: 'Notes'
+      }
+    })
+
+    const reloadSpy = vi.fn()
+    const originalWindow = (globalThis as { window?: { location?: { reload?: () => void } } }).window
+    Object.defineProperty(globalThis, 'window', {
+      value: {
+        location: {
+          reload: reloadSpy
+        }
+      },
+      configurable: true
+    })
+
+    const onOpenChange = vi.fn()
+    const ReactModule = await import('react')
+    const actualUseState = ReactModule.useState
+    const noop = () => undefined
+
+    vi.spyOn(ReactModule, 'useState')
+      .mockImplementationOnce((() => [[
+        {
+          workspace: 'books',
+          display_name: 'Books',
+          description: 'desc',
+          status: 'ready',
+          visibility: 'private',
+          created_by: 'alice',
+          owners: ['alice'],
+          is_default: false,
+          is_protected: false
+        },
+        {
+          workspace: 'notes',
+          display_name: 'Notes',
+          description: 'desc',
+          status: 'ready',
+          visibility: 'private',
+          created_by: 'alice',
+          owners: ['alice'],
+          is_default: false,
+          is_protected: false
+        }
+      ], noop]) as never)
+      .mockImplementationOnce((() => [false, noop]) as never)
+      .mockImplementationOnce((() => ['', noop]) as never)
+      .mockImplementationOnce((() => ['', noop]) as never)
+      .mockImplementationOnce((() => ['', noop]) as never)
+      .mockImplementationOnce((() => ['private', noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementation(actualUseState as never)
+
+    const module = await import('./WorkspaceManagerDialog')
+    renderToString(<module.default open onOpenChange={onOpenChange} />)
+    capturedWorkspaceSwitchClick?.()
+
+    expect(capturedWorkspaceSwitchClick).not.toBeNull()
+    expect(useSettingsStore.getState().currentWorkspace).toBe('notes')
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(reloadSpy).toHaveBeenCalledTimes(1)
+
+    if (originalWindow === undefined) {
+      Reflect.deleteProperty(globalThis, 'window')
+    } else {
+      Object.defineProperty(globalThis, 'window', {
+        value: originalWindow,
+        configurable: true
+      })
+    }
+  })
+
+  test('interpolates workspace name in hard delete prompt', async () => {
+    const originalWindow = (globalThis as { window?: { prompt?: (value?: string) => string | null; location?: { reload?: () => void } } }).window
+    const promptSpy = vi.fn(() => 'archive')
+    Object.defineProperty(globalThis, 'window', {
+      value: {
+        prompt: promptSpy,
+        location: {
+          reload: vi.fn()
+        }
+      },
+      configurable: true
+    })
+
+    const api = await import('@/api/lightrag')
+    const hardDeleteWorkspaceMock = api.hardDeleteWorkspace as unknown as ReturnType<typeof vi.fn>
+    hardDeleteWorkspaceMock.mockResolvedValue({
+      operation: {
+        workspace: 'archive',
+        state: 'running',
+        kind: 'hard_delete'
+      }
+    })
+
+    const getItemMock = localStorage.getItem as unknown as ReturnType<typeof vi.fn>
+    getItemMock.mockImplementation((key: string) =>
+      key === 'LIGHTRAG-API-TOKEN'
+        ? 'header.eyJyb2xlIjoiYWRtaW4iLCJzdWIiOiJhbGljZSJ9.signature'
+        : null
+    )
+
+    const ReactModule = await import('react')
+    const actualUseState = ReactModule.useState
+    const noop = () => undefined
+
+    vi.spyOn(ReactModule, 'useState')
+      .mockImplementationOnce((() => [[
+        {
+          workspace: 'archive',
+          display_name: 'Archive',
+          description: 'deleted',
+          status: 'soft_deleted',
+          visibility: 'private',
+          created_by: 'alice',
+          owners: ['alice'],
+          is_default: false,
+          is_protected: false
+        }
+      ], noop]) as never)
+      .mockImplementationOnce((() => [false, noop]) as never)
+      .mockImplementationOnce((() => ['', noop]) as never)
+      .mockImplementationOnce((() => ['', noop]) as never)
+      .mockImplementationOnce((() => ['', noop]) as never)
+      .mockImplementationOnce((() => ['private', noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementation(actualUseState as never)
+
+    const module = await import('./WorkspaceManagerDialog')
+    renderToString(<module.default open onOpenChange={() => undefined} />)
+    capturedHardDeleteClick?.()
+
+    expect(capturedHardDeleteClick).not.toBeNull()
+    expect(promptSpy).toHaveBeenCalledWith('Type archive to confirm hard delete')
+    expect(hardDeleteWorkspaceMock).toHaveBeenCalledWith('archive')
+
+    if (originalWindow === undefined) {
+      Reflect.deleteProperty(globalThis, 'window')
+    } else {
+      Object.defineProperty(globalThis, 'window', {
+        value: originalWindow,
+        configurable: true
+      })
+    }
   })
 
   test('renders workspace stats and delete operation summaries when state is present', async () => {
@@ -436,10 +760,9 @@ describe('WorkspaceManagerDialog', () => {
 
     expect(normalizedHtml).toContain('12 docs')
     expect(normalizedHtml).toContain('3 prompt versions')
-    expect(normalizedHtml).toContain('Storage size: Unsupported by backend')
     expect(normalizedHtml).toContain('State:')
     expect(normalizedHtml).toContain('Running')
-    expect(normalizedHtml).toContain('Capabilities')
+    expect(normalizedHtml).not.toContain('Capabilities')
     expect(normalizedHtml).toContain('Progress')
     expect(normalizedHtml).toContain('active_requests_remaining: 2')
   })

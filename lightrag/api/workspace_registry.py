@@ -135,6 +135,27 @@ class WorkspaceRegistryStore:
                 )
                 conn.commit()
 
+            self._purge_hard_deleted_sync(conn)
+
+    def _purge_hard_deleted_sync(self, conn: sqlite3.Connection) -> None:
+        hard_deleted = conn.execute(
+            "SELECT workspace FROM workspaces WHERE status = 'hard_deleted'"
+        ).fetchall()
+        if not hard_deleted:
+            return
+
+        workspaces = [row["workspace"] for row in hard_deleted]
+        placeholders = ", ".join("?" for _ in workspaces)
+        conn.execute(
+            f"DELETE FROM workspace_operations WHERE workspace IN ({placeholders})",
+            workspaces,
+        )
+        conn.execute(
+            f"DELETE FROM workspaces WHERE workspace IN ({placeholders})",
+            workspaces,
+        )
+        conn.commit()
+
     async def list_workspaces(self) -> list[dict[str, Any]]:
         rows = await asyncio.to_thread(self._list_workspaces_sync)
         return [self._row_to_record(row) for row in rows]
@@ -396,9 +417,8 @@ class WorkspaceRegistryStore:
             )
             conn.commit()
 
-    async def complete_hard_delete(self, workspace: str) -> dict[str, Any]:
+    async def complete_hard_delete(self, workspace: str) -> None:
         await asyncio.to_thread(self._complete_hard_delete_sync, workspace)
-        return await self.get_workspace(workspace)
 
     def _complete_hard_delete_sync(self, workspace: str) -> None:
         with self._connect() as conn:
@@ -408,26 +428,19 @@ class WorkspaceRegistryStore:
             ).fetchone()
             if row is None:
                 raise WorkspaceNotFoundError(f"Workspace '{workspace}' not found")
-            now = _utc_now()
             conn.execute(
                 """
-                UPDATE workspaces
-                SET status = 'hard_deleted',
-                    updated_at = ?,
-                    deleted_at = COALESCE(deleted_at, ?)
+                DELETE FROM workspace_operations
                 WHERE workspace = ?
                 """,
-                (now, now, workspace),
+                (workspace,),
             )
             conn.execute(
                 """
-                UPDATE workspace_operations
-                SET state = 'completed',
-                    finished_at = ?,
-                    error = NULL
+                DELETE FROM workspaces
                 WHERE workspace = ?
                 """,
-                (now, workspace),
+                (workspace,),
             )
             conn.commit()
 

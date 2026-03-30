@@ -205,6 +205,24 @@ def test_hard_delete_requires_admin_and_returns_accepted(workspace_app):
     assert scheduler.calls == [("public_ws", "admin")]
 
 
+def test_soft_delete_rejects_current_active_workspace(workspace_app):
+    client, store, _ = workspace_app
+
+    response = client.post(
+        "/workspaces/public_ws/soft-delete",
+        headers={
+            "Authorization": f"Bearer {_build_token('alice', 'user')}",
+            "LIGHTRAG-WORKSPACE": "public_ws",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "switch to another workspace" in response.json()["detail"].lower()
+
+    stored = asyncio.run(store.get_workspace("public_ws"))
+    assert stored["status"] == "ready"
+
+
 def test_workspace_stats_include_capabilities(workspace_app):
     client, _, _ = workspace_app
 

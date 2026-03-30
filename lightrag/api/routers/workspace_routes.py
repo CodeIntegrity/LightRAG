@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 from typing import Any, Awaitable, Callable, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
@@ -48,6 +49,13 @@ def _identity_from_request(request: Request) -> dict[str, str | None]:
         "username": token_info.get("username"),
         "role": token_info.get("role", "user"),
     }
+
+
+def _active_workspace_from_request(request: Request) -> str | None:
+    workspace = request.headers.get("LIGHTRAG-WORKSPACE", "").strip()
+    if not workspace:
+        return None
+    return re.sub(r"[^a-zA-Z0-9_]", "_", workspace)
 
 
 def workspace_create_allowed(
@@ -188,11 +196,20 @@ def create_workspace_routes(
     @router.post("/{workspace}/soft-delete", dependencies=[Depends(combined_auth)])
     async def soft_delete_workspace(workspace: str, request: Request):
         identity = _identity_from_request(request)
+        active_workspace = _active_workspace_from_request(request)
         try:
             record = await registry_store.get_workspace(workspace)
         except WorkspaceRegistryError as exc:
             raise _map_registry_error(exc) from exc
         actor = _require_owner_or_admin(identity, record)
+        if active_workspace == workspace:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Workspace '{workspace}' is currently active; "
+                    "switch to another workspace before soft delete"
+                ),
+            )
         try:
             updated = await registry_store.soft_delete_workspace(workspace, actor)
         except WorkspaceRegistryError as exc:

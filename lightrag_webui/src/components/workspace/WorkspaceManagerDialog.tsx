@@ -68,6 +68,20 @@ export const getRunningOperationWorkspaces = (
     .filter(([, operation]) => operation?.state === 'running')
     .map(([workspaceName]) => workspaceName)
 
+export const shouldRefreshWorkspacesAfterOperationError = (error: unknown): boolean =>
+  typeof error === 'object' &&
+  error !== null &&
+  'response' in error &&
+  typeof error.response === 'object' &&
+  error.response !== null &&
+  'status' in error.response &&
+  error.response.status === 404
+
+export const shouldDisableSoftDelete = (
+  workspaceName: string,
+  currentWorkspace: string
+): boolean => workspaceName === currentWorkspace
+
 export default function WorkspaceManagerDialog({ open, onOpenChange }: WorkspaceManagerDialogProps) {
   const { t } = useTranslation()
   const currentWorkspace = useSettingsStore.use.currentWorkspace()
@@ -87,10 +101,6 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
   const role = useMemo(() => getJwtRole(localStorage.getItem('LIGHTRAG-API-TOKEN')), [open])
   const isAdmin = role === 'admin'
   const isGuestMode = role === 'guest' || role === null
-  const translateCapabilityLabel = (key: string) =>
-    t(`workspaceManager.capabilityLabels.${key}`, { defaultValue: key })
-  const translateCapabilityStatus = (status: string) =>
-    t(`workspaceManager.capabilityStatus.${status}`, { defaultValue: status })
   const translateOperationStatus = (status: string) =>
     t(`workspaceManager.operationStatus.${status}`, { defaultValue: status })
 
@@ -160,7 +170,9 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
     let cancelled = false
 
     const fetchTargets = getWorkspacesNeedingOperationFetch(workspaces, workspaceOperations)
-    const runningWorkspaces = getRunningOperationWorkspaces(workspaceOperations)
+    const runningWorkspaces = getRunningOperationWorkspaces(workspaceOperations).filter((workspaceName) =>
+      workspaces.some((item) => item.workspace === workspaceName)
+    )
 
     const syncOperation = async (workspaceName: string) => {
       try {
@@ -171,7 +183,10 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
             [workspaceName]: operation
           }))
         }
-      } catch {
+      } catch (error) {
+        if (!cancelled && shouldRefreshWorkspacesAfterOperationError(error)) {
+          await refresh()
+        }
         // keep previous operation state
       }
     }
@@ -229,9 +244,13 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
   const handleSwitch = (record: WorkspaceRecord) => {
     setCurrentWorkspace(record.workspace)
     onOpenChange(false)
+    window.location.reload()
   }
 
   const handleSoftDelete = async (record: WorkspaceRecord) => {
+    if (shouldDisableSoftDelete(record.workspace, currentWorkspace)) {
+      return
+    }
     if (!window.confirm(t('workspaceManager.softDeleteConfirm', `Soft delete ${record.workspace}?`))) {
       return
     }
@@ -257,7 +276,10 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
 
   const handleHardDelete = async (record: WorkspaceRecord) => {
     const confirmed = window.prompt(
-      t('workspaceManager.hardDeletePrompt', `Type ${record.workspace} to confirm hard delete`)
+      t('workspaceManager.hardDeletePrompt', {
+        workspace: record.workspace,
+        defaultValue: `Type ${record.workspace} to confirm hard delete`
+      })
     )
     if (confirmed !== record.workspace) {
       return
@@ -487,16 +509,6 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
                                       </div>
                                     </div>
                                   </div>
-                                  <div className="bg-muted/30 rounded-md border border-dashed px-3 py-2">
-                                    <div className="text-muted-foreground mb-2 font-medium">
-                                      {t('workspaceManager.stats.capabilities', { defaultValue: 'Capabilities' })}
-                                    </div>
-                                    {Object.entries(workspaceStats[record.workspace].capabilities || {}).map(([key, value]) => (
-                                      <div key={`${record.workspace}-capability-${key}`} className="text-muted-foreground">
-                                        {translateCapabilityLabel(key)}: {translateCapabilityStatus(value)}
-                                      </div>
-                                    ))}
-                                  </div>
                                 </div>
                               )}
                             </div>
@@ -511,7 +523,19 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
                                   : t('workspaceManager.switch', 'Switch')}
                               </Button>
                               {!isGuestMode && !record.is_protected && (
-                                <Button variant="ghost" size="sm" onClick={() => void handleSoftDelete(record)}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={shouldDisableSoftDelete(record.workspace, currentWorkspace)}
+                                  tooltip={
+                                    shouldDisableSoftDelete(record.workspace, currentWorkspace)
+                                      ? t('workspaceManager.softDeleteDisabledCurrent', {
+                                          defaultValue: 'Switch to another workspace before soft deleting it.'
+                                        })
+                                      : undefined
+                                  }
+                                  onClick={() => void handleSoftDelete(record)}
+                                >
                                   {t('workspaceManager.softDelete', 'Soft Delete')}
                                 </Button>
                               )}
@@ -558,7 +582,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
                               {t('workspaceManager.restore', 'Restore')}
                             </Button>
                           )}
-                          {isAdmin && !record.is_protected && (
+                          {isAdmin && !record.is_protected && ['soft_deleted', 'delete_failed'].includes(record.status) && (
                             <Button variant="destructive" size="sm" onClick={() => void handleHardDelete(record)}>
                               {t('workspaceManager.hardDelete', 'Hard Delete')}
                             </Button>
