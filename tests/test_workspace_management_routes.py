@@ -171,6 +171,24 @@ def test_create_workspace_as_guest_sets_creator_and_owner_when_enabled(
     assert stored["owners"] == ["guest"]
 
 
+def test_create_workspace_rejects_non_ascii_identifier(workspace_app):
+    client, _, _ = workspace_app
+
+    response = client.post(
+        "/workspaces",
+        json={
+            "workspace": "作业回顾",
+            "display_name": "作业回顾",
+            "description": "guest workspace",
+            "visibility": "private",
+        },
+        headers={"Authorization": f"Bearer {_build_token('alice', 'user')}"},
+    )
+
+    assert response.status_code == 422
+    assert "letters, numbers, and underscores" in response.text
+
+
 def test_create_workspace_without_authorization_header_returns_403_even_when_guest_create_enabled(
     workspace_app_factory,
 ):

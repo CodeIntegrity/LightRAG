@@ -144,8 +144,11 @@
     "successMessage": "Login succeeded",
     "errorEmptyFields": "Please enter your username and password",
     "errorInvalidCredentials": "Login failed, please check username and password",
+    "errorGuestLogin": "Guest login is currently unavailable",
     "authDisabled": "Authentication is disabled. Using login free mode.",
-    "guestMode": "Login Free"
+    "guestMode": "Login Free",
+    "guestLoginEntry": "Continue as guest",
+    "guestSuccess": "Guest access enabled."
   },
   "common": {
     "cancel": "Cancel",
@@ -852,6 +855,8 @@
     "deletedDescription": "Track deleted workspaces, restores, and any hard-delete jobs that are still running.",
     "workspacePlaceholder": "workspace_name",
     "workspaceLabel": "Workspace key",
+    "workspaceHint": "Use only letters, numbers, and underscores.",
+    "invalidWorkspace": "Workspace key can only contain letters, numbers, and underscores.",
     "displayNamePlaceholder": "Display name",
     "displayNameLabel": "Display name",
     "descriptionPlaceholder": "Description",

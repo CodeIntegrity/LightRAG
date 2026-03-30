@@ -82,6 +82,11 @@ export const shouldDisableSoftDelete = (
   currentWorkspace: string
 ): boolean => workspaceName === currentWorkspace
 
+export const WORKSPACE_IDENTIFIER_PATTERN = /^[A-Za-z0-9_]+$/
+
+export const isValidWorkspaceIdentifier = (workspaceName: string): boolean =>
+  WORKSPACE_IDENTIFIER_PATTERN.test(workspaceName)
+
 export default function WorkspaceManagerDialog({ open, onOpenChange }: WorkspaceManagerDialogProps) {
   const { t } = useTranslation()
   const currentWorkspace = useSettingsStore.use.currentWorkspace()
@@ -213,14 +218,24 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
 
   const handleCreate = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault()
-    if (workspace.trim().length === 0 || !workspaceCreateAllowed) {
+    const trimmedWorkspace = workspace.trim()
+    if (trimmedWorkspace.length === 0 || !workspaceCreateAllowed) {
+      return
+    }
+    if (!isValidWorkspaceIdentifier(trimmedWorkspace)) {
+      toast.error(
+        t(
+          'workspaceManager.invalidWorkspace',
+          'Workspace key can only contain letters, numbers, and underscores.'
+        )
+      )
       return
     }
 
     try {
       await createWorkspace({
-        workspace: workspace.trim(),
-        display_name: displayName.trim() || workspace.trim(),
+        workspace: trimmedWorkspace,
+        display_name: displayName.trim() || trimmedWorkspace,
         description: description.trim(),
         visibility
       })
@@ -304,7 +319,19 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
   const currentWorkspaceRecord = workspaces.find((item) => item.workspace === currentWorkspace)
   const currentWorkspaceLabel =
     currentWorkspaceRecord?.display_name || currentWorkspace || t('workspaceManager.summary.none', 'Not selected')
-  const canCreateWorkspace = workspace.trim().length > 0 && workspaceCreateAllowed
+  const trimmedWorkspace = workspace.trim()
+  const workspaceIdentifierInvalid =
+    trimmedWorkspace.length > 0 && !isValidWorkspaceIdentifier(trimmedWorkspace)
+  const workspaceIdentifierMessage = t(
+    'workspaceManager.invalidWorkspace',
+    'Workspace key can only contain letters, numbers, and underscores.'
+  )
+  const workspaceIdentifierHint = t(
+    'workspaceManager.workspaceHint',
+    'Use only letters, numbers, and underscores.'
+  )
+  const canCreateWorkspace =
+    trimmedWorkspace.length > 0 && !workspaceIdentifierInvalid && workspaceCreateAllowed
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -373,6 +400,13 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
                         placeholder={t('workspaceManager.workspacePlaceholder', 'workspace_name')}
                         className="h-10"
                       />
+                      <div
+                        className={`text-xs ${
+                          workspaceIdentifierInvalid ? 'text-destructive' : 'text-muted-foreground'
+                        }`}
+                      >
+                        {workspaceIdentifierInvalid ? workspaceIdentifierMessage : workspaceIdentifierHint}
+                      </div>
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-medium" htmlFor="workspace-display-name">

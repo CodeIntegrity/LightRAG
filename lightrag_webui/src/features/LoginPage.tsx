@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/state'
 import { useSettingsStore } from '@/stores/settings'
-import { loginToServer, getAuthStatus } from '@/api/lightrag'
+import { loginAsGuest, loginToServer, getAuthStatus, type LoginResponse } from '@/api/lightrag'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import { Card, CardContent, CardHeader } from '@/components/ui/Card'
@@ -19,6 +19,7 @@ const LoginPage = () => {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [checkingAuth, setCheckingAuth] = useState(true)
+  const [guestLoginAllowed, setGuestLoginAllowed] = useState(false)
   const authCheckRef = useRef(false); // Prevent duplicate calls in Vite dev mode
 
   useEffect(() => {
@@ -60,11 +61,14 @@ const LoginPage = () => {
           return
         }
 
+        setGuestLoginAllowed(status.guest_login_allowed === true)
+
         // Only set checkingAuth to false if we need to show the login page
         setCheckingAuth(false);
 
       } catch (error) {
         console.error('Failed to check auth configuration:', error)
+        setGuestLoginAllowed(false)
         // Also set checkingAuth to false in case of error
         setCheckingAuth(false);
       }
@@ -84,6 +88,43 @@ const LoginPage = () => {
     return null
   }
 
+  const applyLoginResult = (response: LoginResponse, loginIdentity: string) => {
+    const previousUsername = localStorage.getItem('LIGHTRAG-PREVIOUS-USER')
+    const isSameUser = previousUsername === loginIdentity
+
+    if (isSameUser) {
+      console.log('Same user logging in, preserving chat history')
+    } else {
+      console.log('Different user logging in, clearing chat history')
+      useSettingsStore.getState().setRetrievalHistory([])
+      useSettingsStore.getState().clearWorkspaceDisplayNames()
+    }
+
+    localStorage.setItem('LIGHTRAG-PREVIOUS-USER', loginIdentity)
+
+    const isGuestMode = response.auth_mode === 'disabled' || response.auth_mode === 'guest'
+    login(
+      response.access_token,
+      isGuestMode,
+      response.core_version,
+      response.api_version,
+      response.webui_title || null,
+      response.webui_description || null
+    )
+
+    if (response.core_version || response.api_version) {
+      sessionStorage.setItem('VERSION_CHECKED_FROM_LOGIN', 'true');
+    }
+
+    if (isGuestMode) {
+      toast.info(response.message || t('login.guestSuccess', 'Guest access enabled.'))
+    } else {
+      toast.success(t('login.successMessage'))
+    }
+
+    navigate('/')
+  }
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!username || !password) {
@@ -94,44 +135,7 @@ const LoginPage = () => {
     try {
       setLoading(true)
       const response = await loginToServer(username, password)
-
-      // Get previous username from localStorage
-      const previousUsername = localStorage.getItem('LIGHTRAG-PREVIOUS-USER')
-
-      // Check if it's the same user logging in again
-      const isSameUser = previousUsername === username
-
-      // If it's not the same user, clear chat history
-      if (isSameUser) {
-        console.log('Same user logging in, preserving chat history')
-      } else {
-        console.log('Different user logging in, clearing chat history')
-        // Directly clear chat history instead of setting a flag
-        useSettingsStore.getState().setRetrievalHistory([])
-        useSettingsStore.getState().clearWorkspaceDisplayNames()
-      }
-
-      // Update previous username
-      localStorage.setItem('LIGHTRAG-PREVIOUS-USER', username)
-
-      // Check authentication mode
-      const isGuestMode = response.auth_mode === 'disabled'
-      login(response.access_token, isGuestMode, response.core_version, response.api_version, response.webui_title || null, response.webui_description || null)
-
-      // Set session flag for version check
-      if (response.core_version || response.api_version) {
-        sessionStorage.setItem('VERSION_CHECKED_FROM_LOGIN', 'true');
-      }
-
-      if (isGuestMode) {
-        // Show authentication disabled notification
-        toast.info(response.message || t('login.authDisabled', 'Authentication is disabled. Using guest access.'))
-      } else {
-        toast.success(t('login.successMessage'))
-      }
-
-      // Navigate to home page after successful login
-      navigate('/')
+      applyLoginResult(response, username)
     } catch (error) {
       console.error('Login failed...', error)
       toast.error(t('login.errorInvalidCredentials'))
@@ -140,6 +144,19 @@ const LoginPage = () => {
       useAuthStore.getState().logout()
       // Clear local storage
       localStorage.removeItem('LIGHTRAG-API-TOKEN')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleGuestLogin = async () => {
+    try {
+      setLoading(true)
+      const response = await loginAsGuest()
+      applyLoginResult(response, 'guest')
+    } catch (error) {
+      console.error('Guest login failed...', error)
+      toast.error(t('login.errorGuestLogin', 'Guest login is currently unavailable'))
     } finally {
       setLoading(false)
     }
@@ -201,6 +218,17 @@ const LoginPage = () => {
             >
               {loading ? t('login.loggingIn') : t('login.loginButton')}
             </Button>
+            {guestLoginAllowed && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full px-0 text-sm font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
+                disabled={loading}
+                onClick={() => void handleGuestLogin()}
+              >
+                {t('login.guestLoginEntry', 'Continue as guest')}
+              </Button>
+            )}
           </form>
         </CardContent>
       </Card>

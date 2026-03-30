@@ -84,10 +84,6 @@ for path in whitelist_paths:
         else:
             whitelist_patterns.append((path, False))  # (exact_path, is_prefix_match)
 
-# Global authentication configuration
-auth_configured = bool(auth_handler.accounts)
-
-
 def get_combined_auth_dependency(api_key: Optional[str] = None):
     """
     Create a combined authentication dependency that implements authentication logic
@@ -211,11 +207,19 @@ def get_combined_auth_dependency(api_key: Optional[str] = None):
                             logger.warning(f"Token auto-renew failed: {e}")
                 # ========== End of Token Auto-Renewal Logic ==========
 
+                auth_enabled = bool(auth_handler.accounts)
+                guest_login_enabled = auth_enabled and bool(
+                    getattr(global_args, "enable_guest_login_entry", False)
+                )
+
                 # Accept guest token if no auth is configured
-                if not auth_configured and token_info.get("role") == "guest":
+                if not auth_enabled and token_info.get("role") == "guest":
                     return
                 # Accept non-guest token if auth is configured
-                if auth_configured and token_info.get("role") != "guest":
+                if auth_enabled and token_info.get("role") != "guest":
+                    return
+                # Accept guest token when explicit guest login entry is enabled
+                if guest_login_enabled and token_info.get("role") == "guest":
                     return
 
                 # Token validation failed, immediately return 401 error
@@ -230,7 +234,9 @@ def get_combined_auth_dependency(api_key: Optional[str] = None):
                 # For other exceptions, continue processing
 
         # 3. Acept all request if no API protection needed
-        if not auth_configured and not api_key_configured:
+        auth_enabled = bool(auth_handler.accounts)
+
+        if not auth_enabled and not api_key_configured:
             return
 
         # 4. Validate API key if provided and API-Key authentication is configured
@@ -244,7 +250,7 @@ def get_combined_auth_dependency(api_key: Optional[str] = None):
         ### Authentication failed ####
 
         # if password authentication is configured but not provided, ensure 401 error if auth_configured
-        if auth_configured and not token:
+        if auth_enabled and not token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="No credentials provided. Please login.",

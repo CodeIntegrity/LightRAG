@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import inspect
-import re
-from typing import Any, Awaitable, Callable, Literal, Optional
+from typing import Any, Awaitable, Callable, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from lightrag.api.auth import auth_handler
 from lightrag.api.utils_api import get_combined_auth_dependency
@@ -15,6 +14,8 @@ from lightrag.api.workspace_registry import (
     WorkspaceRegistryError,
     WorkspaceRegistryStore,
     WorkspaceStateTransitionError,
+    WorkspaceValidationError,
+    normalize_workspace_identifier,
 )
 
 
@@ -28,6 +29,11 @@ class WorkspaceCreateRequest(BaseModel):
     display_name: str = Field(min_length=1)
     description: str = Field(default="")
     visibility: WorkspaceVisibility = Field(default="public")
+
+    @field_validator("workspace")
+    @classmethod
+    def validate_workspace(cls, value: str) -> str:
+        return normalize_workspace_identifier(value)
 
 
 def _normalize_workspace_response(record: dict[str, Any]) -> dict[str, Any]:
@@ -55,7 +61,10 @@ def _active_workspace_from_request(request: Request) -> str | None:
     workspace = request.headers.get("LIGHTRAG-WORKSPACE", "").strip()
     if not workspace:
         return None
-    return re.sub(r"[^a-zA-Z0-9_]", "_", workspace)
+    try:
+        return normalize_workspace_identifier(workspace)
+    except WorkspaceValidationError:
+        return None
 
 
 def workspace_create_allowed(

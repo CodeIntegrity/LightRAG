@@ -144,8 +144,11 @@
     "successMessage": "登录成功",
     "errorEmptyFields": "请输入您的用户名和密码",
     "errorInvalidCredentials": "登录失败，请检查用户名和密码",
+    "errorGuestLogin": "当前无法使用游客登录",
     "authDisabled": "认证已禁用，使用无需登陆模式。",
-    "guestMode": "无需登陆"
+    "guestMode": "无需登陆",
+    "guestLoginEntry": "游客访问",
+    "guestSuccess": "已启用游客访问。"
   },
   "common": {
     "cancel": "取消",
@@ -852,6 +855,8 @@
     "deletedDescription": "跟踪已删除工作区、恢复操作，以及仍在运行的硬删除任务。",
     "workspacePlaceholder": "workspace_name",
     "workspaceLabel": "工作区标识",
+    "workspaceHint": "仅允许字母、数字和下划线。",
+    "invalidWorkspace": "工作区标识仅允许字母、数字和下划线。",
     "displayNamePlaceholder": "显示名称",
     "displayNameLabel": "显示名称",
     "descriptionPlaceholder": "描述",

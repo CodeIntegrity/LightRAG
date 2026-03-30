@@ -63,7 +63,13 @@ def _build_token(username: str, role: str) -> str:
     return auth_handler.create_token(username, role=role)
 
 
-def _build_test_client(monkeypatch, tmp_path, *, allow_guest_workspace_create: bool = False):
+def _build_test_client(
+    monkeypatch,
+    tmp_path,
+    *,
+    allow_guest_workspace_create: bool = False,
+    enable_guest_login_entry: bool = False,
+):
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
 
     from lightrag.api import config as api_config
@@ -109,6 +115,7 @@ def _build_test_client(monkeypatch, tmp_path, *, allow_guest_workspace_create: b
     args = api_config.parse_args()
     args.workspace_registry_path = str(tmp_path / "workspaces" / "registry.sqlite3")
     args.allow_guest_workspace_create = allow_guest_workspace_create
+    args.enable_guest_login_entry = enable_guest_login_entry
     app = lightrag_server.create_app(args)
     return TestClient(app)
 
@@ -277,6 +284,32 @@ def test_health_exposes_workspace_create_capability_for_guest_when_enabled(
     assert response.json()["capabilities"]["workspace_create"] is True
 
 
+def test_health_exposes_guest_login_capability_when_enabled(monkeypatch, tmp_path):
+    with _build_test_client(
+        monkeypatch,
+        tmp_path,
+        allow_guest_workspace_create=False,
+        enable_guest_login_entry=True,
+    ) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["capabilities"]["guest_login"] is True
+
+
+def test_health_exposes_guest_login_capability_when_disabled(monkeypatch, tmp_path):
+    with _build_test_client(
+        monkeypatch,
+        tmp_path,
+        allow_guest_workspace_create=False,
+        enable_guest_login_entry=False,
+    ) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["capabilities"]["guest_login"] is False
+
+
 def test_health_exposes_workspace_create_capability_for_guest_when_disabled(
     monkeypatch, tmp_path
 ):
@@ -350,5 +383,43 @@ def test_health_reports_workspace_create_false_for_guest_token_when_auth_is_conf
 
         assert response.status_code == 200
         assert response.json()["capabilities"]["workspace_create"] is False
+    finally:
+        auth_handler.accounts = original_accounts
+
+
+def test_login_guest_returns_guest_token_when_entry_enabled(monkeypatch, tmp_path):
+    from lightrag.api.auth import auth_handler
+
+    original_accounts = auth_handler.accounts.copy()
+    auth_handler.accounts = {"alice": "secret"}
+    try:
+        with _build_test_client(
+            monkeypatch, tmp_path, enable_guest_login_entry=True
+        ) as client:
+            response = client.post("/login/guest")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["auth_mode"] == "guest"
+        payload = auth_handler.validate_token(body["access_token"])
+        assert payload["role"] == "guest"
+        assert payload["username"] == "guest"
+    finally:
+        auth_handler.accounts = original_accounts
+
+
+def test_login_guest_rejects_when_entry_disabled(monkeypatch, tmp_path):
+    from lightrag.api.auth import auth_handler
+
+    original_accounts = auth_handler.accounts.copy()
+    auth_handler.accounts = {"alice": "secret"}
+    try:
+        with _build_test_client(
+            monkeypatch, tmp_path, enable_guest_login_entry=False
+        ) as client:
+            response = client.post("/login/guest")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Guest login is disabled"
     finally:
         auth_handler.accounts = original_accounts

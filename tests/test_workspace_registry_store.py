@@ -47,6 +47,29 @@ async def test_create_workspace_persists_sqlite_record(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_create_workspace_rejects_invalid_identifier(tmp_path: Path):
+    from lightrag.api.workspace_registry import (
+        WorkspaceRegistryStore,
+        WorkspaceValidationError,
+    )
+
+    store = WorkspaceRegistryStore(tmp_path / "registry.sqlite3")
+    await store.initialize(default_workspace="")
+
+    with pytest.raises(
+        WorkspaceValidationError,
+        match="letters, numbers, and underscores",
+    ):
+        await store.create_workspace(
+            workspace="作业回顾",
+            display_name="作业回顾",
+            description="Long-form corpus",
+            created_by="alice",
+            visibility="private",
+        )
+
+
+@pytest.mark.asyncio
 async def test_begin_hard_delete_records_running_operation(tmp_path: Path):
     from lightrag.api.workspace_registry import WorkspaceRegistryStore
 

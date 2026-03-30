@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+WORKSPACE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
+WORKSPACE_IDENTIFIER_ERROR = (
+    "Workspace identifier may only contain letters, numbers, and underscores."
+)
 
 
 def _utc_now() -> str:
@@ -28,6 +35,23 @@ class WorkspaceStateTransitionError(WorkspaceRegistryError):
     """Raised when a workspace cannot move into the requested state."""
 
 
+class WorkspaceValidationError(WorkspaceRegistryError):
+    """Raised when a workspace identifier is invalid."""
+
+
+def normalize_workspace_identifier(
+    workspace: str, *, allow_empty: bool = False
+) -> str:
+    normalized = str(workspace).strip()
+    if not normalized:
+        if allow_empty:
+            return ""
+        raise WorkspaceValidationError("Workspace identifier is required.")
+    if not WORKSPACE_IDENTIFIER_PATTERN.fullmatch(normalized):
+        raise WorkspaceValidationError(WORKSPACE_IDENTIFIER_ERROR)
+    return normalized
+
+
 class WorkspaceRegistryStore:
     def __init__(self, db_path: str | Path, busy_timeout_ms: int = 5000) -> None:
         self.db_path = Path(db_path)
@@ -45,6 +69,9 @@ class WorkspaceRegistryStore:
         await asyncio.to_thread(self._initialize_sync, default_workspace)
 
     def _initialize_sync(self, default_workspace: str) -> None:
+        default_workspace = normalize_workspace_identifier(
+            default_workspace, allow_empty=True
+        )
         with self._connect() as conn:
             conn.execute(
                 """
@@ -187,6 +214,7 @@ class WorkspaceRegistryStore:
         created_by: str,
         visibility: str = "public",
     ) -> dict[str, Any]:
+        workspace = normalize_workspace_identifier(workspace)
         await asyncio.to_thread(
             self._create_workspace_sync,
             workspace,
@@ -464,6 +492,7 @@ class WorkspaceRegistryStore:
         created_by: str,
         visibility: str,
     ) -> None:
+        workspace = normalize_workspace_identifier(workspace)
         now = _utc_now()
         owners = [created_by] if created_by else []
 

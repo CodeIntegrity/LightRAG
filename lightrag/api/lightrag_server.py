@@ -777,6 +777,24 @@ def create_app(args):
             allow_guest_create=args.allow_guest_workspace_create,
         )
 
+    def _guest_login_capability() -> bool:
+        return bool(auth_handler.accounts) and bool(args.enable_guest_login_entry)
+
+    def _build_guest_login_response(*, auth_mode: str, message: str) -> dict[str, object]:
+        guest_token = auth_handler.create_token(
+            username="guest", role="guest", metadata={"auth_mode": auth_mode}
+        )
+        return {
+            "access_token": guest_token,
+            "token_type": "bearer",
+            "auth_mode": auth_mode,
+            "message": message,
+            "core_version": core_version,
+            "api_version": api_version_display,
+            "webui_title": webui_title,
+            "webui_description": webui_description,
+        }
+
     # Create working directory if it doesn't exist
     Path(args.working_dir).mkdir(parents=True, exist_ok=True)
 
@@ -1460,24 +1478,19 @@ def create_app(args):
 
         if not auth_handler.accounts:
             # Authentication not configured, return guest token
-            guest_token = auth_handler.create_token(
-                username="guest", role="guest", metadata={"auth_mode": "disabled"}
-            )
             return {
                 "auth_configured": False,
-                "access_token": guest_token,
-                "token_type": "bearer",
-                "auth_mode": "disabled",
-                "message": "Authentication is disabled. Using guest access.",
-                "core_version": core_version,
-                "api_version": api_version_display,
-                "webui_title": webui_title,
-                "webui_description": webui_description,
+                "guest_login_allowed": False,
+                **_build_guest_login_response(
+                    auth_mode="disabled",
+                    message="Authentication is disabled. Using guest access.",
+                ),
             }
 
         return {
             "auth_configured": True,
             "auth_mode": "enabled",
+            "guest_login_allowed": _guest_login_capability(),
             "core_version": core_version,
             "api_version": api_version_display,
             "webui_title": webui_title,
@@ -1488,19 +1501,10 @@ def create_app(args):
     async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         if not auth_handler.accounts:
             # Authentication not configured, return guest token
-            guest_token = auth_handler.create_token(
-                username="guest", role="guest", metadata={"auth_mode": "disabled"}
+            return _build_guest_login_response(
+                auth_mode="disabled",
+                message="Authentication is disabled. Using guest access.",
             )
-            return {
-                "access_token": guest_token,
-                "token_type": "bearer",
-                "auth_mode": "disabled",
-                "message": "Authentication is disabled. Using guest access.",
-                "core_version": core_version,
-                "api_version": api_version_display,
-                "webui_title": webui_title,
-                "webui_description": webui_description,
-            }
         username = form_data.username
         if not auth_handler.verify_password(username, form_data.password):
             raise HTTPException(status_code=401, detail="Incorrect credentials")
@@ -1519,6 +1523,20 @@ def create_app(args):
             "webui_title": webui_title,
             "webui_description": webui_description,
         }
+
+    @app.post("/login/guest")
+    async def login_guest():
+        if not auth_handler.accounts:
+            return _build_guest_login_response(
+                auth_mode="disabled",
+                message="Authentication is disabled. Using guest access.",
+            )
+        if not _guest_login_capability():
+            raise HTTPException(status_code=403, detail="Guest login is disabled")
+        return _build_guest_login_response(
+            auth_mode="guest",
+            message="Guest access enabled.",
+        )
 
     @app.get(
         "/health",
@@ -1641,6 +1659,7 @@ def create_app(args):
                 "auth_mode": auth_mode,
                 "capabilities": {
                     "workspace_create": _workspace_create_capability_for_request(request),
+                    "guest_login": _guest_login_capability(),
                 },
                 "pipeline_busy": pipeline_status.get("busy", False),
                 "keyed_locks": keyed_lock_info,

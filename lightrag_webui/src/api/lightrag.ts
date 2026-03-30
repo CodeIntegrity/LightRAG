@@ -244,6 +244,7 @@ export type LightragStatus = {
   input_directory: string
   capabilities?: {
     workspace_create?: boolean
+    guest_login?: boolean
   }
   configuration: {
     llm_binding: string
@@ -484,9 +485,10 @@ export type StatusCountsResponse = {
 
 export type AuthStatusResponse = {
   auth_configured: boolean
+  guest_login_allowed?: boolean
   access_token?: string
   token_type?: string
-  auth_mode?: 'enabled' | 'disabled'
+  auth_mode?: 'enabled' | 'disabled' | 'guest'
   message?: string
   core_version?: string
   api_version?: string
@@ -512,7 +514,7 @@ export type PipelineStatusResponse = {
 export type LoginResponse = {
   access_token: string
   token_type: string
-  auth_mode?: 'enabled' | 'disabled'  // Authentication mode identifier
+  auth_mode?: 'enabled' | 'disabled' | 'guest'  // Authentication mode identifier
   message?: string                    // Optional message
   core_version?: string
   api_version?: string
@@ -565,9 +567,7 @@ const silentRefreshGuestToken = async (): Promise<string> => {
 
       if (response.data.access_token && !response.data.auth_configured) {
         const newToken = response.data.access_token;
-        // Update localStorage
         localStorage.setItem('LIGHTRAG-API-TOKEN', newToken);
-        // Update auth state
         useAuthStore.getState().login(
           newToken,
           true,
@@ -577,9 +577,29 @@ const silentRefreshGuestToken = async (): Promise<string> => {
           response.data.webui_description || null
         );
         return newToken;
-      } else {
-        throw new Error('Failed to get guest token');
       }
+
+      if (response.data.guest_login_allowed === true) {
+        const guestLoginResponse = await axios.post('/login/guest', null, {
+          baseURL: backendBaseUrl,
+          headers: { 'X-Skip-Interceptor': 'true' }
+        });
+        if (guestLoginResponse.data.access_token) {
+          const newToken = guestLoginResponse.data.access_token;
+          localStorage.setItem('LIGHTRAG-API-TOKEN', newToken);
+          useAuthStore.getState().login(
+            newToken,
+            true,
+            guestLoginResponse.data.core_version,
+            guestLoginResponse.data.api_version,
+            guestLoginResponse.data.webui_title || null,
+            guestLoginResponse.data.webui_description || null
+          );
+          return newToken;
+        }
+      }
+
+      throw new Error('Failed to get guest token');
     } finally {
       isRefreshingGuestToken = false;
       refreshTokenPromise = null;
@@ -1373,6 +1393,11 @@ export const loginToServer = async (username: string, password: string): Promise
   });
 
   return response.data;
+}
+
+export const loginAsGuest = async (): Promise<LoginResponse> => {
+  const response = await axiosInstance.post('/login/guest')
+  return response.data
 }
 
 /**

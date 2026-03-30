@@ -280,7 +280,7 @@ describe('WorkspaceManagerDialog', () => {
     vi.spyOn(ReactModule, 'useState')
       .mockImplementationOnce((() => [[], noop]) as never)
       .mockImplementationOnce((() => [false, noop]) as never)
-      .mockImplementationOnce((() => ['workspace-alpha', noop]) as never)
+      .mockImplementationOnce((() => ['workspace_alpha', noop]) as never)
       .mockImplementationOnce((() => ['Workspace Alpha', noop]) as never)
       .mockImplementationOnce((() => ['A shared workspace', noop]) as never)
       .mockImplementationOnce((() => ['private', noop]) as never)
@@ -418,6 +418,42 @@ describe('WorkspaceManagerDialog', () => {
 
     expect(toast.error).toHaveBeenCalled()
     expect(checkSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('blocks invalid workspace identifiers before calling createWorkspace', async () => {
+    const { useBackendState } = await import('@/stores/state')
+    vi.spyOn(useBackendState.use, 'workspaceCreateAllowed').mockReturnValue(true)
+
+    const api = await import('@/api/lightrag')
+    const createWorkspaceMock = api.createWorkspace as unknown as ReturnType<typeof vi.fn>
+    createWorkspaceMock.mockReset()
+
+    const ReactModule = await import('react')
+    const actualUseState = ReactModule.useState
+    const noop = () => undefined
+
+    vi.spyOn(ReactModule, 'useState')
+      .mockImplementationOnce((() => [[], noop]) as never)
+      .mockImplementationOnce((() => [false, noop]) as never)
+      .mockImplementationOnce((() => ['作业回顾', noop]) as never)
+      .mockImplementationOnce((() => ['作业回顾', noop]) as never)
+      .mockImplementationOnce((() => ['', noop]) as never)
+      .mockImplementationOnce((() => ['private', noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementation(actualUseState as never)
+
+    const module = await import('./WorkspaceManagerDialog')
+    autoSubmitWorkspaceCreateForm = true
+    renderToString(<module.default open onOpenChange={() => undefined} />)
+    await Promise.resolve()
+    await Promise.resolve()
+    autoSubmitWorkspaceCreateForm = false
+
+    expect(createWorkspaceMock).not.toHaveBeenCalled()
+    expect(toast.error).toHaveBeenCalledWith(
+      'Workspace key can only contain letters, numbers, and underscores.'
+    )
   })
 
   test('admin-only hard delete action is hidden when no admin token is present', async () => {

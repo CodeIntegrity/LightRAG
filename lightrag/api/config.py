@@ -401,6 +401,9 @@ def parse_args() -> argparse.Namespace:
     )
     args.token_expire_hours = get_env_value("TOKEN_EXPIRE_HOURS", 48, float)
     args.guest_token_expire_hours = get_env_value("GUEST_TOKEN_EXPIRE_HOURS", 24, float)
+    args.enable_guest_login_entry = get_env_value(
+        "ENABLE_GUEST_LOGIN_ENTRY", False, bool
+    )
     args.jwt_algorithm = get_env_value("JWT_ALGORITHM", "HS256")
 
     # Token auto-renewal configuration (sliding window expiration)
