@@ -1,0 +1,21 @@
+{
+  "goal": "Refresh the WebUI automatically after switching workspace.",
+  "deliverable": "Frontend change plus test coverage for full reload on workspace switch.",
+  "constraints": [
+    "frontend-only",
+    "preserve persisted workspace selection",
+    "scope limited to workspace manager switch action"
+  ],
+  "acceptance_criteria": [
+    "switch action updates selected workspace",
+    "page reloads automatically",
+    "selected workspace remains active after reload",
+    "tests cover reload behavior"
+  ],
+  "non_goals": [
+    "no soft refresh orchestration",
+    "no backend changes"
+  ],
+  "autonomy_mode": "interactive_governed",
+  "user_confirmation": "A"
+}

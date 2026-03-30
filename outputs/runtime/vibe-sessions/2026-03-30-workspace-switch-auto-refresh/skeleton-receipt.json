@@ -1,0 +1,19 @@
+{
+  "stage": "skeleton_check",
+  "date": "2026-03-30",
+  "repo": "/root/project/LightRAG",
+  "branch": "main",
+  "nexus_map_read": true,
+  "key_files": [
+    ".nexus-map/INDEX.md",
+    ".nexus-map/arch/systems.md",
+    ".nexus-map/arch/dependencies.md",
+    ".nexus-map/arch/test_coverage.md",
+    ".nexus-map/hotspots/git_forensics.md",
+    ".nexus-map/concepts/domains.md",
+    "lightrag_webui/src/components/workspace/WorkspaceManagerDialog.tsx",
+    "lightrag_webui/src/stores/settings.ts",
+    "lightrag_webui/src/stores/state.ts"
+  ],
+  "finding": "Workspace switching currently updates persisted state but does not force page-level refresh, so stale workspace-scoped UI can remain visible."
+}

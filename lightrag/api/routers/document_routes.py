@@ -2268,11 +2268,12 @@ def create_document_routes(
             get_namespace_lock,
         )
 
+        current_rag, current_doc_manager = _current_runtime_objects()
         pipeline_status = await get_namespace_data(
-            "pipeline_status", workspace=rag.workspace
+            "pipeline_status", workspace=current_rag.workspace
         )
         pipeline_status_lock = get_namespace_lock(
-            "pipeline_status", workspace=rag.workspace
+            "pipeline_status", workspace=current_rag.workspace
         )
 
         async with pipeline_status_lock:
@@ -2284,12 +2285,13 @@ def create_document_routes(
                 )
 
         try:
-            rag.prompt_version_store.activate_version("indexing", request.version_id)
+            current_rag.prompt_version_store.activate_version(
+                "indexing", request.version_id
+            )
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
         track_id = generate_track_id("rebuild")
-        current_rag, current_doc_manager = _current_runtime_objects()
         background_tasks.add_task(
             background_rebuild_documents_from_indexing_version,
             current_rag,
@@ -2389,13 +2391,14 @@ def create_document_routes(
             HTTPException: If the file type is not supported (400), file too large (413), or other errors occur (500).
         """
         try:
+            current_rag, current_doc_manager = _current_runtime_objects()
             # Sanitize filename to prevent Path Traversal attacks
-            safe_filename = sanitize_filename(file.filename, doc_manager.input_dir)
+            safe_filename = sanitize_filename(file.filename, current_doc_manager.input_dir)
 
-            if not doc_manager.is_supported_file(safe_filename):
+            if not current_doc_manager.is_supported_file(safe_filename):
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Unsupported file type. Supported types: {doc_manager.supported_extensions}",
+                    detail=f"Unsupported file type. Supported types: {current_doc_manager.supported_extensions}",
                 )
 
             # Check file size limit (if configured)
@@ -2420,7 +2423,9 @@ def create_document_routes(
                     )
 
             # Check if filename already exists in doc_status storage
-            existing_doc_data = await rag.doc_status.get_doc_by_file_path(safe_filename)
+            existing_doc_data = await current_rag.doc_status.get_doc_by_file_path(
+                safe_filename
+            )
             if existing_doc_data:
                 # Get document status and track_id from existing document
                 status = existing_doc_data.get("status", "unknown")
@@ -2432,7 +2437,7 @@ def create_document_routes(
                     track_id=existing_track_id,
                 )
 
-            file_path = doc_manager.input_dir / safe_filename
+            file_path = current_doc_manager.input_dir / safe_filename
             # Check if file already exists in file system
             if file_path.exists():
                 return InsertResponse(
@@ -2481,7 +2486,6 @@ def create_document_routes(
                 )
 
             track_id = generate_track_id("upload")
-            current_rag, _ = _current_runtime_objects()
 
             # Add to background tasks and get track_id
             background_tasks.add_task(
@@ -2694,12 +2698,13 @@ def create_document_routes(
             get_namespace_lock,
         )
 
+        current_rag, current_doc_manager = _current_runtime_objects()
         # Get pipeline status and lock
         pipeline_status = await get_namespace_data(
-            "pipeline_status", workspace=rag.workspace
+            "pipeline_status", workspace=current_rag.workspace
         )
         pipeline_status_lock = get_namespace_lock(
-            "pipeline_status", workspace=rag.workspace
+            "pipeline_status", workspace=current_rag.workspace
         )
 
         # Check and set status with lock
@@ -2732,17 +2737,17 @@ def create_document_routes(
             # Use drop method to clear all data
             drop_tasks = []
             storages = [
-                rag.text_chunks,
-                rag.full_docs,
-                rag.full_entities,
-                rag.full_relations,
-                rag.entity_chunks,
-                rag.relation_chunks,
-                rag.entities_vdb,
-                rag.relationships_vdb,
-                rag.chunks_vdb,
-                rag.chunk_entity_relation_graph,
-                rag.doc_status,
+                current_rag.text_chunks,
+                current_rag.full_docs,
+                current_rag.full_entities,
+                current_rag.full_relations,
+                current_rag.entity_chunks,
+                current_rag.relation_chunks,
+                current_rag.entities_vdb,
+                current_rag.relationships_vdb,
+                current_rag.chunks_vdb,
+                current_rag.chunk_entity_relation_graph,
+                current_rag.doc_status,
             ]
 
             # Log storage drop start
@@ -2807,7 +2812,7 @@ def create_document_routes(
             deleted_files_count = 0
             file_errors_count = 0
 
-            for file_path in doc_manager.input_dir.glob("*"):
+            for file_path in current_doc_manager.input_dir.glob("*"):
                 if file_path.is_file():
                     try:
                         file_path.unlink()
@@ -2895,15 +2900,18 @@ def create_document_routes(
                 get_all_update_flags_status,
             )
 
+            current_rag, _ = _current_runtime_objects()
             pipeline_status = await get_namespace_data(
-                "pipeline_status", workspace=rag.workspace
+                "pipeline_status", workspace=current_rag.workspace
             )
             pipeline_status_lock = get_namespace_lock(
-                "pipeline_status", workspace=rag.workspace
+                "pipeline_status", workspace=current_rag.workspace
             )
 
             # Get update flags status for all namespaces
-            update_status = await get_all_update_flags_status(workspace=rag.workspace)
+            update_status = await get_all_update_flags_status(
+                workspace=current_rag.workspace
+            )
 
             # Convert MutableBoolean objects to regular boolean values
             processed_update_status = {}
@@ -3111,11 +3119,12 @@ def create_document_routes(
                 get_namespace_lock,
             )
 
+            current_rag, current_doc_manager = _current_runtime_objects()
             pipeline_status = await get_namespace_data(
-                "pipeline_status", workspace=rag.workspace
+                "pipeline_status", workspace=current_rag.workspace
             )
             pipeline_status_lock = get_namespace_lock(
-                "pipeline_status", workspace=rag.workspace
+                "pipeline_status", workspace=current_rag.workspace
             )
 
             # Check if pipeline is busy with proper lock
@@ -3128,7 +3137,6 @@ def create_document_routes(
                     )
 
             # Add deletion task to background tasks
-            current_rag, current_doc_manager = _current_runtime_objects()
             background_tasks.add_task(
                 background_delete_documents,
                 current_rag,
@@ -3525,11 +3533,12 @@ def create_document_routes(
                 get_namespace_lock,
             )
 
+            current_rag, _ = _current_runtime_objects()
             pipeline_status = await get_namespace_data(
-                "pipeline_status", workspace=rag.workspace
+                "pipeline_status", workspace=current_rag.workspace
             )
             pipeline_status_lock = get_namespace_lock(
-                "pipeline_status", workspace=rag.workspace
+                "pipeline_status", workspace=current_rag.workspace
             )
 
             async with pipeline_status_lock:

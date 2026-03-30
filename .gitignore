@@ -53,6 +53,7 @@ inputs/
 output/
 rag_storage/
 data/
+workspaces/
 
 # Evaluation results
 lightrag/evaluation/results/
