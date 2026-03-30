@@ -1652,6 +1652,7 @@ async def _merge_entities_impl(
                 "description": description,
                 "keywords": keywords,
                 "weight": weight,
+                "file_path": edge_data.get("file_path", ""),
             }
         }
         await relationships_vdb.upsert(relation_data_for_vdb)
@@ -1675,6 +1676,7 @@ async def _merge_entities_impl(
             "source_id": source_id,
             "description": description,
             "entity_type": entity_type,
+            "file_path": merged_entity_data.get("file_path", ""),
         }
     }
     await entities_vdb.upsert(entity_data_for_vdb)
