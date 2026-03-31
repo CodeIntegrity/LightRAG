@@ -1,5 +1,5 @@
 > generated_by: nexus-mapper v2
-> verified_at: 2026-03-25
+> verified_at: 2026-03-31
 > provenance: AST-backed for Python/JavaScript/TypeScript/TSX/Bash; Bash files have module-only coverage, and WebUI internal import relations under `@/...` are supplemented by manual reading because current raw import edges treat those aliases as external.
 
 # 核心领域概念
@@ -94,4 +94,4 @@ LightRAG 至少有三种主要交付面：
 - FastAPI + Ollama 兼容服务
 - React WebUI
 
-再加上 `scripts/setup/` 提供的环境生成与 compose 拼装，仓库实际上仍是“框架 + 服务 + UI + 部署向导”的复合项目；新增的是 `/health` 和 WebUI 都能直接显示当前激活 prompt 版本摘要。
+再加上 `scripts/setup/` 提供的环境生成与 compose 拼装，仓库实际上仍是“框架 + 服务 + UI + 部署向导”的复合项目；当前 `/health` 和 WebUI 仍都能直接显示当前激活 prompt 版本摘要。

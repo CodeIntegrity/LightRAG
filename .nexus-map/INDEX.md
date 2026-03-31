@@ -1,38 +1,38 @@
 > generated_by: nexus-mapper v2
-> verified_at: 2026-03-25
+> verified_at: 2026-03-31
 > provenance: AST-backed for Python/JavaScript/TypeScript/TSX/Bash; Bash files have module-only coverage, and WebUI internal import relations under `@/...` are supplemented by manual reading because current raw import edges treat those aliases as external.
 
 # LightRAG 知识库索引
 
-LightRAG 现在是一个“核心运行时 + 多后端存储 + FastAPI 服务 + React WebUI + 交互式配置向导 + workspace 级 prompt 版本管理”的复合仓库。
+LightRAG 当前仍是一个“核心运行时 + 多后端存储 + FastAPI 服务 + React WebUI + 交互式配置向导 + workspace 级 prompt 版本管理”的复合仓库；这次知识库重建基于 2026-03-31 的源码状态，以及最近 30 天 Git 历史。
 
 ## 一眼看懂
 
-- 主运行时仍由 `lightrag/lightrag.py` 中的 `LightRAG` 驱动，但现在额外挂载 `PromptVersionStore`，把 `indexing` / `retrieval` 两组激活版本注入 `global_config.active_prompt_groups`。
-- 服务主入口仍是 `lightrag/api/lightrag_server.py`，并新增 `lightrag/api/routers/prompt_config_routes.py`；`/health` 现在会暴露 `configuration.active_prompt_versions`。
-- `lightrag/kg/` 继续是四类存储契约的实现中心，Nebula 图存储仍是高风险热点，但本轮最大的跨系统能力新增并不在存储，而在 prompt 版本化。
-- `lightrag_webui/src/` 已扩展到 108 个静态模块，新增 `Prompt Management` 顶层页签，并在 `Retrieval` 页支持临时选择 retrieval 版本或 `Custom / Draft` 覆盖。
-- `scripts/setup/` 仍是仓库第一热点；配置向导、环境模板和配套测试依旧是最高风险联动区。
+- 主运行时仍由 `lightrag/lightrag.py` 中的 `LightRAG` 驱动，并继续通过 `PromptVersionStore` 把 `indexing` / `retrieval` 两组激活版本注入 `global_config.active_prompt_groups`。
+- 服务主入口仍是 `lightrag/api/lightrag_server.py`；当前 impact 分析显示它直接依赖 28 个内部模块，覆盖 document / query / graph / workspace / prompt-config 路由以及 `prompt_version_store`。
+- `lightrag/kg/` 继续是四类存储契约的实现中心；最近 30 天热点表明 Nebula、PostgreSQL、OpenSearch 仍是主力高演化后端。
+- `lightrag_webui/src/` 当前静态可见 134 个模块，前端测试文件已扩展到 18 个，覆盖 API client、workspace、graph workbench、tabs、login 与 prompt 管理。
+- `scripts/setup/` 仍是仓库第一热点；按最近 30 天 Git 历史看，配置向导、环境模板和配套测试依旧是最高风险联动区。
 
 ## 关键事实
 
-- `lightrag.utils` 仍是最大共享底座，静态 fan-in 升到 70 个内部模块。
-- `lightrag.api.lightrag_server` 现在是 23 个内部依赖的最大 fan-out 入口，新增依赖 `lightrag.api.routers.prompt_config_routes`。
-- prompt 版本管理是 workspace 级持久化能力：核心定义在 `lightrag/prompt.py`、`lightrag/prompt_versions.py`、`lightrag/prompt_version_store.py`，运行时在 `lightrag/operate.py` 先应用激活 retrieval 版本，再允许单次请求 `prompt_overrides` 覆盖它。
-- 前端测试证据已经出现：`lightrag_webui/src/` 当前至少有 5 个 `test` 文件，旧知识库里“未发现前端测试”的结论已失效。
+- `lightrag.utils` 仍是最大共享底座；当前 hub-analysis 显示其 fan-in 为 71 个内部模块。
+- `lightrag.api.lightrag_server` 是当前最大的 fan-out 入口；`query_graph --impact` 给出 28 个上游内部依赖、1 个下游依赖（`run_with_gunicorn.py`）。
+- prompt 版本管理仍是 workspace 级持久化能力：核心定义在 `lightrag/prompt.py`、`lightrag/prompt_versions.py`、`lightrag/prompt_version_store.py`，运行时在 `lightrag/operate.py` 先应用激活 retrieval 版本，再允许单次请求 `prompt_overrides` 覆盖它。
+- `tests/` 当前静态可见 60 个模块；前端测试不再只是 util 级，而是已经扩展到 API client、workspace store、graph workbench、workspace 管理和登录页。
 - API 启动面仍需分清两层：`lightrag-server` 直接走 `lightrag_server.py`，`lightrag-gunicorn` 通过 `run_with_gunicorn.py` 复用同一应用工厂。
 
 ## 测试面速览
 
-- `tests/` 当前静态可见 47 个模块，新增 prompt 版本相关测试簇：`test_prompt_versioning.py`、`test_prompt_version_store.py`、`test_prompt_version_runtime.py`、`test_prompt_config_routes.py`、`test_query_prompt_overrides_api.py` 等。
-- `lightrag_webui/src/` 目前静态可见 5 个前端测试文件，已覆盖 `PromptManagement` 和多个 prompt / graph 工具函数。
-- 当前知识库只做静态测试面分析，未实际执行 `./scripts/test.sh`、`pytest` 或 `bun test`。
+- `tests/` 当前静态可见 60 个模块，覆盖核心运行时、prompt 版本、workspace/runtime、document rebuild、存储后端与 setup 向导。
+- `lightrag_webui/src/` 当前静态可见 18 个前端测试文件，已覆盖 `PromptManagement`、`WorkspaceManagerDialog`、`LoginPage`、`lightrag.ts` API client、graph workbench store 与多个 prompt / graph util。
+- 当前知识库只做静态测试面分析，未执行 `pytest`、`./scripts/test.sh` 或 `bun test` 作为知识库生成的一部分。
 
 ## 证据缺口
 
-- AST 结果仍被截断，当前 `truncated_nodes=14816`，因此函数级细节并不完整；本知识库主要依赖 Module/Class 结构、hub 分析、Git 热点和定向文件阅读。
+- AST 结果仍被截断，当前 `truncated_nodes=15276`，因此函数级细节并不完整；本知识库主要依赖 Module/Class 结构、hub 分析、Git 热点和定向文件阅读。
 - Bash 只有 Module 级覆盖，所以 `scripts/setup/` 的依赖关系仍主要来自 `Makefile`、文档与 Git 耦合，而非细粒度 AST 边。
-- WebUI 使用 `@/` 别名导入，当前 `query_graph.py` 会把这些边视为 external；因此前端页面之间的组合关系依赖人工阅读 `App.tsx`、`SiteHeader.tsx`、`RetrievalTesting.tsx` 与 `PromptManagement.tsx` 补证。
+- WebUI 使用 `@/` 别名导入，当前 `query_graph.py` 会把这些边视为 external；因此前端页面之间的组合关系仍依赖 `App.tsx`、`SiteHeader.tsx`、`RetrievalTesting.tsx`、`PromptManagement.tsx` 和 workspace 相关组件的人工补证。
 
 ## [操作指南] 强制执行步骤
 
