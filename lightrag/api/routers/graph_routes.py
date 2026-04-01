@@ -2,10 +2,14 @@
 This module contains all graph-related routes for the LightRAG API.
 """
 
+import os
+import tempfile
 from typing import Optional, Dict, Any, Literal
 import traceback
 from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from starlette.background import BackgroundTask
 
 from lightrag.api.graph_workbench import (
     get_legacy_graph_payload,
@@ -91,6 +95,47 @@ class RelationCreateRequest(BaseModel):
             }
         ],
     )
+
+
+class CustomKGImportRequest(BaseModel):
+    custom_kg: Dict[str, Any] = Field(
+        ...,
+        description="Structured knowledge graph payload with chunks, entities, and relationships.",
+    )
+    full_doc_id: Optional[str] = Field(
+        default=None,
+        description="Optional full document ID associated with the imported KG.",
+    )
+
+    @field_validator("full_doc_id", mode="before")
+    @classmethod
+    def normalize_full_doc_id_before(cls, full_doc_id: Optional[str]) -> Optional[str]:
+        if full_doc_id is None:
+            return None
+        normalized = full_doc_id.strip()
+        return normalized or None
+
+
+class GraphImportResponse(BaseModel):
+    status: Literal["success"]
+    message: str
+    full_doc_id: Optional[str] = None
+    entity_count: int = 0
+    relationship_count: int = 0
+    chunk_count: int = 0
+
+
+class GraphDetailResponse(BaseModel):
+    status: Literal["success"]
+    message: str
+    data: Dict[str, Any]
+
+
+class GraphExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_format: Literal["csv", "excel", "md", "txt"] = "csv"
+    include_vector_data: bool = False
 
 
 class GraphQueryScope(BaseModel):
@@ -317,6 +362,16 @@ def _raise_for_deletion_response(result: GraphDeletionResponse) -> None:
         raise HTTPException(status_code=500, detail=result.message)
 
 
+def _is_not_found_error(detail: Any) -> bool:
+    text = str(detail).lower()
+    return "not found" in text or "does not exist" in text
+
+
+def _cleanup_export_file(path: str) -> None:
+    if os.path.exists(path):
+        os.unlink(path)
+
+
 def create_graph_routes(rag, api_key: Optional[str] = None):
     combined_auth = get_combined_auth_dependency(api_key)
 
@@ -448,6 +503,177 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
             logger.error(traceback.format_exc())
             raise HTTPException(
                 status_code=500, detail=f"Error getting knowledge graph: {str(e)}"
+            )
+
+    @router.post(
+        "/graph/import/custom-kg",
+        response_model=GraphImportResponse,
+        dependencies=[Depends(combined_auth)],
+    )
+    async def import_custom_kg(request: CustomKGImportRequest):
+        try:
+            await rag.ainsert_custom_kg(
+                request.custom_kg,
+                request.full_doc_id,
+            )
+            return GraphImportResponse(
+                status="success",
+                message="Custom knowledge graph imported successfully",
+                full_doc_id=request.full_doc_id,
+                entity_count=len(request.custom_kg.get("entities", [])),
+                relationship_count=len(request.custom_kg.get("relationships", [])),
+                chunk_count=len(request.custom_kg.get("chunks", [])),
+            )
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
+        except Exception as e:
+            logger.error(f"Error importing custom knowledge graph: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error importing custom knowledge graph: {str(e)}",
+            )
+
+    @router.get(
+        "/graph/entity/detail",
+        response_model=GraphDetailResponse,
+        dependencies=[Depends(combined_auth)],
+    )
+    async def get_entity_detail(
+        entity_name: str = Query(..., description="Entity name to retrieve"),
+        include_vector_data: bool = Query(
+            False, description="Include vector store payload in response"
+        ),
+    ):
+        normalized_entity_name = entity_name.strip()
+        if not normalized_entity_name:
+            raise HTTPException(status_code=422, detail="entity_name cannot be empty")
+
+        try:
+            result = await rag.get_entity_info(
+                normalized_entity_name,
+                include_vector_data=include_vector_data,
+            )
+            if not result.get("graph_data"):
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Entity '{normalized_entity_name}' not found",
+                )
+            return GraphDetailResponse(
+                status="success",
+                message="Entity detail retrieved successfully",
+                data=result,
+            )
+        except HTTPException:
+            raise
+        except ValueError as ve:
+            status_code = 404 if _is_not_found_error(ve) else 400
+            raise HTTPException(status_code=status_code, detail=str(ve))
+        except Exception as e:
+            logger.error(
+                f"Error retrieving detail for entity '{normalized_entity_name}': {str(e)}"
+            )
+            logger.error(traceback.format_exc())
+            raise HTTPException(
+                status_code=500, detail=f"Error retrieving entity detail: {str(e)}"
+            )
+
+    @router.get(
+        "/graph/relation/detail",
+        response_model=GraphDetailResponse,
+        dependencies=[Depends(combined_auth)],
+    )
+    async def get_relation_detail(
+        source_entity: str = Query(..., description="Source entity name"),
+        target_entity: str = Query(..., description="Target entity name"),
+        include_vector_data: bool = Query(
+            False, description="Include vector store payload in response"
+        ),
+    ):
+        normalized_source = source_entity.strip()
+        normalized_target = target_entity.strip()
+        if not normalized_source or not normalized_target:
+            raise HTTPException(
+                status_code=422, detail="source_entity and target_entity cannot be empty"
+            )
+
+        try:
+            result = await rag.get_relation_info(
+                normalized_source,
+                normalized_target,
+                include_vector_data=include_vector_data,
+            )
+            if not result.get("graph_data"):
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        f"Relation from '{normalized_source}' to '{normalized_target}' not found"
+                    ),
+                )
+            return GraphDetailResponse(
+                status="success",
+                message="Relation detail retrieved successfully",
+                data=result,
+            )
+        except HTTPException:
+            raise
+        except ValueError as ve:
+            status_code = 404 if _is_not_found_error(ve) else 400
+            raise HTTPException(status_code=status_code, detail=str(ve))
+        except Exception as e:
+            logger.error(
+                f"Error retrieving relation detail for '{normalized_source}' -> '{normalized_target}': {str(e)}"
+            )
+            logger.error(traceback.format_exc())
+            raise HTTPException(
+                status_code=500, detail=f"Error retrieving relation detail: {str(e)}"
+            )
+
+    @router.post("/graph/export", dependencies=[Depends(combined_auth)])
+    async def export_graph(request: GraphExportRequest):
+        suffix_map = {
+            "csv": ".csv",
+            "excel": ".xlsx",
+            "md": ".md",
+            "txt": ".txt",
+        }
+        media_type_map = {
+            "csv": "text/csv",
+            "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "md": "text/markdown",
+            "txt": "text/plain",
+        }
+
+        temp_file = tempfile.NamedTemporaryFile(
+            prefix="lightrag-graph-export-",
+            suffix=suffix_map[request.file_format],
+            delete=False,
+        )
+        temp_path = temp_file.name
+        temp_file.close()
+
+        try:
+            await rag.aexport_data(
+                temp_path,
+                request.file_format,
+                request.include_vector_data,
+            )
+            download_name = f"lightrag-graph-export{suffix_map[request.file_format]}"
+            return FileResponse(
+                temp_path,
+                filename=download_name,
+                media_type=media_type_map[request.file_format],
+                background=BackgroundTask(_cleanup_export_file, temp_path),
+            )
+        except ValueError as ve:
+            _cleanup_export_file(temp_path)
+            raise HTTPException(status_code=400, detail=str(ve))
+        except Exception as e:
+            _cleanup_export_file(temp_path)
+            logger.error(f"Error exporting graph data: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(
+                status_code=500, detail=f"Error exporting graph data: {str(e)}"
             )
 
     @router.post(

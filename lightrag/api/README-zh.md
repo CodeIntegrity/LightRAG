@@ -391,6 +391,7 @@ WebUI 仅支持查询时（query-time）的 `prompt_overrides`，不支持修改
 - `GET /prompt-config/{group_type}/versions`
 - `GET /prompt-config/{group_type}/versions/{version_id}`
 - `POST /prompt-config/{group_type}/versions`
+- `PATCH /prompt-config/{group_type}/versions/{version_id}`
 - `POST /prompt-config/{group_type}/versions/{version_id}/activate`
 - `DELETE /prompt-config/{group_type}/versions/{version_id}`
 - `GET /prompt-config/{group_type}/versions/{version_id}/diff`
@@ -808,10 +809,42 @@ LightRAG采用异步文档索引机制，便于前端监控和查询文档处理
 * `/documents/texts`
 
 **文档处理状态查询端点：**
-* `/track_status/{track_id}`
+* `/documents/track_status/{track_id}`
 
 该端点提供全面的状态信息，包括：
 * 文档处理状态（待处理/处理中/已处理/失败）
 * 内容摘要和元数据
 * 处理失败时的错误信息
 * 创建和更新时间戳
+
+## 直接导入与详情查询端点
+
+服务端还提供一组适合高级集成场景的直接导入与详情查询接口：
+
+**文档 API**
+
+* `POST /documents/import/custom-chunks`
+  * 通过 `ainsert_custom_chunks` 直接导入预切分的文档 chunks
+  * 适合上游系统已自行完成 chunking 的场景
+* `POST /documents/by-ids`
+  * 按一组 `doc_id` 批量查询文档状态
+
+**查询 API**
+
+* `POST /query/raw`
+  * 返回完整的非流式 `aquery_llm` 结果结构
+  * 适合需要同时拿到结构化检索结果与最终 LLM 响应的高级集成场景
+
+**图谱 API**
+
+* `POST /graph/import/custom-kg`
+  * 通过 `ainsert_custom_kg` 直接导入结构化自定义知识图谱 payload
+* `GET /graph/entity/detail`
+  * 查询实体详情
+  * 支持可选参数 `include_vector_data=true`
+* `GET /graph/relation/detail`
+  * 查询关系详情
+  * 支持可选参数 `include_vector_data=true`
+* `POST /graph/export`
+  * 将图数据导出为 `csv`、`excel`、`md` 或 `txt`
+  * 以文件下载形式返回导出结果

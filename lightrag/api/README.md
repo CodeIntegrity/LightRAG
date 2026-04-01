@@ -391,6 +391,7 @@ The server also exposes workspace-scoped prompt version management endpoints:
 - `GET /prompt-config/{group_type}/versions`
 - `GET /prompt-config/{group_type}/versions/{version_id}`
 - `POST /prompt-config/{group_type}/versions`
+- `PATCH /prompt-config/{group_type}/versions/{version_id}`
 - `POST /prompt-config/{group_type}/versions/{version_id}/activate`
 - `DELETE /prompt-config/{group_type}/versions/{version_id}`
 - `GET /prompt-config/{group_type}/versions/{version_id}/diff`
@@ -808,10 +809,42 @@ LightRAG implements asynchronous document indexing to enable frontend monitoring
 * `/documents/texts`
 
 **Document Processing Status Query Endpoint:**
-* `/track_status/{track_id}`
+* `/documents/track_status/{track_id}`
 
 This endpoint provides comprehensive status information including:
 * Document processing status (pending/processing/processed/failed)
 * Content summary and metadata
 * Error messages if processing failed
 * Timestamps for creation and updates
+
+## Direct Import and Detail Endpoints
+
+The server also exposes a small set of direct import and inspection endpoints for advanced integrations:
+
+**Document APIs**
+
+* `POST /documents/import/custom-chunks`
+  * Import a pre-split document directly through `ainsert_custom_chunks`
+  * Best suited for upstream pipelines that already own chunking
+* `POST /documents/by-ids`
+  * Fetch document statuses for a batch of `doc_id` values
+
+**Query APIs**
+
+* `POST /query/raw`
+  * Return the complete non-streaming `aquery_llm` payload
+  * Suitable for advanced integrations that need both structured retrieval data and the final LLM response in one contract
+
+**Graph APIs**
+
+* `POST /graph/import/custom-kg`
+  * Import a structured custom knowledge graph payload through `ainsert_custom_kg`
+* `GET /graph/entity/detail`
+  * Fetch detailed entity information
+  * Supports optional `include_vector_data=true`
+* `GET /graph/relation/detail`
+  * Fetch detailed relation information
+  * Supports optional `include_vector_data=true`
+* `POST /graph/export`
+  * Export graph data to `csv`, `excel`, `md`, or `txt`
+  * Returns the exported file as a download response

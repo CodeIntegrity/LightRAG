@@ -208,6 +208,20 @@ class QueryDataResponse(BaseModel):
     )
 
 
+class QueryRawResponse(BaseModel):
+    status: str = Field(description="Query execution status")
+    message: str = Field(description="Status message")
+    data: Dict[str, Any] = Field(
+        description="Raw structured retrieval data returned by aquery_llm"
+    )
+    metadata: Dict[str, Any] = Field(
+        description="Raw query metadata returned by aquery_llm"
+    )
+    llm_response: Dict[str, Any] = Field(
+        description="LLM response payload including content and streaming metadata"
+    )
+
+
 class StreamChunkResponse(BaseModel):
     """Response model for streaming chunks in NDJSON format"""
 
@@ -1224,6 +1238,26 @@ def create_query_routes(
             raise
         except Exception as e:
             logger.error(f"Error processing data query: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post(
+        "/query/raw",
+        response_model=QueryRawResponse,
+        dependencies=[Depends(combined_auth)],
+    )
+    async def query_raw(request: QueryRequest):
+        """Return the full non-streaming aquery_llm payload."""
+        try:
+            _assert_prompt_override_capability(request)
+            _validate_prompt_overrides_payload(request)
+            param = request.to_query_params(False)
+            param.stream = False
+            response = await rag.aquery_llm(request.query, param=param)
+            return QueryRawResponse(**response)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error processing raw query: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
     return router

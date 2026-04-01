@@ -794,6 +794,77 @@ class StatusCountsResponse(BaseModel):
     )
 
 
+class CustomChunksImportRequest(BaseModel):
+    full_text: str = Field(min_length=1, description="Full document text")
+    text_chunks: list[str] = Field(
+        min_length=1, description="Pre-split text chunks to import"
+    )
+    doc_id: Optional[str] = Field(
+        default=None,
+        description="Optional document ID. If omitted, it will be derived from full_text.",
+    )
+
+    @field_validator("full_text", mode="after")
+    @classmethod
+    def strip_full_text_after(cls, full_text: str) -> str:
+        return full_text.strip()
+
+    @field_validator("text_chunks", mode="after")
+    @classmethod
+    def strip_text_chunks_after(cls, text_chunks: list[str]) -> list[str]:
+        stripped_chunks = [chunk.strip() for chunk in text_chunks]
+        if not all(stripped_chunks):
+            raise ValueError("Text chunks cannot contain empty values")
+        return stripped_chunks
+
+    @field_validator("doc_id", mode="before")
+    @classmethod
+    def normalize_doc_id_before(cls, doc_id: Optional[str]) -> Optional[str]:
+        if doc_id is None:
+            return None
+        normalized = doc_id.strip()
+        return normalized or None
+
+
+class CustomChunksImportResponse(BaseModel):
+    status: Literal["success"] = Field(description="Import status")
+    message: str = Field(description="Result message")
+    doc_id: str = Field(description="Resolved document ID used for import")
+    requested_chunk_count: int = Field(description="Number of chunks submitted")
+
+
+class DocumentsByIdsRequest(BaseModel):
+    doc_ids: list[str] = Field(min_length=1, description="Document IDs to fetch")
+
+    @field_validator("doc_ids", mode="after")
+    @classmethod
+    def validate_doc_ids(cls, doc_ids: list[str]) -> list[str]:
+        if not doc_ids:
+            raise ValueError("Document IDs list cannot be empty")
+
+        validated_ids: list[str] = []
+        for doc_id in doc_ids:
+            if not doc_id or not doc_id.strip():
+                raise ValueError("Document ID cannot be empty")
+            validated_ids.append(doc_id.strip())
+
+        if len(validated_ids) != len(set(validated_ids)):
+            raise ValueError("Document IDs must be unique")
+
+        return validated_ids
+
+
+class DocumentsByIdsResponse(BaseModel):
+    documents: list[DocStatusResponse] = Field(
+        description="Documents found for the requested IDs"
+    )
+    requested_count: int = Field(description="Number of requested document IDs")
+    found_count: int = Field(description="Number of found documents")
+    missing_doc_ids: list[str] = Field(
+        default_factory=list, description="Requested IDs not found in storage"
+    )
+
+
 class PipelineStatusResponse(BaseModel):
     """Response model for pipeline status
 
@@ -830,6 +901,24 @@ class PipelineStatusResponse(BaseModel):
         return format_datetime(value)
 
     model_config = ConfigDict(extra="allow")
+
+
+def _to_doc_status_response(
+    doc_id: str, doc_status: DocProcessingStatus
+) -> DocStatusResponse:
+    return DocStatusResponse(
+        id=doc_id,
+        content_summary=doc_status.content_summary,
+        content_length=doc_status.content_length,
+        status=doc_status.status,
+        created_at=format_datetime(doc_status.created_at),
+        updated_at=format_datetime(doc_status.updated_at),
+        track_id=doc_status.track_id,
+        chunks_count=doc_status.chunks_count,
+        error_msg=doc_status.error_msg,
+        metadata=doc_status.metadata,
+        file_path=normalize_file_path(doc_status.file_path),
+    )
 
 
 class DocumentManager:
@@ -2669,6 +2758,63 @@ def create_document_routes(
             )
         except Exception as e:
             logger.error(f"Error /documents/texts: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post(
+        "/import/custom-chunks",
+        response_model=CustomChunksImportResponse,
+        dependencies=[Depends(combined_auth)],
+    )
+    async def import_custom_chunks(request: CustomChunksImportRequest):
+        try:
+            current_rag, _ = _current_runtime_objects()
+            resolved_doc_id = request.doc_id or compute_mdhash_id(
+                sanitize_text_for_encoding(request.full_text), prefix="doc-"
+            )
+            await current_rag.ainsert_custom_chunks(
+                request.full_text,
+                request.text_chunks,
+                resolved_doc_id,
+            )
+            return CustomChunksImportResponse(
+                status="success",
+                message="Custom chunks imported successfully.",
+                doc_id=resolved_doc_id,
+                requested_chunk_count=len(request.text_chunks),
+            )
+        except Exception as e:
+            logger.error(f"Error /documents/import/custom-chunks: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post(
+        "/by-ids",
+        response_model=DocumentsByIdsResponse,
+        dependencies=[Depends(combined_auth)],
+    )
+    async def get_documents_by_ids(request: DocumentsByIdsRequest):
+        try:
+            current_rag, _ = _current_runtime_objects()
+            docs_by_ids = await current_rag.aget_docs_by_ids(request.doc_ids)
+
+            documents: list[DocStatusResponse] = []
+            missing_doc_ids: list[str] = []
+            for doc_id in request.doc_ids:
+                doc_status = docs_by_ids.get(doc_id)
+                if doc_status is None:
+                    missing_doc_ids.append(doc_id)
+                    continue
+                documents.append(_to_doc_status_response(doc_id, doc_status))
+
+            return DocumentsByIdsResponse(
+                documents=documents,
+                requested_count=len(request.doc_ids),
+                found_count=len(documents),
+                missing_doc_ids=missing_doc_ids,
+            )
+        except Exception as e:
+            logger.error(f"Error /documents/by-ids: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
 

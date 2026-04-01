@@ -1,10 +1,9 @@
+import importlib
 import json
 import sys
-import types
-from types import SimpleNamespace
 
 import pytest
-from fastapi import APIRouter
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 pytestmark = pytest.mark.offline
@@ -45,54 +44,31 @@ def _build_test_client(
     allow_prompt_overrides_via_api: bool,
 ):
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
-    monkeypatch.setenv(
-        "ALLOW_PROMPT_OVERRIDES_VIA_API",
-        "true" if allow_prompt_overrides_via_api else "false",
-    )
-
-    from lightrag.api import config as api_config
-    from lightrag.api import lightrag_server
     from lightrag.api.routers import query_routes as query_routes_module
 
+    query_routes_module = importlib.reload(query_routes_module)
     query_routes_module.router.routes.clear()
-
-    monkeypatch.setattr(lightrag_server, "LightRAG", rag_cls)
-    monkeypatch.setattr(lightrag_server, "OllamaAPI", _DummyOllamaAPI)
     monkeypatch.setattr(
-        lightrag_server, "create_document_routes", lambda *args, **kwargs: APIRouter()
+        query_routes_module, "get_combined_auth_dependency", lambda *_: (lambda: None)
     )
-    monkeypatch.setattr(
-        lightrag_server, "create_graph_routes", lambda *args, **kwargs: APIRouter()
+
+    app = FastAPI()
+    app.include_router(
+        query_routes_module.create_query_routes(
+            rag_cls(),
+            api_key=None,
+            allow_prompt_overrides_via_api=allow_prompt_overrides_via_api,
+        )
     )
-    monkeypatch.setattr(lightrag_server, "check_frontend_build", lambda: (False, False))
-    monkeypatch.setattr(
-        lightrag_server, "get_combined_auth_dependency", lambda *_: (lambda: None)
-    )
-    monkeypatch.setattr(
-        lightrag_server, "global_args", SimpleNamespace(cors_origins="*")
-    )
-    monkeypatch.setattr(lightrag_server, "get_default_workspace", lambda: "default")
-    monkeypatch.setattr(lightrag_server, "cleanup_keyed_lock", lambda: {})
-    fake_ollama_module = types.ModuleType("lightrag.llm.ollama")
 
-    async def _fake_ollama_model_complete(*args, **kwargs):
-        return "ok"
+    @app.get("/health")
+    async def _health():
+        return {
+            "configuration": {
+                "allow_prompt_overrides_via_api": allow_prompt_overrides_via_api
+            }
+        }
 
-    async def _fake_ollama_embed(*args, **kwargs):
-        return []
-
-    fake_ollama_module.ollama_model_complete = _fake_ollama_model_complete
-    fake_ollama_module.ollama_embed = _fake_ollama_embed
-    monkeypatch.setitem(sys.modules, "lightrag.llm.ollama", fake_ollama_module)
-
-    async def _fake_get_namespace_data(*args, **kwargs):
-        return {"busy": False}
-
-    monkeypatch.setattr(lightrag_server, "get_namespace_data", _fake_get_namespace_data)
-
-    args = api_config.parse_args()
-    args.allow_prompt_overrides_via_api = allow_prompt_overrides_via_api
-    app = lightrag_server.create_app(args)
     return TestClient(app)
 
 

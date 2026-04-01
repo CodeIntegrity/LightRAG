@@ -53,6 +53,7 @@ def test_rebuild_endpoint_preserves_source_files_and_starts_scan(
 ):
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
     document_routes = importlib.import_module("lightrag.api.routers.document_routes")
+    document_routes = importlib.reload(document_routes)
     from lightrag.api.routers.document_routes import DocumentManager
     from lightrag.kg import shared_storage
 

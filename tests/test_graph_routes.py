@@ -1,5 +1,6 @@
 import importlib
 import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -37,6 +38,10 @@ class _DummyRAG:
         self.last_relation_edit_request: dict[str, Any] | None = None
         self.last_merge_request: dict[str, Any] | None = None
         self.last_merge_suggestions_request: Any = None
+        self.last_custom_kg_request: dict[str, Any] | None = None
+        self.last_entity_detail_request: dict[str, Any] | None = None
+        self.last_relation_detail_request: dict[str, Any] | None = None
+        self.last_export_request: dict[str, Any] | None = None
         self.graph_entity_types = ["ORGANIZATION", "PERSON", "PRODUCT"]
 
     async def get_knowledge_graph(
@@ -210,6 +215,69 @@ class _DummyRAG:
             }
         ]
 
+    async def ainsert_custom_kg(
+        self, custom_kg: dict[str, Any], full_doc_id: str | None = None
+    ) -> None:
+        self.last_custom_kg_request = {
+            "custom_kg": custom_kg,
+            "full_doc_id": full_doc_id,
+        }
+
+    async def get_entity_info(
+        self, entity_name: str, include_vector_data: bool = False
+    ) -> dict[str, Any]:
+        self.last_entity_detail_request = {
+            "entity_name": entity_name,
+            "include_vector_data": include_vector_data,
+        }
+        return {
+            "entity_name": entity_name,
+            "source_id": "chunk-1",
+            "aliases": ["Tesla Motors"],
+            "graph_data": {
+                "description": "Tesla company",
+                "entity_type": "ORGANIZATION",
+            },
+            "vector_data": {"embedding_model": "demo"} if include_vector_data else None,
+            "revision_token": "entity-rev-1",
+        }
+
+    async def get_relation_info(
+        self,
+        src_entity: str,
+        tgt_entity: str,
+        include_vector_data: bool = False,
+    ) -> dict[str, Any]:
+        self.last_relation_detail_request = {
+            "src_entity": src_entity,
+            "tgt_entity": tgt_entity,
+            "include_vector_data": include_vector_data,
+        }
+        return {
+            "src_entity": src_entity,
+            "tgt_entity": tgt_entity,
+            "source_id": "chunk-2",
+            "graph_data": {
+                "description": "Tesla acquires SolarCity",
+                "keywords": "acquisition",
+            },
+            "vector_data": {"embedding_model": "demo"} if include_vector_data else None,
+            "revision_token": "relation-rev-1",
+        }
+
+    async def aexport_data(
+        self,
+        output_path: str,
+        file_format: str = "csv",
+        include_vector_data: bool = False,
+    ) -> None:
+        self.last_export_request = {
+            "output_path": output_path,
+            "file_format": file_format,
+            "include_vector_data": include_vector_data,
+        }
+        Path(output_path).write_text("id,name\n1,Tesla\n", encoding="utf-8")
+
     async def get_graph_entity_types(self) -> list[str]:
         return list(self.graph_entity_types)
 
@@ -226,6 +294,9 @@ def _build_graph_client(monkeypatch, rag):
 
     graph_routes = importlib.import_module("lightrag.api.routers.graph_routes")
     graph_routes = importlib.reload(graph_routes)
+    monkeypatch.setattr(
+        graph_routes, "get_combined_auth_dependency", lambda *_: (lambda: None)
+    )
 
     app = FastAPI()
     app.include_router(graph_routes.create_graph_routes(rag, api_key=None))
@@ -595,3 +666,97 @@ def test_graph_entity_type_list_returns_available_types(graph_client):
 
     assert response.status_code == 200
     assert response.json() == ["ORGANIZATION", "PERSON", "PRODUCT"]
+
+
+def test_graph_import_custom_kg_route_calls_core_method(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/import/custom-kg",
+        json={
+            "custom_kg": {
+                "chunks": [{"content": "Tesla text", "source_id": "Source1"}],
+                "entities": [{"entity_name": "Tesla", "source_id": "Source1"}],
+                "relationships": [],
+            },
+            "full_doc_id": "doc-custom-kg-1",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "success"
+    assert body["full_doc_id"] == "doc-custom-kg-1"
+    assert body["entity_count"] == 1
+    assert body["relationship_count"] == 0
+    assert body["chunk_count"] == 1
+    assert rag.last_custom_kg_request == {
+        "custom_kg": {
+            "chunks": [{"content": "Tesla text", "source_id": "Source1"}],
+            "entities": [{"entity_name": "Tesla", "source_id": "Source1"}],
+            "relationships": [],
+        },
+        "full_doc_id": "doc-custom-kg-1",
+    }
+
+
+def test_graph_entity_detail_route_returns_entity_payload(graph_client):
+    client, rag = graph_client
+
+    response = client.get(
+        "/graph/entity/detail",
+        params={"entity_name": "Tesla", "include_vector_data": True},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "success"
+    assert body["data"]["entity_name"] == "Tesla"
+    assert body["data"]["aliases"] == ["Tesla Motors"]
+    assert body["data"]["vector_data"] == {"embedding_model": "demo"}
+    assert rag.last_entity_detail_request == {
+        "entity_name": "Tesla",
+        "include_vector_data": True,
+    }
+
+
+def test_graph_relation_detail_route_returns_relation_payload(graph_client):
+    client, rag = graph_client
+
+    response = client.get(
+        "/graph/relation/detail",
+        params={
+            "source_entity": "Tesla",
+            "target_entity": "SolarCity",
+            "include_vector_data": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "success"
+    assert body["data"]["src_entity"] == "Tesla"
+    assert body["data"]["tgt_entity"] == "SolarCity"
+    assert body["data"]["vector_data"] == {"embedding_model": "demo"}
+    assert rag.last_relation_detail_request == {
+        "src_entity": "Tesla",
+        "tgt_entity": "SolarCity",
+        "include_vector_data": True,
+    }
+
+
+def test_graph_export_route_returns_download_and_forwards_options(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/export",
+        json={"file_format": "csv", "include_vector_data": True},
+    )
+
+    assert response.status_code == 200
+    assert response.text == "id,name\n1,Tesla\n"
+    assert "attachment;" in response.headers["content-disposition"]
+    assert response.headers["content-disposition"].endswith(".csv\"")
+    assert rag.last_export_request is not None
+    assert rag.last_export_request["file_format"] == "csv"
+    assert rag.last_export_request["include_vector_data"] is True
