@@ -28,6 +28,8 @@ import { Download, Upload } from 'lucide-react'
 export default function PromptManagement() {
   const { t } = useTranslation()
   const language = useSettingsStore.use.language()
+  const currentWorkspace = useSettingsStore.use.currentWorkspace()
+  const workspaceDisplayNames = useSettingsStore.use.workspaceDisplayNames()
   const groupType = useSettingsStore.use.promptManagementGroup()
   const selectedVersionId = useSettingsStore.use.promptManagementSelectedVersionId()
   const setGroupType = useSettingsStore.use.setPromptManagementGroup()
@@ -250,9 +252,18 @@ export default function PromptManagement() {
     }
   }, [groupType, t, loadVersions])
 
+  const workspaceLabel =
+    workspaceDisplayNames[currentWorkspace] ||
+    currentWorkspace ||
+    t('workspaceManager.defaultWorkspace', 'default')
+
   return (
     <div className="grid h-full grid-cols-[320px_1fr] gap-4 p-4">
       <div className="space-y-4">
+        <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Workspace</span>
+          <span className="text-xs font-medium">{workspaceLabel}</span>
+        </div>
         <PromptGroupSwitcher
           value={groupType}
           onChange={(nextGroup: PromptConfigGroup) => {
