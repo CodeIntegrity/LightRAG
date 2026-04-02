@@ -129,9 +129,20 @@ export default function PromptManagement() {
           ? t('promptManagement.indexingActivateWarning')
           : response.warning
       )
-    } else {
-      toast.success(t('promptManagement.activated', { name: version.version_name }))
     }
+
+    toast.success(t('promptManagement.activated', { name: version.version_name }), {
+      ...(groupType === 'indexing' ? {
+        action: {
+          label: t('promptManagement.rebuildFromSelectedVersion'),
+          onClick: async () => {
+            await handleRebuildFromVersion(version)
+          }
+        },
+        duration: 10000
+      } : {})
+    })
+
     await loadVersions()
     selectionModeRef.current = 'manual'
     setSelectedVersionId(version.version_id)

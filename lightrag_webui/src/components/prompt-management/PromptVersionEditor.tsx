@@ -15,6 +15,7 @@ import {
   getPromptFieldPreview
 } from '@/utils/promptVersioning'
 import PromptListFieldEditor from './PromptListFieldEditor'
+import PromptQuickTestPanel from './PromptQuickTestPanel'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -331,6 +332,8 @@ export default function PromptVersionEditor({
             </div>
           )
         })}
+
+        <PromptQuickTestPanel sections={sections} payload={payload} />
       </CardContent>
     </Card>
   )
