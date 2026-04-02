@@ -941,5 +941,83 @@
     "prevPage": "上一页",
     "nextPage": "下一页",
     "lastPage": "末页"
+  },
+  "retrievePanel": {
+    "chatMessage": {
+      "copyTooltip": "复制到剪贴板",
+      "copyError": "复制文本到剪贴板失败",
+      "copyEmpty": "没有可复制的内容",
+      "copySuccess": "内容已复制到剪贴板",
+      "copySuccessLegacy": "内容已复制（兼容模式）",
+      "copySuccessManual": "内容已复制（手动方式）",
+      "copyFailed": "复制内容失败",
+      "copyManualInstruction": "请手动选择并复制文本",
+      "thinking": "思考中...",
+      "thinkingTime": "思考用时 {{time}}秒",
+      "thinkingInProgress": "思考中..."
+    },
+    "retrieval": {
+      "startPrompt": "在下方输入查询开始搜索",
+      "clear": "清空",
+      "send": "发送",
+      "stop": "停止",
+      "placeholder": "输入查询（支持前缀: /<查询模式>）",
+      "error": "错误: 获取响应失败",
+      "queryModeError": "仅支持以下查询模式: {{modes}}",
+      "queryModePrefixInvalid": "无效的查询模式前缀。请使用：/<模式> [空格] 查询内容",
+      "queryTooShort": "查询至少需要 2 个字符",
+      "references": "{{count}} 个引用",
+      "showSnippet": "显示片段",
+      "retrievalData": "检索数据",
+      "noData": "无 {{tab}} 数据"
+    },
+    "querySettings": {
+      "parametersTitle": "参数",
+      "parametersDescription": "配置查询参数",
+      "queryMode": "查询模式",
+      "queryModeTooltip": "选择检索策略",
+      "queryModeOptions": {
+        "naive": "简单",
+        "local": "本地",
+        "global": "全局",
+        "hybrid": "混合",
+        "mix": "综合",
+        "bypass": "直通"
+      },
+      "topK": "Top K",
+      "topKTooltip": "检索的顶部实体（本地）或关系（全局）数量",
+      "topKPlaceholder": "Top K 数量",
+      "chunkTopK": "文本块 Top K",
+      "chunkTopKTooltip": "检索的最大文本块数量",
+      "chunkTopKPlaceholder": "文本块 Top K 数量",
+      "maxEntityTokens": "最大实体 Token 数",
+      "maxEntityTokensTooltip": "实体上下文的 Token 限制",
+      "maxEntityTokensPlaceholder": "最大实体 Token 数",
+      "maxRelationTokens": "最大关系 Token 数",
+      "maxRelationTokensTooltip": "关系上下文的 Token 限制",
+      "maxRelationTokensPlaceholder": "最大关系 Token 数",
+      "maxTotalTokens": "最大总 Token 数",
+      "maxTotalTokensTooltip": "查询上下文的总体 Token 预算",
+      "maxTotalTokensPlaceholder": "最大总 Token 数",
+      "enableRerank": "启用重排序",
+      "enableRerankTooltip": "对检索到的文本块进行重排序以提高相关性",
+      "onlyNeedContext": "仅需要上下文",
+      "onlyNeedContextTooltip": "返回检索到的上下文而不进行 LLM 生成",
+      "onlyNeedPrompt": "仅需要提示词",
+      "onlyNeedPromptTooltip": "返回构建的提示词而不进行 LLM 生成",
+      "streamResponse": "流式响应",
+      "streamResponseTooltip": "实时流式传输响应",
+      "includeChunkContent": "包含文本块内容",
+      "includeChunkContentTooltip": "在引用中包含实际文本块内容，用于调试和评估",
+      "userPrompt": "用户提示词",
+      "userPromptTooltip": "自定义提示词以引导 LLM 响应",
+      "promptVersionLabel": "提示词版本",
+      "promptVersionTooltip": "选择使用哪个提示词模板版本",
+      "promptOverrides": {
+        "disabledHint": "此服务器未启用提示词覆盖",
+        "bypassHint": "直通模式下不可使用提示词覆盖",
+        "savedAsVersion": "已保存为版本: {{name}}"
+      }
+    }
   }
 }

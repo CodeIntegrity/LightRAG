@@ -142,7 +142,7 @@ const useSettingsStoreBase = create<SettingsState>()(
       retrievalPromptDraft: undefined,
 
       querySettings: {
-        mode: 'global',
+        mode: 'mix',
         top_k: 40,
         chunk_top_k: 20,
         max_entity_tokens: 6000,
@@ -154,7 +154,9 @@ const useSettingsStoreBase = create<SettingsState>()(
         history_turns: 0,
         user_prompt: '',
         prompt_overrides: undefined,
-        enable_rerank: true
+        enable_rerank: true,
+        include_references: true,
+        include_chunk_content: false
       },
 
       setTheme: (theme: Theme) => set({ theme }),
@@ -226,11 +228,8 @@ const useSettingsStoreBase = create<SettingsState>()(
       setRetrievalHistory: (history: Message[]) => set({ retrievalHistory: history }),
 
       updateQuerySettings: (settings: Partial<QueryRequest>) => {
-        // Filter out history_turns to prevent changes, always keep it as 0
-        const filteredSettings = { ...settings }
-        delete filteredSettings.history_turns
         set((state) => ({
-          querySettings: { ...state.querySettings, ...filteredSettings, history_turns: 0 }
+          querySettings: { ...state.querySettings, ...settings }
         }))
       },
 
@@ -307,7 +306,7 @@ const useSettingsStoreBase = create<SettingsState>()(
         }
         if (version < 6) {
           state.querySettings = {
-            mode: 'global',
+            mode: 'mix',
             response_type: 'Multiple Paragraphs',
             top_k: 10,
             max_token_for_text_unit: 4000,

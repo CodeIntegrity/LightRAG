@@ -337,6 +337,12 @@ export type Message = {
   thinkingTime?: number | null
 }
 
+export type ReferenceItem = {
+  reference_id: string
+  file_path: string
+  content?: string[]
+}
+
 export type QueryRequest = {
   query: string
   /** Specifies the retrieval mode. */
@@ -372,10 +378,27 @@ export type QueryRequest = {
   prompt_overrides?: QueryPromptOverrides
   /** Enable reranking for retrieved text chunks. If True but no rerank model is configured, a warning will be issued. Default is True. */
   enable_rerank?: boolean
+  /** If True, includes reference list in responses. Default is True. */
+  include_references?: boolean
+  /** If True, includes actual chunk text content in references. Only applies when include_references=true. */
+  include_chunk_content?: boolean
 }
 
 export type QueryResponse = {
   response: string
+  references?: ReferenceItem[]
+}
+
+export type QueryDataResponse = {
+  status: string
+  message: string
+  data: {
+    entities?: Record<string, any>[]
+    relationships?: Record<string, any>[]
+    chunks?: Record<string, any>[]
+    references?: ReferenceItem[]
+  }
+  metadata: Record<string, any>
 }
 
 export type EntityUpdateResponse = {
@@ -959,15 +982,85 @@ export const getDocumentsScanProgress = async (): Promise<LightragDocumentsScanP
 }
 
 export const queryText = async (request: QueryRequest, signal?: AbortSignal): Promise<QueryResponse> => {
-  const response = await axiosInstance.post('/query', request, { signal })
+  const response = await axiosInstance.post('/query', request, {
+    signal,
+    timeout: 120_000,
+  })
   return response.data
 }
+
+export const queryData = async (request: QueryRequest, signal?: AbortSignal): Promise<QueryDataResponse> => {
+  const response = await axiosInstance.post('/query/data', request, {
+    signal,
+    timeout: 120_000,
+  })
+  return response.data
+}
+
+/** Process an NDJSON stream response, calling callbacks for references, content chunks, and errors. */
+const processNDJSONStream = async (
+  response: Response,
+  onChunk: (chunk: string) => void,
+  onError: ((error: string) => void) | undefined,
+  onReferences: ((references: ReferenceItem[]) => void) | undefined,
+) => {
+  if (!response.body) {
+    throw new Error('Response body is null');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (line.trim()) {
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.references) {
+            onReferences?.(parsed.references);
+          } else if (parsed.response) {
+            onChunk(parsed.response);
+          } else if (parsed.error) {
+            onError?.(parsed.error);
+          }
+        } catch (parseError) {
+          console.error('Failed to parse JSON:', parseError, 'Line:', line);
+          onError?.(`JSON parse error: ${parseError}`);
+        }
+      }
+    }
+  }
+
+  if (buffer.trim()) {
+    try {
+      const parsed = JSON.parse(buffer);
+      if (parsed.references) {
+        onReferences?.(parsed.references);
+      } else if (parsed.response) {
+        onChunk(parsed.response);
+      } else if (parsed.error) {
+        onError?.(parsed.error);
+      }
+    } catch (parseError) {
+      console.error('Failed to parse final buffer:', parseError);
+    }
+  }
+};
 
 export const queryTextStream = async (
   request: QueryRequest,
   onChunk: (chunk: string) => void,
   onError?: (error: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onReferences?: (references: ReferenceItem[]) => void
 ) => {
   const apiKey = useSettingsStore.getState().apiKey;
   const currentWorkspace = useSettingsStore.getState().currentWorkspace;
@@ -1023,55 +1116,7 @@ export const queryTextStream = async (
               throw new Error(`HTTP error! status: ${retryResponse.status}`);
             }
 
-            // Retry successful, process stream response
-            // Re-execute the stream processing logic with retryResponse
-            if (!retryResponse.body) {
-              throw new Error('Response body is null');
-            }
-
-            const reader = retryResponse.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split('\n');
-              buffer = lines.pop() || '';
-
-              for (const line of lines) {
-                if (line.trim()) {
-                  try {
-                    const parsed = JSON.parse(line);
-                    if (parsed.response) {
-                      onChunk(parsed.response);
-                    } else if (parsed.error) {
-                      onError?.(parsed.error);
-                    }
-                  } catch (parseError) {
-                    console.error('Failed to parse JSON:', parseError, 'Line:', line);
-                    onError?.(`JSON parse error: ${parseError}`);
-                  }
-                }
-              }
-            }
-
-            // Process any remaining data in buffer
-            if (buffer.trim()) {
-              try {
-                const parsed = JSON.parse(buffer);
-                if (parsed.response) {
-                  onChunk(parsed.response);
-                } else if (parsed.error) {
-                  onError?.(parsed.error);
-                }
-              } catch (parseError) {
-                console.error('Failed to parse final buffer:', parseError);
-              }
-            }
-
+            await processNDJSONStream(retryResponse, onChunk, onError, onReferences);
             return; // Successfully completed retry
           } catch (refreshError) {
             console.error('Failed to refresh guest token for streaming:', refreshError);
@@ -1107,54 +1152,7 @@ export const queryTextStream = async (
       throw new Error('Response body is null');
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break; // Stream finished
-      }
-
-      // Decode the chunk and add to buffer
-      buffer += decoder.decode(value, { stream: true }); // stream: true handles multi-byte chars split across chunks
-
-      // Process complete lines (NDJSON)
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || ''; // Keep potentially incomplete line in buffer
-
-      for (const line of lines) {
-        if (line.trim()) {
-          try {
-            const parsed = JSON.parse(line);
-            if (parsed.response) {
-              onChunk(parsed.response);
-            } else if (parsed.error && onError) {
-              onError(parsed.error);
-            }
-          } catch (error) {
-            console.error('Error parsing stream chunk:', line, error);
-            if (onError) onError(`Error parsing server response: ${line}`);
-          }
-        }
-      }
-    }
-
-    // Process any remaining data in the buffer after the stream ends
-    if (buffer.trim()) {
-      try {
-        const parsed = JSON.parse(buffer);
-        if (parsed.response) {
-          onChunk(parsed.response);
-        } else if (parsed.error && onError) {
-          onError(parsed.error);
-        }
-      } catch (error) {
-        console.error('Error parsing final chunk:', buffer, error);
-        if (onError) onError(`Error parsing final server response: ${buffer}`);
-      }
-    }
+    await processNDJSONStream(response, onChunk, onError, onReferences);
 
   } catch (error) {
     // Silently handle abort

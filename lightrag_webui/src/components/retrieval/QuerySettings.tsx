@@ -29,6 +29,9 @@ export default function QuerySettings() {
   const retrievalPromptVersionSelection = useSettingsStore((state) => state.retrievalPromptVersionSelection)
   const retrievalPromptDraft = useSettingsStore((state) => state.retrievalPromptDraft)
   const allowPromptOverridesViaApi = useBackendState.use.allowPromptOverridesViaApi()
+  const rerankConfigured = useBackendState.use.status()?.configuration?.enable_rerank ?? false
+  const rerankModel = useBackendState.use.status()?.configuration?.rerank_model ?? null
+  const rerankAvailable = rerankConfigured && !!rerankModel
   const promptOverridesEnabled = allowPromptOverridesViaApi && querySettings.mode !== 'bypass'
   const promptOverridesDisabledReason = !allowPromptOverridesViaApi
     ? t('retrievePanel.querySettings.promptOverrides.disabledHint')
@@ -419,10 +422,17 @@ export default function QuerySettings() {
                     <TooltipTrigger asChild>
                       <label htmlFor="enable_rerank" className="flex-1 ml-1 cursor-help">
                         {t('retrievePanel.querySettings.enableRerank')}
+                        {!rerankAvailable && querySettings.enable_rerank && (
+                          <span className="ml-1 text-amber-500" title="Rerank model not configured">⚠</span>
+                        )}
                       </label>
                     </TooltipTrigger>
                     <TooltipContent side="left">
-                      <p>{t('retrievePanel.querySettings.enableRerankTooltip')}</p>
+                      <p>
+                        {querySettings.enable_rerank && !rerankAvailable
+                          ? t('retrievePanel.querySettings.enableRerankWarning', 'Enabled but no rerank model is configured. This setting will have no effect.')
+                          : t('retrievePanel.querySettings.enableRerankTooltip')}
+                      </p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -504,6 +514,27 @@ export default function QuerySettings() {
                   id="stream"
                   checked={querySettings.stream}
                   onCheckedChange={(checked) => handleChange('stream', checked)}
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <label htmlFor="include_chunk_content" className="flex-1 ml-1 cursor-help">
+                        {t('retrievePanel.querySettings.includeChunkContent')}
+                      </label>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">
+                      <p>{t('retrievePanel.querySettings.includeChunkContentTooltip')}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                <Checkbox
+                  className="mr-10 cursor-pointer"
+                  id="include_chunk_content"
+                  checked={querySettings.include_chunk_content}
+                  onCheckedChange={(checked) => handleChange('include_chunk_content', checked)}
                 />
               </div>
             </>

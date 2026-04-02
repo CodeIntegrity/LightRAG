@@ -3,18 +3,18 @@ import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { throttle } from '@/lib/utils'
-import { getPromptConfigVersion, queryText, queryTextStream } from '@/api/lightrag'
+import { getPromptConfigVersion, queryData, queryText, queryTextStream } from '@/api/lightrag'
 import { errorMessage } from '@/lib/utils'
 import { useSettingsStore } from '@/stores/settings'
 import { useBackendState } from '@/stores/state'
 import { useDebounce } from '@/hooks/useDebounce'
 import QuerySettings from '@/components/retrieval/QuerySettings'
 import { ChatMessage, MessageWithError } from '@/components/retrieval/ChatMessage'
-import { EraserIcon, SendIcon, CopyIcon, SquareIcon } from 'lucide-react'
+import { EraserIcon, SendIcon, CopyIcon, SquareIcon, ChevronDown, ChevronRight, FileText } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { copyToClipboard } from '@/utils/clipboard'
-import type { QueryMode } from '@/api/lightrag'
+import type { QueryDataResponse, QueryMode, ReferenceItem } from '@/api/lightrag'
 import { pruneEmptyPromptOverrides } from '@/utils/promptOverrides'
 import { projectRetrievalVersionToOverrides } from '@/utils/promptVersioning'
 
@@ -110,6 +110,11 @@ export default function RetrievalTesting() {
   const currentTab = useSettingsStore.use.currentTab()
   const isRetrievalTabActive = currentTab === 'retrieval'
   const allowPromptOverridesViaApi = useBackendState.use.allowPromptOverridesViaApi()
+  const referencesRef = useRef<ReferenceItem[]>([])
+  const [referencesExpanded, setReferencesExpanded] = useState(false)
+  const [queryDataResult, setQueryDataResult] = useState<QueryDataResponse | null>(null)
+  const [queryDataExpanded, setQueryDataExpanded] = useState(false)
+  const [dataTab, setDataTab] = useState<'entities' | 'relationships' | 'chunks' | 'references'>('entities')
 
   const [messages, setMessages] = useState<MessageWithError[]>(() => {
     try {
@@ -182,6 +187,11 @@ export default function RetrievalTesting() {
       e.preventDefault()
       if (!inputValue.trim() || isLoading) return
 
+      if (inputValue.trim().length < 2) {
+        setInputError(t('retrievePanel.retrieval.queryTooShort'))
+        return
+      }
+
       // Parse query mode prefix
       const allowedModes: QueryMode[] = ['naive', 'local', 'global', 'hybrid', 'mix', 'bypass']
       const prefixMatch = inputValue.match(/^\/(\w+)\s+([\s\S]+)/)
@@ -215,6 +225,10 @@ export default function RetrievalTesting() {
       // Reset thinking timer state for new query to prevent confusion
       thinkingStartTime.current = null
       thinkingProcessed.current = false
+      referencesRef.current = []
+      setQueryDataResult(null)
+      setDataTab('entities')
+      setQueryDataExpanded(false)
 
       // Create messages
       // Save the original input (with prefix if any) in userMessage.content for display
@@ -253,6 +267,7 @@ export default function RetrievalTesting() {
 
       // Clear input and set loading
       setInputValue('')
+      abortControllerRef.current?.abort()
       const controller = new AbortController()
       abortControllerRef.current = controller
       setIsLoading(true)
@@ -355,11 +370,7 @@ export default function RetrievalTesting() {
       // Determine the effective mode
       const effectiveMode = modeOverride || state.querySettings.mode
 
-      // Determine effective history turns with bypass override
-      const configuredHistoryTurns = state.querySettings.history_turns || 0
-      const effectiveHistoryTurns = (effectiveMode === 'bypass' && configuredHistoryTurns === 0)
-        ? 3
-        : configuredHistoryTurns
+      const effectiveHistoryTurns = state.querySettings.history_turns || 0
 
       const queryParams = {
         ...state.querySettings,
@@ -394,9 +405,13 @@ export default function RetrievalTesting() {
         // Run query
         if (state.querySettings.stream) {
           let errorMessage = ''
-          await queryTextStream(queryParams, updateAssistantMessage, (error) => {
-            errorMessage += error
-          }, controller.signal)
+          await queryTextStream(
+            queryParams,
+            updateAssistantMessage,
+            (error) => { errorMessage += error },
+            controller.signal,
+            (refs) => { referencesRef.current = refs }
+          )
           if (errorMessage) {
             if (assistantMessage.content) {
               errorMessage = assistantMessage.content + '\n' + errorMessage
@@ -406,6 +421,9 @@ export default function RetrievalTesting() {
         } else {
           const response = await queryText(queryParams, controller.signal)
           updateAssistantMessage(response.response)
+          if (response.references) {
+            referencesRef.current = response.references
+          }
         }
       } catch (err) {
         // Silently handle abort — keep partial content as-is
@@ -416,6 +434,16 @@ export default function RetrievalTesting() {
           updateAssistantMessage(`${t('retrievePanel.retrieval.error')}\n${errorMessage(err)}`, true)
         }
       } finally {
+        // Fetch retrieval data for inspection (fire-and-forget)
+        queryData(queryParams, controller.signal)
+          .then((dataResult) => {
+            setQueryDataResult(dataResult)
+            if (dataResult.data?.references) {
+              referencesRef.current = dataResult.data.references as ReferenceItem[]
+            }
+          })
+          .catch(() => { /* ignore data fetch errors */ })
+
         // Clear loading and add messages to state
         abortControllerRef.current = null
         setIsLoading(false)
@@ -765,6 +793,113 @@ export default function RetrievalTesting() {
                     </div>
                   );
                 })
+              )}
+              {referencesRef.current.length > 0 && (
+                <div className="mt-2 border-t pt-2">
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => setReferencesExpanded(!referencesExpanded)}
+                  >
+                    {referencesExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                    <FileText className="size-3" />
+                    {t('retrievePanel.retrieval.references', '{{count}} references', { count: referencesRef.current.length })}
+                  </button>
+                  {referencesExpanded && (
+                    <ul className="mt-1 space-y-1 text-xs">
+                      {referencesRef.current.map((ref, i) => (
+                        <li key={ref.reference_id || i} className="text-muted-foreground flex items-start gap-1.5">
+                          <span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-primary/30" />
+                          <span className="break-all">
+                            {ref.file_path || ref.reference_id}
+                            {ref.content && ref.content.length > 0 && (
+                              <details className="mt-1">
+                                <summary className="cursor-pointer text-[11px] text-muted-foreground/70 hover:text-muted-foreground">
+                                  {t('retrievePanel.retrieval.showSnippet', 'Show snippet')}
+                                </summary>
+                                <pre className="mt-1 max-h-24 overflow-auto rounded bg-muted/50 p-1.5 text-[11px] whitespace-pre-wrap">
+                                  {ref.content[0]}
+                                </pre>
+                              </details>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+              {queryDataResult && (
+                <div className="mt-2 border-t pt-2">
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => setQueryDataExpanded(!queryDataExpanded)}
+                  >
+                    {queryDataExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                    <span className="font-medium">{t('retrievePanel.retrieval.retrievalData', 'Retrieval Data')}</span>
+                  </button>
+                  {queryDataExpanded && (
+                    <div className="mt-2">
+                      <div className="flex gap-1 mb-2 text-[11px] border-b">
+                        {(['entities', 'relationships', 'chunks', 'references'] as const).map((tab) => (
+                          <button
+                            key={tab}
+                            type="button"
+                            className={`px-2 py-1 rounded-t transition-colors capitalize ${
+                              dataTab === tab
+                                ? 'bg-muted/80 font-medium text-foreground'
+                                : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                            onClick={() => setDataTab(tab)}
+                          >
+                            {tab}
+                            <span className="ml-1 text-[10px] opacity-60">
+                              ({(queryDataResult.data[tab] as any[])?.length || 0})
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="max-h-64 overflow-auto text-[11px] space-y-1">
+                        {dataTab === 'entities' && (queryDataResult.data.entities || []).map((e: any, i: number) => (
+                          <div key={i} className="flex gap-2 p-1.5 rounded bg-muted/30">
+                            <span className="font-mono font-medium shrink-0">{e.entity_name || e.name || '?'}</span>
+                            <span className="text-muted-foreground truncate">{e.description || ''}</span>
+                          </div>
+                        ))}
+                        {dataTab === 'relationships' && (queryDataResult.data.relationships || []).map((r: any, i: number) => (
+                          <div key={i} className="flex gap-2 p-1.5 rounded bg-muted/30">
+                            <span className="font-mono shrink-0">{r.source || '?'}</span>
+                            <span className="text-muted-foreground">→</span>
+                            <span className="font-mono shrink-0">{r.target || '?'}</span>
+                            <span className="text-muted-foreground truncate">{r.description || r.keywords || ''}</span>
+                          </div>
+                        ))}
+                        {dataTab === 'chunks' && (queryDataResult.data.chunks || []).map((c: any, i: number) => (
+                          <details key={i} className="p-1.5 rounded bg-muted/30">
+                            <summary className="cursor-pointer text-muted-foreground">
+                              {c.source_id || c.file_path || `Chunk ${i + 1}`}
+                            </summary>
+                            <pre className="mt-1 max-h-20 overflow-auto text-[10px] whitespace-pre-wrap opacity-80">
+                              {c.content || ''}
+                            </pre>
+                          </details>
+                        ))}
+                        {dataTab === 'references' && (queryDataResult.data.references || []).map((ref: any, i: number) => (
+                          <div key={i} className="flex gap-1.5 p-1.5 rounded bg-muted/30">
+                            <span className="font-mono text-[10px] shrink-0 opacity-60">{ref.reference_id || i}</span>
+                            <span className="break-all">{ref.file_path || ''}</span>
+                          </div>
+                        ))}
+                        {!(queryDataResult.data[dataTab] as any[])?.length && (
+                          <div className="text-muted-foreground text-center py-4">
+                            {t('retrievePanel.retrieval.noData', 'No {{tab}} data', { tab: dataTab })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
               <div ref={messagesEndRef} className="pb-1" />
             </div>
