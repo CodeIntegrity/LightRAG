@@ -240,3 +240,31 @@ describe('getDocumentsPaginated', () => {
     })
   })
 })
+
+describe('NDJSON parsing', () => {
+  test('dispatches references and response from the same payload', () => {
+    const chunks: string[] = []
+    const references: Array<{ reference_id: string, file_path: string }> = []
+    const errors: string[] = []
+
+    apiModule.__dispatchNDJSONPayloadForTests(
+      {
+        references: [{ reference_id: '1', file_path: '/tmp/context.md' }],
+        response: 'retrieved prompt content'
+      },
+      (chunk) => {
+        chunks.push(chunk)
+      },
+      (error) => {
+        errors.push(error)
+      },
+      (refs) => {
+        references.push(...refs)
+      }
+    )
+
+    expect(references).toEqual([{ reference_id: '1', file_path: '/tmp/context.md' }])
+    expect(chunks).toEqual(['retrieved prompt content'])
+    expect(errors).toEqual([])
+  })
+})

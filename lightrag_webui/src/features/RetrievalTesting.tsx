@@ -110,7 +110,7 @@ export default function RetrievalTesting() {
   const currentTab = useSettingsStore.use.currentTab()
   const isRetrievalTabActive = currentTab === 'retrieval'
   const allowPromptOverridesViaApi = useBackendState.use.allowPromptOverridesViaApi()
-  const referencesRef = useRef<ReferenceItem[]>([])
+  const [references, setReferences] = useState<ReferenceItem[]>([])
   const [referencesExpanded, setReferencesExpanded] = useState(false)
   const [queryDataResult, setQueryDataResult] = useState<QueryDataResponse | null>(null)
   const [queryDataExpanded, setQueryDataExpanded] = useState(false)
@@ -225,7 +225,9 @@ export default function RetrievalTesting() {
       // Reset thinking timer state for new query to prevent confusion
       thinkingStartTime.current = null
       thinkingProcessed.current = false
-      referencesRef.current = []
+      const requestId = ++retrievalArtifactsRequestIdRef.current
+      setReferences([])
+      setReferencesExpanded(false)
       setQueryDataResult(null)
       setDataTab('entities')
       setQueryDataExpanded(false)
@@ -410,7 +412,11 @@ export default function RetrievalTesting() {
             updateAssistantMessage,
             (error) => { errorMessage += error },
             controller.signal,
-            (refs) => { referencesRef.current = refs }
+            (refs) => {
+              if (requestId === retrievalArtifactsRequestIdRef.current) {
+                setReferences(refs)
+              }
+            }
           )
           if (errorMessage) {
             if (assistantMessage.content) {
@@ -421,8 +427,8 @@ export default function RetrievalTesting() {
         } else {
           const response = await queryText(queryParams, controller.signal)
           updateAssistantMessage(response.response)
-          if (response.references) {
-            referencesRef.current = response.references
+          if (requestId === retrievalArtifactsRequestIdRef.current) {
+            setReferences(response.references ?? [])
           }
         }
       } catch (err) {
@@ -437,15 +443,20 @@ export default function RetrievalTesting() {
         // Fetch retrieval data for inspection (fire-and-forget)
         queryData(queryParams, controller.signal)
           .then((dataResult) => {
-            setQueryDataResult(dataResult)
-            if (dataResult.data?.references) {
-              referencesRef.current = dataResult.data.references as ReferenceItem[]
+            if (requestId !== retrievalArtifactsRequestIdRef.current) {
+              return
             }
+            setQueryDataResult(dataResult)
+            setReferences((dataResult.data?.references as ReferenceItem[]) ?? [])
           })
           .catch(() => { /* ignore data fetch errors */ })
+          .finally(() => {
+            if (abortControllerRef.current === controller) {
+              abortControllerRef.current = null
+            }
+          })
 
         // Clear loading and add messages to state
-        abortControllerRef.current = null
         setIsLoading(false)
         isReceivingResponseRef.current = false
 
@@ -576,6 +587,7 @@ export default function RetrievalTesting() {
   const shouldFollowScrollRef = useRef(true)
   const thinkingStartTime = useRef<number | null>(null)
   const thinkingProcessed = useRef(false)
+  const retrievalArtifactsRequestIdRef = useRef(0)
   // Reference to track if user interaction is from the form area
   const isFormInteractionRef = useRef(false)
   // Reference to track if scroll was triggered programmatically
@@ -675,8 +687,16 @@ export default function RetrievalTesting() {
 
 
   const clearMessages = useCallback(() => {
+    retrievalArtifactsRequestIdRef.current += 1
+    abortControllerRef.current?.abort()
     setMessages([])
     useSettingsStore.getState().setRetrievalHistory([])
+    // Clear retrieval data and references
+    setReferences([])
+    setQueryDataResult(null)
+    setReferencesExpanded(false)
+    setQueryDataExpanded(false)
+    setDataTab('entities')
   }, [setMessages])
 
   // Handle copying message content with robust clipboard support
@@ -794,7 +814,7 @@ export default function RetrievalTesting() {
                   );
                 })
               )}
-              {referencesRef.current.length > 0 && (
+              {references.length > 0 && (
                 <div className="mt-2 border-t pt-2">
                   <button
                     type="button"
@@ -803,11 +823,11 @@ export default function RetrievalTesting() {
                   >
                     {referencesExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
                     <FileText className="size-3" />
-                    {t('retrievePanel.retrieval.references', '{{count}} references', { count: referencesRef.current.length })}
+                    {t('retrievePanel.retrieval.references', '{{count}} references', { count: references.length })}
                   </button>
                   {referencesExpanded && (
                     <ul className="mt-1 space-y-1 text-xs">
-                      {referencesRef.current.map((ref, i) => (
+                      {references.map((ref, i) => (
                         <li key={ref.reference_id || i} className="text-muted-foreground flex items-start gap-1.5">
                           <span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-primary/30" />
                           <span className="break-all">

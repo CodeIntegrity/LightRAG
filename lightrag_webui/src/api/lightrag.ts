@@ -997,6 +997,25 @@ export const queryData = async (request: QueryRequest, signal?: AbortSignal): Pr
   return response.data
 }
 
+const dispatchNDJSONPayload = (
+  parsed: Record<string, any>,
+  onChunk: (chunk: string) => void,
+  onError: ((error: string) => void) | undefined,
+  onReferences: ((references: ReferenceItem[]) => void) | undefined,
+) => {
+  if (Array.isArray(parsed.references)) {
+    onReferences?.(parsed.references as ReferenceItem[])
+  }
+  if (typeof parsed.response === 'string') {
+    onChunk(parsed.response)
+  }
+  if (typeof parsed.error === 'string') {
+    onError?.(parsed.error)
+  }
+}
+
+export const __dispatchNDJSONPayloadForTests = dispatchNDJSONPayload
+
 /** Process an NDJSON stream response, calling callbacks for references, content chunks, and errors. */
 const processNDJSONStream = async (
   response: Response,
@@ -1023,14 +1042,8 @@ const processNDJSONStream = async (
     for (const line of lines) {
       if (line.trim()) {
         try {
-          const parsed = JSON.parse(line);
-          if (parsed.references) {
-            onReferences?.(parsed.references);
-          } else if (parsed.response) {
-            onChunk(parsed.response);
-          } else if (parsed.error) {
-            onError?.(parsed.error);
-          }
+          const parsed = JSON.parse(line)
+          dispatchNDJSONPayload(parsed, onChunk, onError, onReferences)
         } catch (parseError) {
           console.error('Failed to parse JSON:', parseError, 'Line:', line);
           onError?.(`JSON parse error: ${parseError}`);
@@ -1041,14 +1054,8 @@ const processNDJSONStream = async (
 
   if (buffer.trim()) {
     try {
-      const parsed = JSON.parse(buffer);
-      if (parsed.references) {
-        onReferences?.(parsed.references);
-      } else if (parsed.response) {
-        onChunk(parsed.response);
-      } else if (parsed.error) {
-        onError?.(parsed.error);
-      }
+      const parsed = JSON.parse(buffer)
+      dispatchNDJSONPayload(parsed, onChunk, onError, onReferences)
     } catch (parseError) {
       console.error('Failed to parse final buffer:', parseError);
     }
