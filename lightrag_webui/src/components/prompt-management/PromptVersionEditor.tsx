@@ -323,18 +323,49 @@ export default function PromptVersionEditor({
                       itemLabel={t(section.itemPlaceholderKey || section.descriptionKey)}
                     />
                   ) : section.type === 'csv' ? (
-                    <Textarea
-                      rows={3}
-                      value={getPromptFieldEditorValue(section, value)}
-                      placeholder={section.itemPlaceholderKey ? t(section.itemPlaceholderKey) : undefined}
-                      className="min-h-[120px] resize-none overflow-hidden leading-5"
-                      ref={resizeTextarea}
-                      onInput={(event) => resizeTextarea(event.currentTarget)}
-                      onChange={(event) => {
-                        resizeTextarea(event.currentTarget)
-                        setPayload((current) => setValueAtPath(current, section.key, event.target.value))
-                      }}
-                    />
+                    <div className="space-y-1.5">
+                      {section.variables.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {section.variables.map((variable) => (
+                            <button
+                              key={`${section.key}-insert-${variable.label}`}
+                              type="button"
+                              className="rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-amber-600 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900/30 transition-colors"
+                              onClick={() => {
+                                const ta = document.querySelector<HTMLTextAreaElement>(`textarea[data-section="${section.key}"]`)
+                                if (!ta) return
+                                const start = ta.selectionStart
+                                const end = ta.selectionEnd
+                                const before = (typeof value === 'string' ? value : '').slice(0, start)
+                                const after = (typeof value === 'string' ? value : '').slice(end)
+                                const nextValue = before + variable.label + after
+                                setPayload((current) => setValueAtPath(current, section.key, nextValue))
+                                requestAnimationFrame(() => {
+                                  ta.focus()
+                                  const pos = start + variable.label.length
+                                  ta.setSelectionRange(pos, pos)
+                                })
+                              }}
+                            >
+                              +{variable.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <Textarea
+                        rows={3}
+                        value={getPromptFieldEditorValue(section, value)}
+                        placeholder={section.itemPlaceholderKey ? t(section.itemPlaceholderKey) : undefined}
+                        className="min-h-[120px] resize-none overflow-hidden leading-5"
+                        ref={resizeTextarea}
+                        data-section={section.key}
+                        onInput={(event) => resizeTextarea(event.currentTarget)}
+                        onChange={(event) => {
+                          resizeTextarea(event.currentTarget)
+                          setPayload((current) => setValueAtPath(current, section.key, event.target.value))
+                        }}
+                      />
+                    </div>
                   ) : section.type === 'input' ? (
                     <Input
                       value={getPromptFieldEditorValue(section, value)}
@@ -344,13 +375,44 @@ export default function PromptVersionEditor({
                       }
                     />
                   ) : (
-                    <Textarea
-                      value={typeof value === 'string' ? value : ''}
-                      onChange={(event) =>
-                        setPayload((current) => setValueAtPath(current, section.key, event.target.value))
-                      }
-                      className="min-h-[220px]"
-                    />
+                    <div className="space-y-1.5">
+                      {section.variables.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {section.variables.map((variable) => (
+                            <button
+                              key={`${section.key}-insert-${variable.label}`}
+                              type="button"
+                              className="rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-amber-600 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900/30 transition-colors"
+                              onClick={() => {
+                                const ta = document.querySelector<HTMLTextAreaElement>(`textarea[data-section="${section.key}"]`)
+                                if (!ta) return
+                                const start = ta.selectionStart
+                                const end = ta.selectionEnd
+                                const before = (typeof value === 'string' ? value : '').slice(0, start)
+                                const after = (typeof value === 'string' ? value : '').slice(end)
+                                const nextValue = before + variable.label + after
+                                setPayload((current) => setValueAtPath(current, section.key, nextValue))
+                                requestAnimationFrame(() => {
+                                  ta.focus()
+                                  const pos = start + variable.label.length
+                                  ta.setSelectionRange(pos, pos)
+                                })
+                              }}
+                            >
+                              +{variable.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <Textarea
+                        value={typeof value === 'string' ? value : ''}
+                        onChange={(event) =>
+                          setPayload((current) => setValueAtPath(current, section.key, event.target.value))
+                        }
+                        className="min-h-[220px]"
+                        data-section={section.key}
+                      />
+                    </div>
                   )}
                 </div>
               ) : null}
