@@ -301,6 +301,7 @@ export default function PromptManagement() {
             setSelectedVersionId(versionId)
           }}
           defaultVersions={seedVersions}
+          onRollbackToVersion={handleActivateVersion}
         />
       </div>
 

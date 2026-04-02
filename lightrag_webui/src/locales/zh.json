@@ -78,6 +78,8 @@
     "importedVersions": "已导入 {{count}} 个版本",
     "importInvalidFormat": "导入文件格式无效。",
     "importFailed": "导入失败，请检查文件格式。",
+    "rollbackToVersion": "回滚到 {{name}}",
+    "modified": "已修改",
     "variables": {
       "entityTypes": "当前 workspace 允许的实体类型列表，会注入需要限制实体分类范围的模板。",
       "language": "当前运行时选择的输出语言，通常来自 workspace 配置或请求上下文。",

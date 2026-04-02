@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import Input from '@/components/ui/Input'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
+import { RotateCcw } from 'lucide-react'
 
 type PromptVersionListProps = {
   versions: PromptVersionRecord[]
@@ -11,6 +12,7 @@ type PromptVersionListProps = {
   selectedVersionId: string | null
   onSelectVersion: (versionId: string) => void
   defaultVersions?: PromptVersionRecord[]
+  onRollbackToVersion?: (version: PromptVersionRecord) => void
 }
 
 const formatDate = (iso: string): string => {
@@ -33,7 +35,8 @@ export default function PromptVersionList({
   activeVersionId,
   selectedVersionId,
   onSelectVersion,
-  defaultVersions = []
+  defaultVersions = [],
+  onRollbackToVersion
 }: PromptVersionListProps) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
@@ -103,6 +106,18 @@ export default function PromptVersionList({
                     <span className="rounded-full bg-emerald-400 px-2 py-0.5 text-[10px] font-semibold text-white shrink-0">
                       {t('promptManagement.active')}
                     </span>
+                  ) : onRollbackToVersion ? (
+                    <button
+                      type="button"
+                      className="shrink-0 rounded p-1 text-muted-foreground hover:text-emerald-500 transition-colors"
+                      title={t('promptManagement.rollbackToVersion', { name: version.version_name })}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onRollbackToVersion(version)
+                      }}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </button>
                   ) : null}
                 </div>
                 <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">

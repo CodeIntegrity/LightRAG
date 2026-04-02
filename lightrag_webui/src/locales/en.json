@@ -78,6 +78,8 @@
     "importedVersions": "Imported {{count}} versions",
     "importInvalidFormat": "Invalid import file format.",
     "importFailed": "Import failed. Please check the file format.",
+    "rollbackToVersion": "Rollback to {{name}}",
+    "modified": "Modified",
     "variables": {
       "entityTypes": "The entity type list allowed in the current workspace. It is injected into prompts that constrain classification.",
       "language": "The target output language resolved from workspace settings or runtime configuration.",
