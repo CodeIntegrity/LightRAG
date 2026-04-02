@@ -606,6 +606,14 @@
     "querySettings": {
       "parametersTitle": "Параметры",
       "parametersDescription": "Настройте параметры вашего запроса",
+      "promptVersionLabel": "Версия промпта",
+      "promptVersionTooltip": "Выберите активный retrieval-промпт, сохраненную версию из управления промптами или пользовательский черновик для этого запроса.",
+      "promptVersionModes": {
+        "active": "Активная",
+        "saved": "Сохраненная",
+        "custom": "Черновик"
+      },
+      "savedVersionPlaceholder": "Выберите сохраненную версию",
       "queryMode": "Режим запроса",
       "queryModeTooltip": "Выберите стратегию поиска:\n• Naive: Традиционный поиск по вектору текстовых фрагментов\n• Local: Фокус на поиске сущностей\n• Global: Фокус на поиске связей\n• Hybrid: Local+Global\n• Mix: Local+Global+Naive\n• Bypass: Пропустить поиск, отправить историю разговора и текущий вопрос в LLM",
       "queryModeOptions": {

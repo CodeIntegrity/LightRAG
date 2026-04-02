@@ -606,6 +606,14 @@
     "querySettings": {
       "parametersTitle": "パラメータ",
       "parametersDescription": "クエリパラメータを設定",
+      "promptVersionLabel": "プロンプトバージョン",
+      "promptVersionTooltip": "このリクエストで使用する有効な retrieval プロンプト、プロンプト管理に保存されたバージョン、またはカスタム下書きを選択します。",
+      "promptVersionModes": {
+        "active": "有効",
+        "saved": "保存済み",
+        "custom": "下書き"
+      },
+      "savedVersionPlaceholder": "保存済みバージョンを選択",
       "queryMode": "クエリモード",
       "queryModeTooltip": "検索戦略を選択:\n• Naive: 従来のテキストチャンクベクトル検索\n• Local: エンティティ検索に焦点\n• Global: 関係検索に焦点\n• Hybrid: Local+Global\n• Mix: Local+Global+Naive\n• Bypass: 検索をスキップし、会話履歴と現在の質問をLLMに送信",
       "queryModeOptions": {

@@ -71,6 +71,12 @@ describe('workspace api helpers', () => {
   test('workspaceManager locale keys exist across supported languages', () => {
     const locales = [ar, de, en, fr, ja, ko, ru, uk, vi, zh, zhTW] as Record<string, unknown>[]
     const requiredPaths = [
+      'retrievePanel.querySettings.promptVersionLabel',
+      'retrievePanel.querySettings.promptVersionTooltip',
+      'retrievePanel.querySettings.promptVersionModes.active',
+      'retrievePanel.querySettings.promptVersionModes.saved',
+      'retrievePanel.querySettings.promptVersionModes.custom',
+      'retrievePanel.querySettings.savedVersionPlaceholder',
       'workspaceManager.title',
       'workspaceManager.description',
       'workspaceManager.readyTitle',

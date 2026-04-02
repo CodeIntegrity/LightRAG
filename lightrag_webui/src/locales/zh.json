@@ -786,9 +786,13 @@
     },
     "querySettings": {
       "promptVersionLabel": "提示词版本",
-      "promptVersionTooltip": "使用当前生效的 retrieval 版本、某个已保存版本，或仅对本次请求生效的自定义草稿。",
-      "useActiveVersion": "使用当前生效版本",
-      "customDraft": "自定义 / 草稿",
+      "promptVersionTooltip": "选择当前生效的 retrieval 提示词、提示词管理中已保存的版本，或仅对本次请求生效的自定义草稿。",
+      "promptVersionModes": {
+        "active": "生效中",
+        "saved": "已保存",
+        "custom": "草稿"
+      },
+      "savedVersionPlaceholder": "选择已保存版本",
       "parametersTitle": "参数",
       "parametersDescription": "配置查询参数",
       "queryMode": "查询模式",
@@ -1012,7 +1016,13 @@
       "userPrompt": "用户提示词",
       "userPromptTooltip": "自定义提示词以引导 LLM 响应",
       "promptVersionLabel": "提示词版本",
-      "promptVersionTooltip": "选择使用哪个提示词模板版本",
+      "promptVersionTooltip": "选择当前生效的 retrieval 提示词、提示词管理中已保存的版本，或仅对本次请求生效的自定义草稿。",
+      "promptVersionModes": {
+        "active": "生效中",
+        "saved": "已保存",
+        "custom": "草稿"
+      },
+      "savedVersionPlaceholder": "选择已保存版本",
       "promptOverrides": {
         "disabledHint": "此服务器未启用提示词覆盖",
         "bypassHint": "直通模式下不可使用提示词覆盖",

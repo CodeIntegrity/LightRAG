@@ -606,6 +606,14 @@
     "querySettings": {
       "parametersTitle": "매개변수",
       "parametersDescription": "쿼리 매개변수를 구성하세요",
+      "promptVersionLabel": "프롬프트 버전",
+      "promptVersionTooltip": "이 요청에 사용할 활성 retrieval 프롬프트, 프롬프트 관리에 저장된 버전 또는 사용자 정의 초안을 선택합니다.",
+      "promptVersionModes": {
+        "active": "활성",
+        "saved": "저장됨",
+        "custom": "초안"
+      },
+      "savedVersionPlaceholder": "저장된 버전 선택",
       "queryMode": "쿼리 모드",
       "queryModeTooltip": "검색 전략을 선택하세요:\n• Naive: 전통적인 텍스트 청크 벡터 검색\n• Local: 엔티티 검색에 집중\n• Global: 관계 검색에 집중\n• Hybrid: Local+Global\n• Mix: Local+Global+Naive\n• Bypass: 검색 건너뛰기, 대화 기록과 현재 질문을 LLM에 전송",
       "queryModeOptions": {

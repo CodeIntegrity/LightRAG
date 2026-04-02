@@ -606,6 +606,14 @@
     "querySettings": {
       "parametersTitle": "Tham Số",
       "parametersDescription": "Cấu hình tham số truy vấn của bạn",
+      "promptVersionLabel": "Phiên bản prompt",
+      "promptVersionTooltip": "Chọn prompt retrieval đang dùng, một phiên bản đã lưu trong Prompt Management hoặc bản nháp tùy chỉnh cho yêu cầu này.",
+      "promptVersionModes": {
+        "active": "Đang dùng",
+        "saved": "Đã lưu",
+        "custom": "Bản nháp"
+      },
+      "savedVersionPlaceholder": "Chọn phiên bản đã lưu",
       "queryMode": "Chế Độ Truy Vấn",
       "queryModeTooltip": "Chọn chiến lược truy xuất:\n• Naive: Truy xuất vector đoạn văn bản truyền thống\n• Local: Tập trung vào truy xuất thực thể\n• Global: Tập trung vào truy xuất quan hệ\n• Hybrid: Local+Global\n• Mix: Local+Global+Naive\n• Bypass: Bỏ qua truy xuất, gửi lịch sử hội thoại và câu hỏi hiện tại đến LLM",
       "queryModeOptions": {

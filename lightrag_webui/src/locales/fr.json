@@ -606,6 +606,14 @@
     "querySettings": {
       "parametersTitle": "Paramètres",
       "parametersDescription": "Configurez vos paramètres de requête",
+      "promptVersionLabel": "Version du prompt",
+      "promptVersionTooltip": "Choisissez le prompt de récupération actif, une version enregistrée dans la gestion des prompts ou un brouillon personnalisé pour cette requête.",
+      "promptVersionModes": {
+        "active": "Actif",
+        "saved": "Enregistré",
+        "custom": "Brouillon"
+      },
+      "savedVersionPlaceholder": "Sélectionnez une version enregistrée",
       "queryMode": "Mode de requête",
       "queryModeTooltip": "Sélectionnez la stratégie de récupération :\n• Naïf : Récupération vectorielle traditionnelle par blocs de texte\n• Local : Axé sur la récupération d'entités\n• Global : Axé sur la récupération de relations\n• Hybride : Local+Global\n• Mixte : Local+Global+Naïf\n• Bypass : Ignorer la récupération, envoyer l'historique de conversation et la question actuelle au LLM",
       "queryModeOptions": {
