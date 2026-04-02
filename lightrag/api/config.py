@@ -3,11 +3,11 @@ Configs for the LightRAG API.
 """
 
 import os
-import re
 import argparse
 import logging
 from dotenv import load_dotenv
 from lightrag.utils import get_env_value
+from lightrag.api.workspace_registry import sanitize_workspace_identifier
 from lightrag.llm.binding_options import (
     GeminiEmbeddingOptions,
     GeminiLLMOptions,
@@ -494,7 +494,7 @@ def parse_args() -> argparse.Namespace:
 
     # Sanitize workspace: only alphanumeric characters and underscores are allowed
     if args.workspace:
-        sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", args.workspace)
+        sanitized = sanitize_workspace_identifier(args.workspace)
         if sanitized != args.workspace:
             logging.warning(
                 f"Workspace name '{args.workspace}' contains invalid characters. "

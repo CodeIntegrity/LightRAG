@@ -10,7 +10,7 @@ from fastapi.openapi.docs import (
     get_swagger_ui_oauth2_redirect_html,
 )
 import os
-import re
+import asyncio
 import shutil
 import logging
 import logging.config
@@ -62,7 +62,10 @@ from lightrag.api.routers.workspace_routes import (
 from lightrag.api.routers.query_routes import create_query_routes
 from lightrag.api.routers.graph_routes import create_graph_routes
 from lightrag.api.routers.ollama_api import OllamaAPI
-from lightrag.api.workspace_registry import WorkspaceRegistryStore
+from lightrag.api.workspace_registry import (
+    WorkspaceRegistryStore,
+    sanitize_workspace_identifier,
+)
 from lightrag.api.workspace_runtime import (
     WorkspaceRuntimeBundle,
     WorkspaceRuntimeManager,
@@ -371,7 +374,9 @@ def create_app(args):
 
     async def initialize_workspace_assets(workspace: str) -> None:
         DocumentManager(args.input_dir, workspace=workspace)
-        PromptVersionStore(args.working_dir, workspace=workspace).initialize(locale="zh")
+        PromptVersionStore(args.working_dir, workspace=workspace).initialize(
+            locale="zh"
+        )
 
     async def build_runtime_bundle(workspace: str) -> WorkspaceRuntimeBundle:
         if workspace == args.workspace:
@@ -568,17 +573,11 @@ def create_app(args):
 
         return {
             "document_count": document_count,
-            "entity_count": None,
-            "relation_count": None,
             "chunk_count": chunk_count,
-            "storage_size_bytes": None,
             "prompt_version_count": prompt_version_count,
             "capabilities": {
                 "document_count": document_capability,
-                "entity_count": "unsupported_by_backend",
-                "relation_count": "unsupported_by_backend",
                 "chunk_count": chunk_capability,
-                "storage_size_bytes": "unsupported_by_backend",
                 "prompt_version_count": "available",
             },
         }
@@ -586,32 +585,44 @@ def create_app(args):
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Lifespan context manager for startup and shutdown events"""
-        # Store background tasks
         app.state.background_tasks = set()
+
+        async def _periodic_prune_idle_runtimes():
+            while True:
+                await asyncio.sleep(args.workspace_runtime_idle_ttl)
+                try:
+                    evicted = await runtime_manager.prune_idle_runtimes()
+                    if evicted:
+                        logger.debug(f"Evicted idle workspace runtimes: {evicted}")
+                except Exception as exc:
+                    logger.warning(f"Periodic runtime prune failed: {exc}")
 
         try:
             await workspace_registry.initialize(default_workspace=args.workspace)
-            # Initialize database connections
-            # Note: initialize_storages() now auto-initializes pipeline_status for rag.workspace
             await rag.initialize_storages()
-
-            # Data migration regardless of storage implementation
             await rag.check_and_migrate_data()
+
+            prune_task = asyncio.create_task(_periodic_prune_idle_runtimes())
+            app.state.background_tasks.add(prune_task)
+            prune_task.add_done_callback(app.state.background_tasks.discard)
 
             ASCIIColors.green("\nServer is ready to accept connections! 🚀\n")
 
             yield
 
         finally:
-            # Clean up database connections
+            prune_task.cancel()
+            try:
+                await prune_task
+            except asyncio.CancelledError:
+                pass
+
             await rag.finalize_storages()
 
             if "LIGHTRAG_GUNICORN_MODE" not in os.environ:
-                # Only perform cleanup in Uvicorn single-process mode
                 logger.debug("Unvicorn Mode: finalizing shared storage...")
                 finalize_share_data()
             else:
-                # In Gunicorn mode with preload_app=True, cleanup is handled by on_exit hooks
                 logger.debug(
                     "Gunicorn Mode: postpone shared storage finalization to master process"
                 )
@@ -753,7 +764,7 @@ def create_app(args):
         if not workspace:
             workspace = None
         else:
-            sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", workspace)
+            sanitized = sanitize_workspace_identifier(workspace)
             if sanitized != workspace:
                 logger.warning(
                     f"Workspace header '{workspace}' contains invalid characters. "
@@ -780,7 +791,9 @@ def create_app(args):
     def _guest_login_capability() -> bool:
         return bool(auth_handler.accounts) and bool(args.enable_guest_login_entry)
 
-    def _build_guest_login_response(*, auth_mode: str, message: str) -> dict[str, object]:
+    def _build_guest_login_response(
+        *, auth_mode: str, message: str
+    ) -> dict[str, object]:
         guest_token = auth_handler.create_token(
             username="guest", role="guest", metadata={"auth_mode": auth_mode}
         )
@@ -1597,7 +1610,9 @@ def create_app(args):
                     "active_version_name": None,
                 },
             }
-            prompt_version_store = PromptVersionStore(args.working_dir, workspace=workspace)
+            prompt_version_store = PromptVersionStore(
+                args.working_dir, workspace=workspace
+            )
             if prompt_version_store is not None:
                 for group_type in ("indexing", "retrieval"):
                     group_registry = prompt_version_store.list_versions(group_type)
@@ -1658,7 +1673,9 @@ def create_app(args):
                 },
                 "auth_mode": auth_mode,
                 "capabilities": {
-                    "workspace_create": _workspace_create_capability_for_request(request),
+                    "workspace_create": _workspace_create_capability_for_request(
+                        request
+                    ),
                     "guest_login": _guest_login_capability(),
                 },
                 "pipeline_busy": pipeline_status.get("busy", False),

@@ -39,9 +39,7 @@ class WorkspaceValidationError(WorkspaceRegistryError):
     """Raised when a workspace identifier is invalid."""
 
 
-def normalize_workspace_identifier(
-    workspace: str, *, allow_empty: bool = False
-) -> str:
+def normalize_workspace_identifier(workspace: str, *, allow_empty: bool = False) -> str:
     normalized = str(workspace).strip()
     if not normalized:
         if allow_empty:
@@ -50,6 +48,17 @@ def normalize_workspace_identifier(
     if not WORKSPACE_IDENTIFIER_PATTERN.fullmatch(normalized):
         raise WorkspaceValidationError(WORKSPACE_IDENTIFIER_ERROR)
     return normalized
+
+
+def sanitize_workspace_identifier(workspace: str) -> str:
+    """Replace invalid characters with underscores for legacy/header inputs.
+
+    Unlike normalize_workspace_identifier (which rejects invalid input),
+    this function coercively transforms any string into a valid identifier.
+    Used for HTTP header values and CLI args where we want best-effort
+    normalization rather than rejection.
+    """
+    return re.sub(r"[^A-Za-z0-9_]", "_", str(workspace).strip())
 
 
 class WorkspaceRegistryStore:
@@ -163,6 +172,7 @@ class WorkspaceRegistryStore:
                 conn.commit()
 
             self._purge_hard_deleted_sync(conn)
+            self._recover_stuck_hard_deletes_sync(conn)
 
     def _purge_hard_deleted_sync(self, conn: sqlite3.Connection) -> None:
         hard_deleted = conn.execute(
@@ -180,6 +190,40 @@ class WorkspaceRegistryStore:
         conn.execute(
             f"DELETE FROM workspaces WHERE workspace IN ({placeholders})",
             workspaces,
+        )
+        conn.commit()
+
+    def _recover_stuck_hard_deletes_sync(self, conn: sqlite3.Connection) -> None:
+        stuck = conn.execute(
+            "SELECT workspace FROM workspaces WHERE status = 'hard_deleting'"
+        ).fetchall()
+        if not stuck:
+            return
+
+        workspaces = [row["workspace"] for row in stuck]
+        placeholders = ", ".join("?" for _ in workspaces)
+        now = _utc_now()
+        error_msg = "SERVER_RESTART_DURING_DELETE"
+
+        conn.execute(
+            f"""
+            UPDATE workspaces
+            SET status = 'delete_failed',
+                updated_at = ?,
+                delete_error = ?
+            WHERE workspace IN ({placeholders})
+            """,
+            [now, error_msg] + workspaces,
+        )
+        conn.execute(
+            f"""
+            UPDATE workspace_operations
+            SET state = 'failed',
+                finished_at = ?,
+                error = ?
+            WHERE workspace IN ({placeholders})
+            """,
+            [now, error_msg] + workspaces,
         )
         conn.commit()
 
@@ -263,7 +307,9 @@ class WorkspaceRegistryStore:
             )
             conn.commit()
 
-    async def restore_workspace(self, workspace: str, restored_by: str) -> dict[str, Any]:
+    async def restore_workspace(
+        self, workspace: str, restored_by: str
+    ) -> dict[str, Any]:
         await asyncio.to_thread(self._restore_workspace_sync, workspace, restored_by)
         return await self.get_workspace(workspace)
 

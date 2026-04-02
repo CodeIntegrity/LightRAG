@@ -14,8 +14,8 @@ from lightrag.api.workspace_registry import (
     WorkspaceRegistryError,
     WorkspaceRegistryStore,
     WorkspaceStateTransitionError,
-    WorkspaceValidationError,
     normalize_workspace_identifier,
+    sanitize_workspace_identifier,
 )
 
 
@@ -61,10 +61,7 @@ def _active_workspace_from_request(request: Request) -> str | None:
     workspace = request.headers.get("LIGHTRAG-WORKSPACE", "").strip()
     if not workspace:
         return None
-    try:
-        return normalize_workspace_identifier(workspace)
-    except WorkspaceValidationError:
-        return None
+    return sanitize_workspace_identifier(workspace) or None
 
 
 def workspace_create_allowed(
@@ -74,7 +71,6 @@ def workspace_create_allowed(
         return True
     if (
         identity["role"] == "guest"
-        and identity["username"]
         and allow_guest_create
         and not bool(auth_handler.accounts)
     ):
@@ -82,7 +78,9 @@ def workspace_create_allowed(
     return False
 
 
-def _can_view_workspace(identity: dict[str, str | None], record: dict[str, Any]) -> bool:
+def _can_view_workspace(
+    identity: dict[str, str | None], record: dict[str, Any]
+) -> bool:
     if identity["role"] == "admin":
         return True
     if record["visibility"] == "public":
@@ -195,7 +193,9 @@ def create_workspace_routes(
         if not _can_view_workspace(identity, record):
             raise HTTPException(status_code=403, detail="Workspace access forbidden")
         if stats_provider is None:
-            raise HTTPException(status_code=501, detail="Workspace stats are not configured")
+            raise HTTPException(
+                status_code=501, detail="Workspace stats are not configured"
+            )
 
         stats = stats_provider(workspace)
         if inspect.isawaitable(stats):
