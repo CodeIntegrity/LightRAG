@@ -23,6 +23,7 @@ import { getPreferredPromptVersionId } from '@/utils/promptVersioning'
 import { useMemo, useEffect, useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
+import { Download, Upload } from 'lucide-react'
 
 export default function PromptManagement() {
   const { t } = useTranslation()
@@ -69,6 +70,10 @@ export default function PromptManagement() {
   const versions = registry?.versions || []
   const activeVersionId = registry?.active_version_id || null
   const selectedVersion = versions.find((version) => version.version_id === selectedVersionId) || null
+  const seedVersions = useMemo(
+    () => versions.filter((v) => v.version_name.startsWith(`${groupType}-`) && v.version_name.endsWith('-default')),
+    [versions, groupType]
+  )
   const versionsById = useMemo(
     () => Object.fromEntries(versions.map((version) => [version.version_id, version])),
     [versions]
@@ -185,6 +190,66 @@ export default function PromptManagement() {
     setSelectedVersionId(version.version_id)
   }
 
+  const handleExportVersions = useCallback(() => {
+    if (versions.length === 0) return
+    const exportData = {
+      group_type: groupType,
+      exported_at: new Date().toISOString(),
+      version_count: versions.length,
+      versions: versions.map((v) => ({
+        version_name: v.version_name,
+        comment: v.comment,
+        source_version_id: v.source_version_id,
+        payload: v.payload
+      }))
+    }
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `lightrag-${groupType}-prompts-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success(t('promptManagement.exportedVersions', { count: versions.length }))
+  }, [versions, groupType, t])
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleImportVersions = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+      if (!data.versions || !Array.isArray(data.versions)) {
+        toast.error(t('promptManagement.importInvalidFormat'))
+        return
+      }
+
+      let imported = 0
+      for (const version of data.versions) {
+        if (!version.version_name || !version.payload) continue
+        await createPromptConfigVersion(groupType, {
+          version_name: version.version_name,
+          comment: version.comment || '',
+          payload: version.payload,
+          source_version_id: version.source_version_id || undefined
+        })
+        imported++
+      }
+
+      toast.success(t('promptManagement.importedVersions', { count: imported }))
+      await loadVersions()
+    } catch {
+      toast.error(t('promptManagement.importFailed'))
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }, [groupType, t, loadVersions])
+
   return (
     <div className="grid h-full grid-cols-[320px_1fr] gap-4 p-4">
       <div className="space-y-4">
@@ -196,6 +261,37 @@ export default function PromptManagement() {
             setSelectedVersionId(null)
           }}
         />
+        {versions.length > 0 && (
+          <div className="flex justify-end gap-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={handleExportVersions}
+            >
+              <Download className="mr-1 h-3.5 w-3.5" />
+              {t('promptManagement.export')}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="mr-1 h-3.5 w-3.5" />
+              {t('promptManagement.import')}
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={handleImportVersions}
+            />
+          </div>
+        )}
         <PromptVersionList
           versions={versions}
           activeVersionId={activeVersionId}
@@ -204,6 +300,7 @@ export default function PromptManagement() {
             selectionModeRef.current = 'manual'
             setSelectedVersionId(versionId)
           }}
+          defaultVersions={seedVersions}
         />
       </div>
 

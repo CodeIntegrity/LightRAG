@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react'
-import { QueryMode, QueryRequest } from '@/api/lightrag'
+import { QueryMode, QueryRequest, createPromptConfigVersion } from '@/api/lightrag'
 // Removed unused import for Text component
 import Checkbox from '@/components/ui/Checkbox'
 import Input from '@/components/ui/Input'
@@ -20,6 +20,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useBackendState } from '@/stores/state'
 import { useTranslation } from 'react-i18next'
 import { RotateCcw } from 'lucide-react'
+import { toast } from 'sonner'
 
 export default function QuerySettings() {
   const { t } = useTranslation()
@@ -54,6 +55,18 @@ export default function QuerySettings() {
   const handleRetrievalPromptDraftChange = useCallback((value: any) => {
     useSettingsStore.getState().setRetrievalPromptDraft(value)
   }, [])
+
+  const handleSaveDraftAsVersion = useCallback(async (payload: Record<string, unknown>) => {
+    const versionName = `retrieval-custom-${Date.now()}`
+    const saved = await createPromptConfigVersion('retrieval', {
+      version_name: versionName,
+      comment: 'Saved from retrieval page draft',
+      payload
+    })
+    toast.success(t('retrievePanel.querySettings.promptOverrides.savedAsVersion', { name: saved.version_name }))
+    useSettingsStore.getState().setRetrievalPromptVersionSelection(saved.version_id)
+    useSettingsStore.getState().setRetrievalPromptDraft(undefined)
+  }, [t])
 
   // Default values for reset functionality
   const defaultValues = useMemo(() => ({
@@ -150,6 +163,7 @@ export default function QuerySettings() {
                   disabledReason={promptOverridesDisabledReason}
                   value={retrievalPromptDraft}
                   onChange={handleRetrievalPromptDraftChange}
+                  onSaveAsVersion={handleSaveDraftAsVersion}
                 />
               ) : null}
             </>

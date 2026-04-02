@@ -68,6 +68,16 @@
     "quickTestRaw": "原始模板",
     "quickTestPreview": "示例数据预览",
     "quickTestVariableValues": "变量示例值",
+    "searchVersions": "搜索版本...",
+    "noVersionsMatch": "没有匹配的版本。",
+    "noVersions": "暂无可用版本。",
+    "seed": "默认",
+    "export": "导出",
+    "import": "导入",
+    "exportedVersions": "已导出 {{count}} 个版本",
+    "importedVersions": "已导入 {{count}} 个版本",
+    "importInvalidFormat": "导入文件格式无效。",
+    "importFailed": "导入失败，请检查文件格式。",
     "variables": {
       "entityTypes": "当前 workspace 允许的实体类型列表，会注入需要限制实体分类范围的模板。",
       "language": "当前运行时选择的输出语言，通常来自 workspace 配置或请求上下文。",
@@ -832,7 +842,9 @@
         "keywordsExtraction": "keywords.keywords_extraction",
         "keywordsExtractionExamples": "keywords.keywords_extraction_examples",
         "examplePlaceholder": "示例 {{index}}",
-        "removeExample": "删除"
+        "removeExample": "删除",
+        "saveAsVersion": "保存为版本",
+        "savedAsVersion": "已将草稿保存为 {{name}}"
       },
       "enableRerank": "启用重排",
       "enableRerankTooltip": "为检索到的文本块启用重排。如果为True但未配置重排模型，将发出警告。默认为True。"

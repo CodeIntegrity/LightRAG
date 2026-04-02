@@ -68,6 +68,16 @@
     "quickTestRaw": "Raw Template",
     "quickTestPreview": "Preview with Sample Data",
     "quickTestVariableValues": "Sample Variable Values",
+    "searchVersions": "Search versions...",
+    "noVersionsMatch": "No versions match your search.",
+    "noVersions": "No versions available.",
+    "seed": "SEED",
+    "export": "Export",
+    "import": "Import",
+    "exportedVersions": "Exported {{count}} versions",
+    "importedVersions": "Imported {{count}} versions",
+    "importInvalidFormat": "Invalid import file format.",
+    "importFailed": "Import failed. Please check the file format.",
     "variables": {
       "entityTypes": "The entity type list allowed in the current workspace. It is injected into prompts that constrain classification.",
       "language": "The target output language resolved from workspace settings or runtime configuration.",
@@ -832,7 +842,9 @@
         "keywordsExtraction": "keywords.keywords_extraction",
         "keywordsExtractionExamples": "keywords.keywords_extraction_examples",
         "examplePlaceholder": "Example {{index}}",
-        "removeExample": "Remove"
+        "removeExample": "Remove",
+        "saveAsVersion": "Save as Version",
+        "savedAsVersion": "Saved draft as {{name}}"
       },
       "enableRerank": "Enable Rerank",
       "enableRerankTooltip": "Enable reranking for retrieved text chunks. If True but no rerank model is configured, a warning will be issued. Default is True."

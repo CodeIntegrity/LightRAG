@@ -9,9 +9,10 @@ type PromptOverridesEditorProps = {
   disabledReason?: string
   value?: QueryPromptOverrides
   onChange: (value: QueryPromptOverrides | undefined) => void
+  onSaveAsVersion?: (payload: Record<string, unknown>) => Promise<void>
 }
 
-export default function PromptOverridesEditor({ enabled, disabledReason, value, onChange }: PromptOverridesEditorProps) {
+export default function PromptOverridesEditor({ enabled, disabledReason, value, onChange, onSaveAsVersion }: PromptOverridesEditorProps) {
   const { t } = useTranslation()
   const examples = value?.keywords?.keywords_extraction_examples || []
 
@@ -159,6 +160,26 @@ export default function PromptOverridesEditor({ enabled, disabledReason, value, 
           </div>
         </div>
       </div>
+
+      {onSaveAsVersion && (
+        <div className="mt-2 border-t border-border/60 pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 w-full text-xs"
+            disabled={!enabled || !value || Object.keys(value).length === 0}
+            onClick={async () => {
+              const payload: Record<string, unknown> = {}
+              if (value?.query) payload.query = { ...value.query }
+              if (value?.keywords) payload.keywords = { ...value.keywords }
+              await onSaveAsVersion(payload)
+            }}
+          >
+            {t('retrievePanel.querySettings.promptOverrides.saveAsVersion')}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

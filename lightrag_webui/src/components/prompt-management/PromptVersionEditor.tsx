@@ -11,13 +11,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import {
   formatVersionLineageLabel,
   buildPromptEditorSections,
-  getPromptFieldEditorValue,
-  getPromptFieldPreview
+  getPromptFieldEditorValue
 } from '@/utils/promptVersioning'
 import PromptListFieldEditor from './PromptListFieldEditor'
 import PromptQuickTestPanel from './PromptQuickTestPanel'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { cn } from '@/lib/utils'
 
 type PromptVersionEditorProps = {
   groupType: PromptConfigGroup
@@ -89,6 +89,7 @@ export default function PromptVersionEditor({
   const [payload, setPayload] = useState<Record<string, unknown>>(() => version ? structuredClone(version.payload) : {})
   const [savingAction, setSavingAction] = useState<'save' | 'saveAs' | 'rebuild' | null>(null)
   const [expandedSectionKey, setExpandedSectionKey] = useState<string | null>(null)
+  const originalPayloadRef = useRef<Record<string, unknown>>({})
 
   const resizeTextarea = (element: HTMLTextAreaElement | null) => {
     if (!element) return
@@ -99,9 +100,25 @@ export default function PromptVersionEditor({
   useEffect(() => {
     setVersionName(version?.version_name ?? '')
     setComment(version?.comment ?? '')
-    setPayload(version ? structuredClone(version.payload) : {})
+    const cloned = version ? structuredClone(version.payload) : {}
+    setPayload(cloned)
+    originalPayloadRef.current = cloned
     setExpandedSectionKey(null)
   }, [version])
+
+  const isSectionModified = (key: string): boolean => {
+    const current = payload[key]
+    const original = originalPayloadRef.current[key]
+    if (typeof current === 'string' && typeof original === 'string') return current !== original
+    if (Array.isArray(current) && Array.isArray(original)) return JSON.stringify(current) !== JSON.stringify(original)
+    return current !== original
+  }
+
+  const getMultiLinePreview = (value: unknown): string => {
+    if (typeof value !== 'string') return ''
+    const lines = value.split('\n').filter((line) => line.trim().length > 0)
+    return lines.slice(0, 3).join('\n')
+  }
 
   if (!version) {
     return (
@@ -225,11 +242,12 @@ export default function PromptVersionEditor({
       <CardContent className="space-y-3 overflow-auto">
         {sections.map((section) => {
           const value = getValueAtPath(payload, section.key)
-          const preview = getPromptFieldPreview(value)
+          const preview = getMultiLinePreview(value)
           const expanded = expandedSectionKey === section.key
+          const modified = isSectionModified(section.key)
           const sectionDescription = t(section.descriptionKey)
           return (
-            <div key={section.key} className="rounded-lg border">
+            <div key={section.key} className={cn('rounded-lg border', modified && 'border-amber-300/60 dark:border-amber-600/40')}>
               <button
                 type="button"
                 className="flex w-full items-start justify-between gap-3 p-3 text-left"
@@ -240,7 +258,14 @@ export default function PromptVersionEditor({
                 }
               >
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-medium">{section.title}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-medium">{section.title}</span>
+                    {modified && (
+                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                        {t('promptManagement.modified')}
+                      </span>
+                    )}
+                  </div>
                   <div className="mt-1 text-xs leading-5 text-muted-foreground">
                     {sectionDescription}
                   </div>
@@ -254,9 +279,9 @@ export default function PromptVersionEditor({
                       </span>
                     ))}
                   </div>
-                  <div className="mt-1 line-clamp-2 text-xs text-muted-foreground break-all">
+                  <pre className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-muted-foreground break-all font-mono leading-5">
                     {preview || t('promptManagement.emptyPreview')}
-                  </div>
+                  </pre>
                 </div>
                 <span className="shrink-0 text-xs text-emerald-500">
                   {expanded ? t('promptManagement.collapse') : t('promptManagement.edit')}
