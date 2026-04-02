@@ -56,9 +56,17 @@ export default function PromptOverridesEditor({ enabled, disabledReason, value, 
         {t('retrievePanel.querySettings.promptOverrides.description')}
       </p>
       {!enabled && (
-        <p className="ml-1 text-[11px] text-amber-600 dark:text-amber-400">
-          {disabledReason || t('retrievePanel.querySettings.promptOverrides.disabledHint')}
-        </p>
+        <div className="ml-1 space-y-1.5 rounded-md bg-amber-50/60 p-2 dark:bg-amber-950/20">
+          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+            {disabledReason || t('retrievePanel.querySettings.promptOverrides.disabledHint')}
+          </p>
+          <p className="text-[10px] text-muted-foreground">
+            {t('retrievePanel.querySettings.promptOverrides.enableGuide')}
+          </p>
+          <code className="block rounded bg-muted px-2 py-1 text-[10px] font-mono">
+            ALLOW_PROMPT_OVERRIDES_VIA_API=true
+          </code>
+        </div>
       )}
 
       <div className="space-y-2">

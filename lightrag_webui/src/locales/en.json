@@ -846,7 +846,8 @@
         "examplePlaceholder": "Example {{index}}",
         "removeExample": "Remove",
         "saveAsVersion": "Save as Version",
-        "savedAsVersion": "Saved draft as {{name}}"
+        "savedAsVersion": "Saved draft as {{name}}",
+        "enableGuide": "To enable query-time prompt overrides, set this environment variable on the server:"
       },
       "enableRerank": "Enable Rerank",
       "enableRerankTooltip": "Enable reranking for retrieved text chunks. If True but no rerank model is configured, a warning will be issued. Default is True."

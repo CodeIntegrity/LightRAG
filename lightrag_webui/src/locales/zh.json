@@ -846,7 +846,8 @@
         "examplePlaceholder": "示例 {{index}}",
         "removeExample": "删除",
         "saveAsVersion": "保存为版本",
-        "savedAsVersion": "已将草稿保存为 {{name}}"
+        "savedAsVersion": "已将草稿保存为 {{name}}",
+        "enableGuide": "要启用查询时 prompt 覆盖，请在服务端设置以下环境变量："
       },
       "enableRerank": "启用重排",
       "enableRerankTooltip": "为检索到的文本块启用重排。如果为True但未配置重排模型，将发出警告。默认为True。"
