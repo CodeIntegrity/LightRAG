@@ -58,27 +58,29 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
     }
   }, [theme])
 
+  // systemThemeIsDark triggers re-render on OS theme change, making isDarkTheme reactive
+  const isDarkTheme = theme === 'dark' ||
+    (theme === 'system' && systemThemeIsDark)
+
   /**
    * When component mount or maxIterations changes
    * => ensure graph reference and apply layout
    */
   useEffect(() => {
     if (sigmaGraph && sigma) {
-      // Ensure sigma binding to sigmaGraph
       try {
         if (typeof sigma.setGraph === 'function') {
           sigma.setGraph(sigmaGraph as unknown as AbstractGraph<NodeType, EdgeType>);
-          console.log('Binding graph to sigma instance');
         } else {
-          (sigma as any).graph = sigmaGraph;
-          console.warn('Simgma missing setGraph function, set graph property directly');
+          console.error('Sigma instance missing setGraph method — graph binding skipped');
+          return;
         }
       } catch (error) {
         console.error('Error setting graph on sigma instance:', error);
+        return;
       }
 
       assignLayout();
-      console.log('Initial layout applied to graph');
     }
   }, [sigma, sigmaGraph, assignLayout, maxIterations])
 
@@ -214,30 +216,31 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
 
 
   /**
-   * When component mount or hovered node change
-   * => Setting the sigma reducers
+   * Simple display settings — rarely change, separate from reducers
    */
   useEffect(() => {
-    // Check if dark mode is actually applied (handles both 'dark' theme and 'system' theme when OS is dark)
-    const isDarkTheme = theme === 'dark' ||
-      (theme === 'system' && window.document.documentElement.classList.contains('dark'))
-    const labelColor = isDarkTheme ? Constants.labelColorDarkTheme : undefined
-    const edgeColor = isDarkTheme ? Constants.edgeColorDarkTheme : undefined
-
-    // Update all dynamic settings directly without recreating the sigma container
     setSettings({
-      // Update display settings
       enableEdgeEvents,
       renderEdgeLabels,
-      renderLabels,
+      renderLabels
+    })
+  }, [setSettings, enableEdgeEvents, renderEdgeLabels, renderLabels])
 
-      // Node reducer for node appearance
+  /**
+   * Reducers for node/edge appearance — depend on interaction state
+   */
+  useEffect(() => {
+    const labelColor = isDarkTheme ? Constants.labelColorDarkTheme : undefined
+    const edgeColor = isDarkTheme ? Constants.edgeColorDarkTheme : undefined
+    const edgeHighlightColor = isDarkTheme
+      ? Constants.edgeColorHighlightedDarkTheme
+      : Constants.edgeColorHighlightedLightTheme
+
+    setSettings({
       nodeReducer: (node, data) => {
         const graph = sigma.getGraph()
 
-        // Add defensive check for node existence during theme switching
         if (!graph.hasNode(node)) {
-          console.warn(`Node ${node} not found in graph during theme switch, returning default data`)
           return { ...data, highlighted: false, labelColor }
         }
 
@@ -259,8 +262,7 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
                   newData.borderColor = Constants.nodeBorderColorSelected
                 }
               }
-            } catch (error) {
-              console.error('Error in nodeReducer:', error);
+            } catch {
               return { ...data, highlighted: false, labelColor }
             }
           } else if (_focusedEdge && graph.hasEdge(_focusedEdge)) {
@@ -269,8 +271,7 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
                 newData.highlighted = true
                 newData.size = 3
               }
-            } catch (error) {
-              console.error('Error accessing edge extremities in nodeReducer:', error);
+            } catch {
               return { ...data, highlighted: false, labelColor }
             }
           } else {
@@ -288,13 +289,10 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
         return newData
       },
 
-      // Edge reducer for edge appearance
       edgeReducer: (edge, data) => {
         const graph = sigma.getGraph()
 
-        // Add defensive check for edge existence during theme switching
         if (!graph.hasEdge(edge)) {
-          console.warn(`Edge ${edge} not found in graph during theme switch, returning default data`)
           return { ...data, hidden: false, labelColor, color: edgeColor }
         }
 
@@ -302,10 +300,6 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
 
         if (!disableHoverEffect) {
           const _focusedNode = focusedNode || selectedNode
-          // Choose edge highlight color based on theme
-          const edgeHighlightColor = isDarkTheme
-            ? Constants.edgeColorHighlightedDarkTheme
-            : Constants.edgeColorHighlightedLightTheme
 
           if (_focusedNode && graph.hasNode(_focusedNode)) {
             try {
@@ -318,13 +312,12 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
                   newData.color = edgeHighlightColor
                 }
               }
-            } catch (error) {
-              console.error('Error in edgeReducer:', error);
+            } catch {
               return { ...data, hidden: false, labelColor, color: edgeColor }
             }
           } else {
-            const _selectedEdge = selectedEdge && graph.hasEdge(selectedEdge) ? selectedEdge : null;
-            const _focusedEdge = focusedEdge && graph.hasEdge(focusedEdge) ? focusedEdge : null;
+            const _selectedEdge = selectedEdge && graph.hasEdge(selectedEdge) ? selectedEdge : null
+            const _focusedEdge = focusedEdge && graph.hasEdge(focusedEdge) ? focusedEdge : null
 
             if (_selectedEdge || _focusedEdge) {
               if (edge === _selectedEdge) {
@@ -348,12 +341,8 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
     setSettings,
     sigma,
     disableHoverEffect,
-    theme,
-    systemThemeIsDark,
-    hideUnselectedEdges,
-    enableEdgeEvents,
-    renderEdgeLabels,
-    renderLabels
+    isDarkTheme,
+    hideUnselectedEdges
   ])
 
   return null

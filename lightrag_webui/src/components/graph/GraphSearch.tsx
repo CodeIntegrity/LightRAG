@@ -76,21 +76,12 @@ export const GraphSearchInput = ({
   const graph = useGraphStore.use.sigmaGraph()
   const searchEngine = useGraphStore.use.searchEngine()
 
-  // Reset search engine when graph changes
   useEffect(() => {
-    if (graph) {
-      useGraphStore.getState().resetSearchEngine()
-    }
-  }, [graph]);
-
-  // Create search engine when needed
-  useEffect(() => {
-    // Skip if no graph, empty graph, or search engine already exists
-    if (!graph || graph.nodes().length === 0 || searchEngine) {
+    if (!graph || graph.nodes().length === 0) {
+      useGraphStore.getState().setSearchEngine(null)
       return
     }
 
-    // Create new search engine
     const newSearchEngine = new MiniSearch({
       idField: 'id',
       fields: ['label'],
@@ -103,11 +94,10 @@ export const GraphSearchInput = ({
       }
     })
 
-    // Add nodes to search engine with safety checks
     const documents = graph.nodes()
-      .filter(id => graph.hasNode(id)) // Ensure node exists before accessing attributes
+      .filter(id => graph.hasNode(id))
       .map((id: string) => ({
-        id: id,
+        id,
         label: graph.getNodeAttribute(id, 'label')
       }))
 
@@ -115,9 +105,10 @@ export const GraphSearchInput = ({
       newSearchEngine.addAll(documents)
     }
 
-    // Update search engine in store
     useGraphStore.getState().setSearchEngine(newSearchEngine)
-  }, [graph, searchEngine])
+    // Note: only [graph] is needed because store.reset() always nulls sigmaGraph,
+    // so any path that clears searchEngine also changes graph reference.
+  }, [graph])
 
   /**
    * Loading the options while the user is typing.

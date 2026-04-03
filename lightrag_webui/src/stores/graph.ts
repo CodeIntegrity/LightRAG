@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { createSelectors } from '@/lib/utils'
-import { DirectedGraph } from 'graphology'
+import type Graph from 'graphology'
 import MiniSearch from 'minisearch'
 import { resolveNodeColor, DEFAULT_NODE_COLOR } from '@/utils/graphColor'
 
@@ -82,7 +82,7 @@ interface GraphState {
   focusedEdge: string | null
 
   rawGraph: RawGraph | null
-  sigmaGraph: DirectedGraph | null
+  sigmaGraph: Graph | null
   sigmaInstance: any | null
 
   searchEngine: MiniSearch | null
@@ -111,7 +111,7 @@ interface GraphState {
   setLastSuccessfulQueryLabel: (label: string) => void
 
   setRawGraph: (rawGraph: RawGraph | null) => void
-  setSigmaGraph: (sigmaGraph: DirectedGraph | null) => void
+  setSigmaGraph: (sigmaGraph: Graph | null) => void
   setIsFetching: (isFetching: boolean) => void
 
   // Legend color mapping methods
@@ -189,10 +189,14 @@ const useGraphStoreBase = create<GraphState>()((set, get) => ({
       selectedEdge: null,
       focusedEdge: null,
       rawGraph: null,
-      sigmaGraph: null,  // to avoid other components from acccessing graph objects
+      sigmaGraph: null,
+      sigmaInstance: null,
       searchEngine: null,
       moveToSelectedNode: false,
-      graphIsEmpty: false
+      graphIsEmpty: false,
+      typeColorMap: new Map<string, string>(),
+      graphDataFetchAttempted: false,
+      labelsFetchAttempted: false
     });
   },
 
@@ -201,7 +205,7 @@ const useGraphStoreBase = create<GraphState>()((set, get) => ({
       rawGraph
     }),
 
-  setSigmaGraph: (sigmaGraph: DirectedGraph | null) => {
+  setSigmaGraph: (sigmaGraph: Graph | null) => {
     // Replace graph instance, no need to keep WebGL context
     set({ sigmaGraph });
   },

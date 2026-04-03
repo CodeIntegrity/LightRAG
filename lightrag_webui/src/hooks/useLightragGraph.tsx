@@ -217,10 +217,10 @@ const createSigmaGraph = (rawGraph: RawGraph | null) => {
 
   // Add nodes from raw graph data
   for (const rawNode of rawGraph?.nodes ?? []) {
-    // Ensure we have fresh random positions for nodes
-    seedrandom(rawNode.id + Date.now().toString(), { global: true })
-    const x = Math.random()
-    const y = Math.random()
+    // Use local PRNG to avoid polluting global Math.random
+    const rng = seedrandom(rawNode.id + Date.now().toString())
+    const x = rng()
+    const y = rng()
 
     graph.addNode(rawNode.id, {
       label: resolveNodeDisplayName(rawNode),
@@ -404,6 +404,7 @@ const useLightrangeGraph = () => {
 
         // Reset state
         state.reset()
+        state.setGraphDataFetchAttempted(true)
 
         // Check if data is empty or invalid
         if (!data || !data.nodes || data.nodes.length === 0) {
@@ -521,21 +522,19 @@ const useLightrangeGraph = () => {
         // Process nodes to add required properties for RawNodeType
         const processedNodes: RawNodeType[] = [];
         for (const node of extendedGraph.nodes) {
-          // Generate random color values
-          seedrandom(node.id, { global: true });
+          const rng = seedrandom(node.id);
           const nodeEntityType = node.properties?.entity_type as string | undefined;
           const color = getNodeColorByType(nodeEntityType);
 
-          // Create a properly typed RawNodeType
           processedNodes.push({
             id: node.id,
             labels: node.labels,
             properties: node.properties,
-            size: 10, // Default size, will be calculated later
-            x: Math.random(), // Random position, will be adjusted later
-            y: Math.random(), // Random position, will be adjusted later
-            color: color, // Random color
-            degree: 0 // Initial degree, will be calculated later
+            size: 10,
+            x: rng(),
+            y: rng(),
+            color,
+            degree: 0
           });
         }
 
@@ -724,11 +723,11 @@ const useLightrangeGraph = () => {
         // Calculate camera ratio and spread factor once before the loop
         const cameraRatio = useGraphStore.getState().sigmaInstance?.getCamera().ratio || 1;
         const spreadFactor = Math.max(
-          Math.sqrt(nodeToExpand.size) * 4, // Base on node size
-          Math.sqrt(nodesToAdd.size) * 3 // Scale with number of nodes
-        ) / cameraRatio; // Adjust for zoom level
-        seedrandom(Date.now().toString(), { global: true });
-        const randomAngle = Math.random() * 2 * Math.PI
+          Math.sqrt(nodeToExpand.size) * 4,
+          Math.sqrt(nodesToAdd.size) * 3
+        ) / cameraRatio;
+        const rng = seedrandom(Date.now().toString());
+        const randomAngle = rng() * 2 * Math.PI
 
         console.log('nodeSize:', nodeToExpand.size, 'nodesToAdd:', nodesToAdd.size);
         console.log('cameraRatio:', Math.round(cameraRatio*100)/100, 'spreadFactor:', Math.round(spreadFactor*100)/100);
