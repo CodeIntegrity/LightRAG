@@ -8,7 +8,6 @@ import Input from '@/components/ui/Input'
 import { controlButtonVariant } from '@/lib/constants'
 import { useSettingsStore } from '@/stores/settings'
 import { useGraphStore } from '@/stores/graph'
-import useRandomGraph from '@/hooks/useRandomGraph'
 
 import { SettingsIcon, Undo2, Shuffle } from 'lucide-react'
 import { useTranslation } from 'react-i18next';
@@ -165,8 +164,12 @@ export default function Settings() {
 
   const enableHealthCheck = useSettingsStore.use.enableHealthCheck()
 
-  // Random graph functionality for development/testing
-  const { randomGraph } = useRandomGraph()
+  // Random graph: only loaded in dev mode to avoid bundling @faker-js/faker (3MB) in production
+  const handleGenerateRandomGraph = useCallback(async () => {
+    const { default: generateRandomGraph } = await import('@/hooks/useRandomGraph')
+    const graph = generateRandomGraph()
+    useGraphStore.getState().setSigmaGraph(graph)
+  }, [])
 
   const setEnableNodeDrag = useCallback(
     () => useSettingsStore.setState((pre) => ({ enableNodeDrag: !pre.enableNodeDrag })),
@@ -232,11 +235,6 @@ export default function Settings() {
     if (iterations < 1) return
     useSettingsStore.setState({ graphLayoutMaxIterations: iterations })
   }, [])
-
-  const handleGenerateRandomGraph = useCallback(() => {
-    const graph = randomGraph()
-    useGraphStore.getState().setSigmaGraph(graph)
-  }, [randomGraph])
 
   const { t } = useTranslation();
 

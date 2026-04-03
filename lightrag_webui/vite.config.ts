@@ -30,16 +30,62 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: path.resolve(__dirname, '../lightrag/api/webui'),
       emptyOutDir: true,
-      chunkSizeWarningLimit: 3800,
       rollupOptions: {
-        // Let Vite handle chunking automatically to avoid circular dependency issues
         output: {
-          // Ensure consistent chunk naming format
           chunkFileNames: 'assets/[name]-[hash].js',
-          // Entry file naming format
           entryFileNames: 'assets/[name]-[hash].js',
-          // Asset file naming format
-          assetFileNames: 'assets/[name]-[hash].[ext]'
+          assetFileNames: 'assets/[name]-[hash].[ext]',
+          manualChunks: {
+            'vendor-graph': [
+              'sigma',
+              'graphology',
+              'graphology-generators',
+              'graphology-layout',
+              'graphology-layout-force',
+              'graphology-layout-forceatlas2',
+              'graphology-layout-noverlap',
+              '@react-sigma/core',
+              '@react-sigma/graph-search',
+              '@react-sigma/layout-circlepack',
+              '@react-sigma/layout-circular',
+              '@react-sigma/layout-force',
+              '@react-sigma/layout-forceatlas2',
+              '@react-sigma/layout-noverlap',
+              '@react-sigma/layout-random',
+              '@react-sigma/minimap',
+              '@sigma/edge-curve',
+              '@sigma/node-border',
+            ],
+            'vendor-mermaid': ['mermaid'],
+            'vendor-markdown': [
+              'react-markdown',
+              'rehype-katex',
+              'rehype-raw',
+              'rehype-react',
+              'katex',
+              'remark-gfm',
+              'remark-math',
+              'react-syntax-highlighter',
+            ],
+            'vendor-ui': [
+              '@radix-ui/react-alert-dialog',
+              '@radix-ui/react-checkbox',
+              '@radix-ui/react-dialog',
+              '@radix-ui/react-popover',
+              '@radix-ui/react-progress',
+              '@radix-ui/react-scroll-area',
+              '@radix-ui/react-select',
+              '@radix-ui/react-separator',
+              '@radix-ui/react-slot',
+              '@radix-ui/react-tabs',
+              '@radix-ui/react-tooltip',
+              '@radix-ui/react-use-controllable-state',
+              'cmdk',
+              'lucide-react',
+              'react-select',
+              'sonner',
+            ],
+          }
         }
       }
     },
