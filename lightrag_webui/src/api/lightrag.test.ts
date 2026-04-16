@@ -47,6 +47,89 @@ afterEach(() => {
 })
 
 describe('getDocumentsPaginated', () => {
+  test('normalizes legacy statuses responses for older backends', async () => {
+    const request: DocumentsRequest = {
+      status_filter: null,
+      page: 2,
+      page_size: 1,
+      sort_field: 'updated_at',
+      sort_direction: 'desc'
+    }
+
+    apiModule.__setPaginatedDocumentsPostForTests(async () => ({
+      statuses: {
+        PROCESSED: [
+          {
+            id: 'doc-2',
+            content_summary: 'newer document',
+            content_length: 20,
+            status: 'processed',
+            created_at: '2026-04-16T09:00:00Z',
+            updated_at: '2026-04-16T10:00:00Z',
+            file_path: 'newer.md'
+          }
+        ],
+        PENDING: [
+          {
+            id: 'doc-1',
+            content_summary: 'older document',
+            content_length: 10,
+            status: 'pending',
+            created_at: '2026-04-16T07:00:00Z',
+            updated_at: '2026-04-16T08:00:00Z',
+            file_path: 'older.md'
+          }
+        ]
+      }
+    }) as any)
+
+    await expect(apiModule.getDocumentsPaginated(request)).resolves.toEqual({
+      documents: [
+        {
+          id: 'doc-1',
+          content_summary: 'older document',
+          content_length: 10,
+          status: 'pending',
+          created_at: '2026-04-16T07:00:00Z',
+          updated_at: '2026-04-16T08:00:00Z',
+          file_path: 'older.md'
+        }
+      ],
+      pagination: {
+        page: 2,
+        page_size: 1,
+        total_count: 2,
+        total_pages: 2,
+        has_next: false,
+        has_prev: true
+      },
+      status_counts: {
+        all: 2,
+        pending: 1,
+        processing: 0,
+        preprocessed: 0,
+        processed: 1,
+        failed: 0
+      }
+    })
+  })
+
+  test('rejects malformed paginated responses instead of returning invalid state', async () => {
+    const request: DocumentsRequest = {
+      status_filter: null,
+      page: 1,
+      page_size: 20,
+      sort_field: 'updated_at',
+      sort_direction: 'desc'
+    }
+
+    apiModule.__setPaginatedDocumentsPostForTests(async () => '<html>login</html>' as any)
+
+    await expect(apiModule.getDocumentsPaginated(request)).rejects.toThrow(
+      'Unexpected paginated documents response format'
+    )
+  })
+
   test('issues a fresh request after aborting a timed-out in-flight request', async () => {
     const request: DocumentsRequest = {
       status_filter: null,

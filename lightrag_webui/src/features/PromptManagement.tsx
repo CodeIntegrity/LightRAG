@@ -81,27 +81,6 @@ export default function PromptManagement() {
     [versions]
   )
 
-  if (!loading && versions.length === 0) {
-    return (
-      <EmptyCard
-        className="h-full"
-        title={t('promptManagement.emptyTitle')}
-        description={t('promptManagement.emptyDescription')}
-        action={
-          <Button
-            type="button"
-            onClick={async () => {
-              await initializePromptConfig(locale)
-              await loadVersions()
-            }}
-          >
-            {t('promptManagement.initializeSeedVersions')}
-          </Button>
-        }
-      />
-    )
-  }
-
   const handleSaveCurrentVersion = async (
     version: PromptVersionRecord,
     payload: PromptVersionUpdateRequest
@@ -256,6 +235,27 @@ export default function PromptManagement() {
     workspaceDisplayNames[currentWorkspace] ||
     currentWorkspace ||
     t('workspaceManager.defaultWorkspace', 'default')
+
+  if (!loading && versions.length === 0) {
+    return (
+      <EmptyCard
+        className="h-full"
+        title={t('promptManagement.emptyTitle')}
+        description={t('promptManagement.emptyDescription')}
+        action={
+          <Button
+            type="button"
+            onClick={async () => {
+              await initializePromptConfig(locale)
+              await loadVersions()
+            }}
+          >
+            {t('promptManagement.initializeSeedVersions')}
+          </Button>
+        }
+      />
+    )
+  }
 
   return (
     <div className="grid h-full grid-cols-[320px_1fr] gap-4 p-4">

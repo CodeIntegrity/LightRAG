@@ -9,11 +9,32 @@ import tailwindcss from '@tailwindcss/vite'
 // Bun resolves tsconfig paths natively, masking the issue, but Node.js does not.
 import { webuiPrefix } from './src/lib/constants'
 
+const defaultApiEndpoints = [
+  '/api',
+  '/auth-status',
+  '/documents',
+  '/docs',
+  '/graph',
+  '/graphs',
+  '/health',
+  '/login',
+  '/openapi.json',
+  '/prompt-config',
+  '/query',
+  '/redoc',
+  '/static',
+  '/workspaces'
+]
+
 // https://vite.dev/config/
 // Use functional config form so we can call loadEnv(). import.meta.env is only
 // available inside Bun's runtime; Node.js leaves it undefined, crashing the build.
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
+  const configuredEndpoints = env.VITE_API_ENDPOINTS
+    ? env.VITE_API_ENDPOINTS.split(',').map((endpoint) => endpoint.trim()).filter(Boolean)
+    : []
+  const proxyEndpoints = Array.from(new Set([...defaultApiEndpoints, ...configuredEndpoints]))
 
   return {
     plugins: [react(), tailwindcss()],
@@ -90,9 +111,9 @@ export default defineConfig(({ mode }) => {
       }
     },
     server: {
-      proxy: env.VITE_API_PROXY === 'true' && env.VITE_API_ENDPOINTS ?
+      proxy: env.VITE_API_PROXY === 'true' && proxyEndpoints.length > 0 ?
         Object.fromEntries(
-          env.VITE_API_ENDPOINTS.split(',').map(endpoint => [
+          proxyEndpoints.map(endpoint => [
             endpoint,
             {
               target: env.VITE_BACKEND_URL || 'http://localhost:9621',

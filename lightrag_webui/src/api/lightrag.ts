@@ -506,6 +506,172 @@ export type StatusCountsResponse = {
   status_counts: Record<string, number>
 }
 
+const documentStatuses: DocStatus[] = [
+  'pending',
+  'processing',
+  'preprocessed',
+  'processed',
+  'failed'
+]
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+const normalizeDocStatus = (value: unknown): DocStatus | null => {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  switch (value.toLowerCase()) {
+    case 'pending':
+    case 'processing':
+    case 'preprocessed':
+    case 'processed':
+    case 'failed':
+      return value.toLowerCase() as DocStatus
+    default:
+      return null
+  }
+}
+
+const sortDocumentsForRequest = (
+  documents: DocStatusResponse[],
+  request: DocumentsRequest
+): DocStatusResponse[] => {
+  const sortMultiplier = request.sort_direction === 'asc' ? 1 : -1
+
+  return [...documents].sort((a, b) => {
+    const field = request.sort_field
+    const valueA = field === 'created_at' || field === 'updated_at'
+      ? new Date(a[field]).getTime()
+      : a[field]
+    const valueB = field === 'created_at' || field === 'updated_at'
+      ? new Date(b[field]).getTime()
+      : b[field]
+
+    if (typeof valueA === 'string' && typeof valueB === 'string') {
+      return sortMultiplier * valueA.localeCompare(valueB)
+    }
+
+    return sortMultiplier * (valueA > valueB ? 1 : valueA < valueB ? -1 : 0)
+  })
+}
+
+const buildPaginatedResponseFromLegacy = (
+  payload: unknown,
+  request: DocumentsRequest
+): PaginatedDocsResponse | null => {
+  if (!isRecord(payload) || !isRecord(payload.statuses)) {
+    return null
+  }
+
+  const allDocuments: DocStatusResponse[] = []
+  const statusCounts = Object.fromEntries(
+    ['all', ...documentStatuses].map((status) => [status, 0])
+  ) as Record<string, number>
+  let sawLegacyStatus = false
+
+  for (const [rawStatus, docs] of Object.entries(payload.statuses)) {
+    const normalizedStatus = normalizeDocStatus(rawStatus)
+    if (!normalizedStatus || !Array.isArray(docs)) {
+      continue
+    }
+
+    sawLegacyStatus = true
+    statusCounts[normalizedStatus] = docs.length
+
+    docs.forEach((doc) => {
+      if (!isRecord(doc)) {
+        return
+      }
+
+      allDocuments.push({
+        ...(doc as DocStatusResponse),
+        status: normalizeDocStatus(doc.status) ?? normalizedStatus
+      })
+    })
+  }
+
+  if (!sawLegacyStatus) {
+    return null
+  }
+
+  statusCounts.all = documentStatuses.reduce(
+    (total, status) => total + (statusCounts[status] || 0),
+    0
+  )
+
+  const filteredDocuments = request.status_filter
+    ? allDocuments.filter((doc) => doc.status === request.status_filter)
+    : allDocuments
+  const sortedDocuments = sortDocumentsForRequest(filteredDocuments, request)
+  const totalCount = sortedDocuments.length
+  const totalPages = totalCount === 0 ? 0 : Math.ceil(totalCount / request.page_size)
+  const pageStart = (request.page - 1) * request.page_size
+
+  return {
+    documents: sortedDocuments.slice(pageStart, pageStart + request.page_size),
+    pagination: {
+      page: request.page,
+      page_size: request.page_size,
+      total_count: totalCount,
+      total_pages: totalPages,
+      has_next: request.page < totalPages,
+      has_prev: totalCount > 0 && request.page > 1
+    },
+    status_counts: statusCounts
+  }
+}
+
+const isPaginationInfo = (value: unknown): value is PaginationInfo =>
+  isRecord(value) &&
+  typeof value.page === 'number' &&
+  typeof value.page_size === 'number' &&
+  typeof value.total_count === 'number' &&
+  typeof value.total_pages === 'number' &&
+  typeof value.has_next === 'boolean' &&
+  typeof value.has_prev === 'boolean'
+
+const isPaginatedDocsResponse = (value: unknown): value is PaginatedDocsResponse =>
+  isRecord(value) &&
+  Array.isArray(value.documents) &&
+  isPaginationInfo(value.pagination) &&
+  isRecord(value.status_counts)
+
+const normalizePaginatedDocumentsResponse = (
+  payload: unknown,
+  request: DocumentsRequest
+): PaginatedDocsResponse => {
+  if (isPaginatedDocsResponse(payload)) {
+    return payload
+  }
+
+  const legacyResponse = buildPaginatedResponseFromLegacy(payload, request)
+  if (legacyResponse) {
+    return legacyResponse
+  }
+
+  throw new Error('Unexpected paginated documents response format')
+}
+
+const getHttpStatusFromError = (error: unknown): number | null => {
+  if (axios.isAxiosError(error)) {
+    return error.response?.status ?? null
+  }
+
+  const match = errorMessage(error).match(/^(\d{3})\b/)
+  return match ? Number(match[1]) : null
+}
+
+const shouldFallbackToLegacyDocuments = (error: unknown): boolean => {
+  if (error instanceof Error && error.message === 'Unexpected paginated documents response format') {
+    return true
+  }
+
+  const status = getHttpStatusFromError(error)
+  return status === 404 || status === 405 || status === 422 || status === 501
+}
+
 export type AuthStatusResponse = {
   auth_configured: boolean
   guest_login_allowed?: boolean
@@ -1604,10 +1770,21 @@ const defaultPaginatedDocumentsPost = async (
   request: DocumentsRequest,
   controller: AbortController
 ): Promise<PaginatedDocsResponse> => {
-  const response = await axiosInstance.post('/documents/paginated', request, {
-    signal: controller.signal
-  })
-  return response.data
+  try {
+    const response = await axiosInstance.post('/documents/paginated', request, {
+      signal: controller.signal
+    })
+    return normalizePaginatedDocumentsResponse(response.data, request)
+  } catch (error) {
+    if (controller.signal.aborted || !shouldFallbackToLegacyDocuments(error)) {
+      throw error
+    }
+
+    const legacyResponse = await axiosInstance.get('/documents', {
+      signal: controller.signal
+    })
+    return normalizePaginatedDocumentsResponse(legacyResponse.data, request)
+  }
 }
 
 let paginatedDocumentsPost = defaultPaginatedDocumentsPost
@@ -1635,7 +1812,10 @@ export const __resetPaginatedDocumentRequestsForTests = (): void => {
 export const __setPaginatedDocumentsPostForTests = (
   post: typeof defaultPaginatedDocumentsPost
 ): void => {
-  paginatedDocumentsPost = post
+  paginatedDocumentsPost = async (
+    request: DocumentsRequest,
+    controller: AbortController
+  ) => normalizePaginatedDocumentsResponse(await post(request, controller), request)
 }
 
 /**
