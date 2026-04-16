@@ -1233,6 +1233,7 @@ def create_query_routes(
                     status="failure",
                     message="Invalid response type",
                     data={},
+                    metadata={},
                 )
         except HTTPException:
             raise

@@ -72,6 +72,7 @@ download_models_hf.py
 .worktrees/
 .superpowers/brainstorm/*/.server.pid
 .superpowers/brainstorm/*/.server-info
+/ag2_demo_workdir/
 
 # Frontend build output (built during PyPI release)
 /lightrag/api/webui/

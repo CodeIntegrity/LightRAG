@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useMemo } from 'react'
 import { useGraphStore, RawNodeType, RawEdgeType } from '@/stores/graph'
 import Text from '@/components/ui/Text'
 import Button from '@/components/ui/Button'
@@ -23,21 +23,11 @@ const PropertiesView = ({ panelClassName }: PropertiesViewProps) => {
   const focusedEdge = useGraphStore.use.focusedEdge()
   const graphDataVersion = useGraphStore.use.graphDataVersion()
 
-  const getNode = useCallback(
-    (nodeId: string) => rawGraph?.getNode(nodeId) || null,
-    [rawGraph]
-  )
-  const getEdge = useCallback(
-    (edgeId: string, dynamicId: boolean = true) =>
-      rawGraph?.getEdge(edgeId, dynamicId) || null,
-    [rawGraph]
-  )
+  const getNode = (nodeId: string) => rawGraph?.getNode(nodeId) || null
+  const getEdge = (edgeId: string, dynamicId: boolean = true) =>
+    rawGraph?.getEdge(edgeId, dynamicId) || null
 
-  const [currentElement, setCurrentElement] = useState<NodeType | EdgeType | null>(null)
-  const [currentType, setCurrentType] = useState<'node' | 'edge' | null>(null)
-
-  // This effect will run when selection changes or when graph data is updated
-  useEffect(() => {
+  const { currentElement, currentType } = useMemo(() => {
     let type: 'node' | 'edge' | null = null
     let element: RawNodeType | RawEdgeType | null = null
     if (focusedNode) {
@@ -55,28 +45,15 @@ const PropertiesView = ({ panelClassName }: PropertiesViewProps) => {
     }
 
     if (element) {
-      if (type == 'node') {
-        setCurrentElement(refineNodeProperties(element as any))
-      } else {
-        setCurrentElement(refineEdgeProperties(element as any))
+      return {
+        currentElement: type === 'node'
+          ? refineNodeProperties(element as any)
+          : refineEdgeProperties(element as any),
+        currentType: type
       }
-      setCurrentType(type)
-    } else {
-      setCurrentElement(null)
-      setCurrentType(null)
     }
-  }, [
-    focusedNode,
-    selectedNode,
-    focusedEdge,
-    selectedEdge,
-    graphDataVersion, // Add dependency on graphDataVersion to refresh when data changes
-    setCurrentElement,
-    setCurrentType,
-    rawGraph,
-    getNode,
-    getEdge
-  ])
+    return { currentElement: null, currentType: null }
+  }, [focusedNode, selectedNode, focusedEdge, selectedEdge, graphDataVersion, rawGraph])
 
   if (!currentElement) {
     return panelClassName ? (
