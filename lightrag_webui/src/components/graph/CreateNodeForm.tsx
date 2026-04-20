@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import Button from '@/components/ui/Button'
@@ -50,11 +50,6 @@ const CreateNodeForm = () => {
       active = false
     }
   }, [])
-
-  const entityTypeOptions = useMemo(
-    () => ['__none__', ...availableEntityTypes],
-    [availableEntityTypes]
-  )
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -136,9 +131,7 @@ const CreateNodeForm = () => {
             <SelectItem value="__none__">
               {t('graphPanel.workbench.createNode.placeholders.entityType')}
             </SelectItem>
-            {entityTypeOptions
-              .filter((option) => option !== '__none__')
-              .map((option) => (
+            {availableEntityTypes.map((option) => (
                 <SelectItem key={option} value={option}>
                   {option}
                 </SelectItem>

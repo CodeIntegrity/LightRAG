@@ -936,11 +936,13 @@ export const queryGraphWorkbench = async (
 }
 
 export const deleteGraphEntity = async (
-  entityName: string
+  entityName: string,
+  expectedRevisionToken?: string
 ): Promise<GraphDeletionResponse> => {
   const response = await axiosInstance.delete('/graph/entity', {
     data: {
-      entity_name: entityName
+      entity_name: entityName,
+      ...(expectedRevisionToken ? { expected_revision_token: expectedRevisionToken } : {})
     }
   })
   return response.data

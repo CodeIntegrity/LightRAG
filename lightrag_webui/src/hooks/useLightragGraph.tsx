@@ -389,10 +389,13 @@ const useLightrangeGraph = () => {
         const state = useGraphStore.getState()
         const data = result?.rawGraph;
 
-        // Assign colors based on entity_type *after* fetching
+        // Reset state first so the legend color map is rebuilt from the current graph data.
+        state.reset()
+        state.setGraphDataFetchAttempted(true)
+
+        // Assign colors based on entity_type *after* resetting store state
         if (data && data.nodes) {
           data.nodes.forEach(node => {
-            // Use entity_type instead of type
             const nodeEntityType = node.properties?.entity_type as string | undefined;
             node.color = getNodeColorByType(nodeEntityType);
           });
@@ -401,10 +404,6 @@ const useLightrangeGraph = () => {
         if (result?.is_truncated) {
           toast.info(t('graphPanel.dataIsTruncated', 'Graph data is truncated to Max Nodes'));
         }
-
-        // Reset state
-        state.reset()
-        state.setGraphDataFetchAttempted(true)
 
         // Check if data is empty or invalid
         if (!data || !data.nodes || data.nodes.length === 0) {

@@ -113,13 +113,21 @@ const CreateRelationForm = ({ selection = null }: CreateRelationFormProps) => {
     setErrorMessage(null)
     clearMutationError()
 
-    const relationData: Record<string, unknown> = {
-      description: description.trim(),
-      keywords: keywords.trim()
+    const relationData: Record<string, unknown> = {}
+    const trimmedDescription = description.trim()
+    if (trimmedDescription) {
+      relationData.description = trimmedDescription
     }
-    const parsedWeight = Number(weight)
-    if (Number.isFinite(parsedWeight)) {
-      relationData.weight = parsedWeight
+    const trimmedKeywords = keywords.trim()
+    if (trimmedKeywords) {
+      relationData.keywords = trimmedKeywords
+    }
+    const trimmedWeight = weight.trim()
+    if (trimmedWeight) {
+      const parsedWeight = Number(trimmedWeight)
+      if (Number.isFinite(parsedWeight)) {
+        relationData.weight = parsedWeight
+      }
     }
 
     try {

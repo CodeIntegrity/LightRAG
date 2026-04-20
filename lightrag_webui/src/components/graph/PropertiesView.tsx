@@ -16,6 +16,7 @@ type PropertiesViewProps = {
 }
 
 const PropertiesView = ({ panelClassName }: PropertiesViewProps) => {
+  const { t } = useTranslation()
   const rawGraph = useGraphStore.use.rawGraph()
   const selectedNode = useGraphStore.use.selectedNode()
   const focusedNode = useGraphStore.use.focusedNode()
@@ -58,7 +59,9 @@ const PropertiesView = ({ panelClassName }: PropertiesViewProps) => {
   if (!currentElement) {
     return panelClassName ? (
       <div className={panelClassName}>
-        <p className="text-muted-foreground p-2 text-xs">Select a node or relation to inspect.</p>
+        <p className="text-muted-foreground p-2 text-xs">
+          {t('graphPanel.propertiesView.emptySelection')}
+        </p>
       </div>
     ) : (
       <></>

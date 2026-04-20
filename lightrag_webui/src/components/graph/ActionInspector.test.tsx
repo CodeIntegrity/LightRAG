@@ -190,10 +190,9 @@ describe('ActionInspector', () => {
     expect(copy).toContain('works_for')
 
     const next = reduceDeletePanelStateAfterFailure(
-      { confirmationInput: 'DELETE', errorMessage: null },
+      { errorMessage: null },
       'Delete failed'
     )
-    expect(next.confirmationInput).toBe('DELETE')
     expect(next.errorMessage).toBe('Delete failed')
   })
 

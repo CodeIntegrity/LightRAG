@@ -355,7 +355,8 @@
         "source": "來源節點",
         "target": "目標節點",
         "properties": "屬性"
-      }
+      },
+      "emptySelection": "Select a node or relation to inspect."
     },
     "search": {
       "placeholder": "頁面內搜尋節點...",
@@ -419,12 +420,21 @@
         "placeholders": {
           "entityTypes": "PERSON, ORGANIZATION",
           "relationTypes": "owns, partner_of",
-          "filePaths": "/inputs/a.md, /inputs/b.md"
+          "filePaths": "/inputs/a.md, /inputs/b.md",
+          "startLabel": "* / Tesla",
+          "searchEntityTypes": "Search entity types...",
+          "searchStartLabel": "Search labels or enter a custom label..."
         },
         "actions": {
           "apply": "套用",
-          "reset": "重設"
-        }
+          "reset": "重設",
+          "removeSelection": "Remove {{value}}"
+        },
+        "messages": {
+          "noEntityTypeResults": "No matching entity types found.",
+          "noLabelResults": "No matching labels found."
+        },
+        "title": "Filters"
       },
       "actionInspector": {
         "title": "操作檢視器",
@@ -442,11 +452,13 @@
         "description": "最小載荷：實體名稱 + 描述。",
         "fields": {
           "entityName": "實體名稱",
-          "description": "描述"
+          "description": "描述",
+          "entityType": "Type"
         },
         "placeholders": {
           "entityName": "Tesla",
-          "description": "电动汽车制造商"
+          "description": "电动汽车制造商",
+          "entityType": "Select an existing entity type"
         },
         "errors": {
           "required": "實體名稱與描述為必填。",
@@ -474,7 +486,8 @@
           "source": "Elon Musk",
           "target": "Tesla",
           "description": "Elon Musk works for Tesla",
-          "keywords": "works_for"
+          "keywords": "works_for",
+          "searchEntity": "Search an entity..."
         },
         "errors": {
           "required": "來源與目標實體為必填。",
@@ -486,7 +499,8 @@
           "create": "建立關係"
         },
         "messages": {
-          "created": "關係「{{source}} -> {{target}}」已建立。"
+          "created": "關係「{{source}} -> {{target}}」已建立。",
+          "noEntityResults": "No matching entities found."
         }
       },
       "deleteObject": {
@@ -504,7 +518,9 @@
         },
         "actions": {
           "deleting": "刪除中...",
-          "delete": "刪除"
+          "delete": "刪除",
+          "confirmDelete": "Confirm Delete",
+          "cancel": "Cancel"
         },
         "messages": {
           "entityDeleted": "實體「{{entity}}」已刪除。",
@@ -527,7 +543,13 @@
             "sourceEntities": "可用逗號或換行分隔，系統會自動排除目標實體。"
           },
           "preview": "草稿預覽：[{{sourceEntities}}] -> {{targetEntity}}",
-          "targetRequired": "（需填寫目標實體）"
+          "targetRequired": "（需填寫目標實體）",
+          "actions": {
+            "focusSource": "Locate first source entity: {{entity}}",
+            "focusTarget": "Locate target entity: {{entity}}",
+            "focusTargetEmpty": "Enter a target entity first",
+            "focusSourceEmpty": "Enter a source entity first"
+          }
         },
         "errors": {
           "loadSuggestionsFailed": "載入合併建議失敗",
@@ -543,7 +565,9 @@
         },
         "messages": {
           "noSuggestions": "目前範圍找不到合併建議。",
-          "merged": "已將 {{count}} 個來源實體合併到「{{target}}」。"
+          "merged": "已將 {{count}} 個來源實體合併到「{{target}}」。",
+          "llmFallbackGeneric": "LLM reranking is unavailable, so heuristic suggestions are shown instead.",
+          "llmFallback": "LLM reranking is unavailable, so heuristic suggestions are shown instead. Reason: {{reason}}"
         },
         "suggestions": {
           "title": "合併建議",
@@ -575,6 +599,12 @@
             "focusTarget": "聚焦合併目標",
             "refreshResults": "刷新結果",
             "continueReview": "繼續檢視"
+          }
+        },
+        "options": {
+          "useLlm": {
+            "label": "Use LLM reranking",
+            "description": "Let the LLM refine heuristic suggestions. If the LLM is unavailable or fails, results automatically fall back to heuristics."
           }
         }
       }

@@ -93,7 +93,6 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
       // Double-check that the store has the sigma instance
       const currentInstance = useGraphStore.getState().sigmaInstance;
       if (!currentInstance) {
-        console.log('Setting sigma instance from GraphControl');
         useGraphStore.getState().setSigmaInstance(sigma);
       }
     }
@@ -161,11 +160,7 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
 
     // Cleanup function - basic cleanup without relying on specific APIs
     return () => {
-      try {
-        console.log('Cleaning up graph event listeners')
-      } catch (error) {
-        console.warn('Error cleaning up graph event listeners:', error)
-      }
+      // cleanup placeholder
     }
   }, [registerEvents, enableEdgeEvents, sigma])
 

@@ -355,7 +355,8 @@
         "source": "ソース",
         "target": "ターゲット",
         "properties": "プロパティ"
-      }
+      },
+      "emptySelection": "Select a node or relation to inspect."
     },
     "search": {
       "placeholder": "ページ内のノードを検索...",
@@ -419,12 +420,21 @@
         "placeholders": {
           "entityTypes": "PERSON, ORGANIZATION",
           "relationTypes": "owns, partner_of",
-          "filePaths": "/inputs/a.md, /inputs/b.md"
+          "filePaths": "/inputs/a.md, /inputs/b.md",
+          "startLabel": "* / Tesla",
+          "searchEntityTypes": "Search entity types...",
+          "searchStartLabel": "Search labels or enter a custom label..."
         },
         "actions": {
           "apply": "Apply",
-          "reset": "Reset"
-        }
+          "reset": "Reset",
+          "removeSelection": "Remove {{value}}"
+        },
+        "messages": {
+          "noEntityTypeResults": "No matching entity types found.",
+          "noLabelResults": "No matching labels found."
+        },
+        "title": "Filters"
       },
       "actionInspector": {
         "title": "Action Inspector",
@@ -442,11 +452,13 @@
         "description": "Minimal payload: entity name + description.",
         "fields": {
           "entityName": "Entity Name",
-          "description": "Description"
+          "description": "Description",
+          "entityType": "Type"
         },
         "placeholders": {
           "entityName": "Tesla",
-          "description": "Electric vehicle manufacturer"
+          "description": "Electric vehicle manufacturer",
+          "entityType": "Select an existing entity type"
         },
         "errors": {
           "required": "Entity name and description are required.",
@@ -474,7 +486,8 @@
           "source": "Elon Musk",
           "target": "Tesla",
           "description": "Elon Musk works for Tesla",
-          "keywords": "works_for"
+          "keywords": "works_for",
+          "searchEntity": "Search an entity..."
         },
         "errors": {
           "required": "Source and target entity are required.",
@@ -486,7 +499,8 @@
           "create": "Create Relation"
         },
         "messages": {
-          "created": "Relation \"{{source}} -> {{target}}\" created."
+          "created": "Relation \"{{source}} -> {{target}}\" created.",
+          "noEntityResults": "No matching entities found."
         }
       },
       "deleteObject": {
@@ -504,7 +518,9 @@
         },
         "actions": {
           "deleting": "Deleting...",
-          "delete": "Delete"
+          "delete": "Delete",
+          "confirmDelete": "Confirm Delete",
+          "cancel": "Cancel"
         },
         "messages": {
           "entityDeleted": "Entity \"{{entity}}\" deleted.",
@@ -527,7 +543,13 @@
             "sourceEntities": "Comma/newline separated. Target entity will be excluded automatically."
           },
           "preview": "Draft preview: [{{sourceEntities}}] -> {{targetEntity}}",
-          "targetRequired": "(target required)"
+          "targetRequired": "(target required)",
+          "actions": {
+            "focusSource": "Locate first source entity: {{entity}}",
+            "focusTarget": "Locate target entity: {{entity}}",
+            "focusTargetEmpty": "Enter a target entity first",
+            "focusSourceEmpty": "Enter a source entity first"
+          }
         },
         "errors": {
           "loadSuggestionsFailed": "Load merge suggestions failed",
@@ -543,7 +565,9 @@
         },
         "messages": {
           "noSuggestions": "No merge suggestions found for current scope.",
-          "merged": "Merged {{count}} source entities into \"{{target}}\"."
+          "merged": "Merged {{count}} source entities into \"{{target}}\".",
+          "llmFallbackGeneric": "LLM reranking is unavailable, so heuristic suggestions are shown instead.",
+          "llmFallback": "LLM reranking is unavailable, so heuristic suggestions are shown instead. Reason: {{reason}}"
         },
         "suggestions": {
           "title": "Merge Suggestions",
@@ -575,6 +599,12 @@
             "focusTarget": "Focus merged target",
             "refreshResults": "Refresh results",
             "continueReview": "Continue review"
+          }
+        },
+        "options": {
+          "useLlm": {
+            "label": "Use LLM reranking",
+            "description": "Let the LLM refine heuristic suggestions. If the LLM is unavailable or fails, results automatically fall back to heuristics."
           }
         }
       }

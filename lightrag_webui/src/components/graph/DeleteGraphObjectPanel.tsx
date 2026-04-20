@@ -21,7 +21,6 @@ import {
 import type { ActionInspectorSelection } from './ActionInspector'
 
 export type DeletePanelState = {
-  confirmationInput: string
   errorMessage: string | null
 }
 
@@ -188,7 +187,6 @@ type DeleteGraphObjectPanelProps = {
 const DeleteGraphObjectPanel = ({ selection = null }: DeleteGraphObjectPanelProps) => {
   const { t } = useTranslation()
   const [state, setState] = useState<DeletePanelState>({
-    confirmationInput: '',
     errorMessage: null
   })
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -215,7 +213,7 @@ const DeleteGraphObjectPanel = ({ selection = null }: DeleteGraphObjectPanelProp
     try {
       if (selection.kind === 'node') {
         const entityName = String(selection.node.properties?.entity_id ?? selection.node.id)
-        await deleteGraphEntity(entityName)
+        await deleteGraphEntity(entityName, selection.node.revision_token)
         toast.success(t('graphPanel.workbench.deleteObject.messages.entityDeleted', { entity: entityName }))
       } else {
         const source = String(
@@ -228,7 +226,7 @@ const DeleteGraphObjectPanel = ({ selection = null }: DeleteGraphObjectPanelProp
         toast.success(t('graphPanel.workbench.deleteObject.messages.relationDeleted', { source, target }))
       }
 
-      setState({ confirmationInput: '', errorMessage: null })
+      setState({ errorMessage: null })
       setDialogOpen(false)
       useGraphStore.getState().setGraphDataFetchAttempted(false)
       requestRefresh()

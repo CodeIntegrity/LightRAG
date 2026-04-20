@@ -128,9 +128,7 @@ const ActionInspector = ({
     selectedEdge,
     focusedEdge,
     graphDataVersion,
-    rawGraph,
-    getNode,
-    getEdge
+    rawGraph
   ])
 
   const errorText = conflictError ?? mutationError

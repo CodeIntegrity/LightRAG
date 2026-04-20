@@ -329,7 +329,6 @@ const SearchableMultiSelectField = ({
     <div className="min-w-0 space-y-2">
       <FieldLabel>{label}</FieldLabel>
       <AsyncSelect<string>
-        key={`${label}-${selectedValues.join('|')}`}
         className="w-[var(--radix-popover-trigger-width)] min-w-[240px]"
         triggerClassName="w-full min-w-0 justify-between overflow-hidden"
         fetcher={fetchOptions}
