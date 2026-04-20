@@ -299,7 +299,7 @@ describe('WorkspaceManagerDialog', () => {
     expect(html).toContain('Create Workspace')
   })
 
-  test('shows guest create hint and enabled button when backend capability allows it', async () => {
+  test('shows login-required hint and disabled button for guest tokens even when backend capability allows it', async () => {
     const { useBackendState } = await import('@/stores/state')
     vi.spyOn(useBackendState.use, 'workspaceCreateAllowed').mockReturnValue(true)
 
@@ -328,8 +328,8 @@ describe('WorkspaceManagerDialog', () => {
     const module = await import('./WorkspaceManagerDialog')
     const html = renderToString(<module.default open onOpenChange={() => undefined} />)
 
-    expect(html).toContain('This workspace will be created as guest.')
-    expect(html).not.toContain('disabled=""')
+    expect(html).toContain('Log in to create workspaces.')
+    expect(html).toContain('disabled=""')
   })
 
   test('shows login-required hint and disabled button when guest create capability is false', async () => {
@@ -342,6 +342,35 @@ describe('WorkspaceManagerDialog', () => {
         ? 'header.eyJyb2xlIjoiZ3Vlc3QiLCJzdWIiOiJndWVzdCJ9.signature'
         : null
     )
+
+    const ReactModule = await import('react')
+    const actualUseState = ReactModule.useState
+    const noop = () => undefined
+
+    vi.spyOn(ReactModule, 'useState')
+      .mockImplementationOnce((() => [[], noop]) as never)
+      .mockImplementationOnce((() => [false, noop]) as never)
+      .mockImplementationOnce((() => ['guest_ws', noop]) as never)
+      .mockImplementationOnce((() => ['Guest WS', noop]) as never)
+      .mockImplementationOnce((() => ['guest workspace', noop]) as never)
+      .mockImplementationOnce((() => ['private', noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
+      .mockImplementation(actualUseState as never)
+
+    const module = await import('./WorkspaceManagerDialog')
+    const html = renderToString(<module.default open onOpenChange={() => undefined} />)
+
+    expect(html).toContain('Log in to create workspaces.')
+    expect(html).toContain('disabled=""')
+  })
+
+  test('shows login-required hint and disabled button when no token is present', async () => {
+    const { useBackendState } = await import('@/stores/state')
+    vi.spyOn(useBackendState.use, 'workspaceCreateAllowed').mockReturnValue(true)
+
+    const getItemMock = localStorage.getItem as unknown as ReturnType<typeof vi.fn>
+    getItemMock.mockReturnValue(null)
 
     const ReactModule = await import('react')
     const actualUseState = ReactModule.useState
@@ -387,6 +416,12 @@ describe('WorkspaceManagerDialog', () => {
     const { useBackendState } = await import('@/stores/state')
     vi.spyOn(useBackendState.use, 'workspaceCreateAllowed').mockReturnValue(true)
     const checkSpy = vi.spyOn(useBackendState.getState(), 'check').mockResolvedValue(true)
+    const getItemMock = localStorage.getItem as unknown as ReturnType<typeof vi.fn>
+    getItemMock.mockImplementation((key: string) =>
+      key === 'LIGHTRAG-API-TOKEN'
+        ? 'header.eyJyb2xlIjoiYWRtaW4iLCJzdWIiOiJhbGljZSJ9.signature'
+        : null
+    )
 
     const api = await import('@/api/lightrag')
     const createWorkspaceMock = api.createWorkspace as unknown as ReturnType<typeof vi.fn>
@@ -423,6 +458,12 @@ describe('WorkspaceManagerDialog', () => {
   test('blocks invalid workspace identifiers before calling createWorkspace', async () => {
     const { useBackendState } = await import('@/stores/state')
     vi.spyOn(useBackendState.use, 'workspaceCreateAllowed').mockReturnValue(true)
+    const getItemMock = localStorage.getItem as unknown as ReturnType<typeof vi.fn>
+    getItemMock.mockImplementation((key: string) =>
+      key === 'LIGHTRAG-API-TOKEN'
+        ? 'header.eyJyb2xlIjoiYWRtaW4iLCJzdWIiOiJhbGljZSJ9.signature'
+        : null
+    )
 
     const api = await import('@/api/lightrag')
     const createWorkspaceMock = api.createWorkspace as unknown as ReturnType<typeof vi.fn>

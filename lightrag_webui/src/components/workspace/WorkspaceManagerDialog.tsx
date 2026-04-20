@@ -219,7 +219,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
   const handleCreate = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault()
     const trimmedWorkspace = workspace.trim()
-    if (trimmedWorkspace.length === 0 || !workspaceCreateAllowed) {
+    if (trimmedWorkspace.length === 0 || !workspaceCreateAllowed || isGuestMode) {
       return
     }
     if (!isValidWorkspaceIdentifier(trimmedWorkspace)) {
@@ -331,7 +331,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
     'Use only letters, numbers, and underscores.'
   )
   const canCreateWorkspace =
-    trimmedWorkspace.length > 0 && !workspaceIdentifierInvalid && workspaceCreateAllowed
+    trimmedWorkspace.length > 0 && !workspaceIdentifierInvalid && workspaceCreateAllowed && !isGuestMode
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -448,12 +448,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
                     </div>
                     {isGuestMode && (
                       <div className="text-muted-foreground bg-muted/40 rounded-md border border-dashed px-3 py-2 text-xs">
-                        {workspaceCreateAllowed
-                          ? t(
-                              'workspaceManager.guestCreateHint',
-                              'This workspace will be created as guest.'
-                            )
-                          : t('workspaceManager.loginRequiredHint', 'Log in to create workspaces.')}
+                        {t('workspaceManager.loginRequiredHint', 'Log in to create workspaces.')}
                       </div>
                     )}
                     <Button className="h-10 w-full" type="submit" disabled={!canCreateWorkspace}>
