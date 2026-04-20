@@ -26,7 +26,7 @@ def _build_token(username: str, role: str) -> str:
 
 @pytest.fixture
 def workspace_app_factory(monkeypatch, tmp_path: Path):
-    def _build(*, allow_guest_create: bool = False):
+    def _build(*, allow_guest_create: bool = False, default_workspace: str = ""):
         monkeypatch.setattr(sys, "argv", [sys.argv[0]])
         import lightrag.api.routers.workspace_routes as workspace_routes
         from lightrag.api.workspace_registry import WorkspaceRegistryStore
@@ -35,7 +35,7 @@ def workspace_app_factory(monkeypatch, tmp_path: Path):
         scheduler = _DeleteScheduler()
 
         async def _init() -> None:
-            await store.initialize(default_workspace="")
+            await store.initialize(default_workspace=default_workspace)
             await store.create_workspace(
                 workspace="private_ws",
                 display_name="Private",
@@ -146,8 +146,11 @@ def test_create_workspace_as_guest_returns_403_when_disabled(workspace_app_facto
 
 
 def test_create_workspace_as_guest_sets_creator_and_owner_when_enabled(
-    workspace_app_factory,
+    workspace_app_factory, monkeypatch
 ):
+    from lightrag.api.auth import auth_handler
+
+    monkeypatch.setattr(auth_handler, "accounts", {})
     client, store, _ = workspace_app_factory(allow_guest_create=True)
 
     response = client.post(
@@ -221,6 +224,42 @@ def test_hard_delete_requires_admin_and_returns_accepted(workspace_app):
     assert body["workspace"] == "public_ws"
     assert body["status"] == "hard_deleting"
     assert scheduler.calls == [("public_ws", "admin")]
+
+
+def test_hard_delete_rejects_current_active_workspace(workspace_app):
+    client, store, scheduler = workspace_app
+
+    response = client.post(
+        "/workspaces/public_ws/hard-delete",
+        headers={
+            "Authorization": f"Bearer {_build_token('admin', 'admin')}",
+            "LIGHTRAG-WORKSPACE": "public_ws",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "switch to another workspace" in response.json()["detail"].lower()
+    assert scheduler.calls == []
+
+    stored = asyncio.run(store.get_workspace("public_ws"))
+    assert stored["status"] == "ready"
+
+
+def test_hard_delete_rejects_default_workspace(workspace_app_factory):
+    client, store, scheduler = workspace_app_factory(default_workspace="default_ws")
+
+    response = client.post(
+        "/workspaces/default_ws/hard-delete",
+        headers={"Authorization": f"Bearer {_build_token('admin', 'admin')}"},
+    )
+
+    assert response.status_code == 400
+    assert "default workspace" in response.json()["detail"].lower()
+    assert scheduler.calls == []
+
+    stored = asyncio.run(store.get_workspace("default_ws"))
+    assert stored["status"] == "ready"
+    assert stored["is_default"] is True
 
 
 def test_soft_delete_rejects_current_active_workspace(workspace_app):

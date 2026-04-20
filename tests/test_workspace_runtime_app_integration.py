@@ -12,15 +12,26 @@ from lightrag.prompt_version_store import PromptVersionStore
 pytestmark = pytest.mark.offline
 
 
+class _DummyDropStorage:
+    async def drop(self):
+        return None
+
+
 class _DummyGraphStorage:
     def __init__(self, workspace: str):
         self.workspace = workspace
+
+    async def drop(self):
+        return None
 
     async def get_popular_labels(self, limit: int):
         return [f"{self.workspace}:popular:{limit}"]
 
 
 class _DummyRAG:
+    instances: list["_DummyRAG"] = []
+    finalized_instance_ids: list[int] = []
+
     def __init__(self, *args, **kwargs):
         self.ollama_server_infos = kwargs.get("ollama_server_infos")
         self.working_dir = kwargs["working_dir"]
@@ -29,6 +40,17 @@ class _DummyRAG:
             kwargs["working_dir"], workspace=self.workspace
         )
         self.chunk_entity_relation_graph = _DummyGraphStorage(self.workspace or "default")
+        self.text_chunks = _DummyDropStorage()
+        self.full_docs = _DummyDropStorage()
+        self.full_entities = _DummyDropStorage()
+        self.full_relations = _DummyDropStorage()
+        self.entity_chunks = _DummyDropStorage()
+        self.relation_chunks = _DummyDropStorage()
+        self.entities_vdb = _DummyDropStorage()
+        self.relationships_vdb = _DummyDropStorage()
+        self.chunks_vdb = _DummyDropStorage()
+        self.doc_status = _DummyDropStorage()
+        type(self).instances.append(self)
 
     async def initialize_storages(self):
         return None
@@ -37,6 +59,7 @@ class _DummyRAG:
         return None
 
     async def finalize_storages(self):
+        type(self).finalized_instance_ids.append(id(self))
         return None
 
     async def get_graph_labels(self):
@@ -90,6 +113,8 @@ def _build_runtime_test_app(
     *,
     include_query_routes: bool,
     include_graph_routes: bool,
+    default_workspace: str = "",
+    capture: dict[str, object] | None = None,
 ):
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
 
@@ -118,6 +143,16 @@ def _build_runtime_test_app(
     monkeypatch.setattr(
         workspace_routes, "get_combined_auth_dependency", lambda *_: (lambda: None)
     )
+    if capture is not None:
+        real_create_workspace_routes = workspace_routes.create_workspace_routes
+
+        def _capture_create_workspace_routes(*args, **kwargs):
+            capture["delete_scheduler"] = kwargs.get("delete_scheduler")
+            return real_create_workspace_routes(*args, **kwargs)
+
+        monkeypatch.setattr(
+            lightrag_server, "create_workspace_routes", _capture_create_workspace_routes
+        )
     monkeypatch.setattr(
         lightrag_server, "global_args", SimpleNamespace(cors_origins="*")
     )
@@ -143,7 +178,7 @@ def _build_runtime_test_app(
     args = api_config.parse_args()
     args.working_dir = str(tmp_path / "rag_storage")
     args.input_dir = str(tmp_path / "inputs")
-    args.workspace = ""
+    args.workspace = default_workspace
     args.workspace_registry_path = str(tmp_path / "workspaces" / "registry.sqlite3")
     return lightrag_server.create_app(args)
 
@@ -163,7 +198,11 @@ def test_graph_routes_resolve_runtime_from_workspace_header(graph_test_client):
     assert create_response.status_code == 201
 
     response = graph_test_client.get(
-        "/graph/label/list", headers={"LIGHTRAG-WORKSPACE": "ws1"}
+        "/graph/label/list",
+        headers={
+            "Authorization": f"Bearer {_build_token('alice', 'user')}",
+            "LIGHTRAG-WORKSPACE": "ws1",
+        },
     )
 
     assert response.status_code == 200
@@ -187,11 +226,50 @@ def test_query_routes_resolve_runtime_from_workspace_header(query_test_client):
     response = query_test_client.post(
         "/query",
         json={"query": "workspace aware"},
-        headers={"LIGHTRAG-WORKSPACE": "ws1"},
+        headers={
+            "Authorization": f"Bearer {_build_token('alice', 'user')}",
+            "LIGHTRAG-WORKSPACE": "ws1",
+        },
     )
 
     assert response.status_code == 200
     assert response.json()["response"] == "ws1:workspace aware"
+
+
+def test_delete_workspace_data_uses_isolated_runtime_for_default_workspace(
+    monkeypatch, tmp_path
+):
+    _DummyRAG.instances.clear()
+    _DummyRAG.finalized_instance_ids.clear()
+    captured: dict[str, object] = {}
+
+    app = _build_runtime_test_app(
+        monkeypatch,
+        tmp_path,
+        include_query_routes=False,
+        include_graph_routes=False,
+        default_workspace="default_ws",
+        capture=captured,
+    )
+
+    with TestClient(app):
+        scheduler = captured["delete_scheduler"]
+        assert scheduler is not None
+        import asyncio
+
+        asyncio.run(scheduler("default_ws", "admin"))  # type: ignore[misc]
+
+        default_instances = [
+            instance
+            for instance in _DummyRAG.instances
+            if instance.workspace == "default_ws"
+        ]
+        assert len(default_instances) >= 2
+
+        main_instance = default_instances[0]
+        finalized_ids = set(_DummyRAG.finalized_instance_ids)
+        assert id(main_instance) not in finalized_ids
+        assert any(id(instance) in finalized_ids for instance in default_instances[1:])
 
 
 def test_create_app_does_not_require_bound_runtime_for_ollama_startup(

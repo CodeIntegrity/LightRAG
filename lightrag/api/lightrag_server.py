@@ -380,8 +380,10 @@ def create_app(args):
             locale="zh"
         )
 
-    async def build_runtime_bundle(workspace: str) -> WorkspaceRuntimeBundle:
-        if workspace == args.workspace:
+    async def build_runtime_bundle(
+        workspace: str, *, isolate_primary_runtime: bool = False
+    ) -> WorkspaceRuntimeBundle:
+        if workspace == args.workspace and not isolate_primary_runtime:
             return WorkspaceRuntimeBundle(
                 workspace=workspace,
                 rag=rag,
@@ -471,7 +473,9 @@ def create_app(args):
                 await runtime_manager.mark_workspace_ready(workspace)
                 return
 
-            delete_bundle = await build_runtime_bundle(workspace)
+            delete_bundle = await build_runtime_bundle(
+                workspace, isolate_primary_runtime=True
+            )
 
             storages = [
                 delete_bundle.rag.text_chunks,
@@ -522,7 +526,7 @@ def create_app(args):
             await runtime_manager.mark_workspace_ready(workspace)
         finally:
             if delete_bundle is not None:
-                await delete_bundle.rag.finalize_storages()
+                await close_runtime_bundle(delete_bundle)
 
     async def get_workspace_stats(workspace: str) -> dict[str, object]:
         prompt_store = PromptVersionStore(args.working_dir, workspace=workspace)

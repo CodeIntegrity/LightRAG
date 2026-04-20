@@ -27,7 +27,8 @@ import {
   DocStatus,
   DocStatusResponse,
   DocumentsRequest,
-  PaginationInfo
+  PaginationInfo,
+  PaginatedDocsResponse
 } from '@/api/lightrag'
 import { errorMessage } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -606,7 +607,7 @@ export default function DocumentManager() {
   }), [])
 
   // Utility function to update component state
-  const updateComponentState = useCallback((response: any) => {
+  const updateComponentState = useCallback((response: PaginatedDocsResponse) => {
     setPagination(response.pagination);
     setCurrentPageDocs(response.documents);
     setStatusCounts(response.status_counts);
@@ -743,25 +744,7 @@ export default function DocumentManager() {
         if (response.pagination.total_count < query.pageSize && query.pageSize !== 10) {
           handlePageSizeChange(10);
         } else {
-          setPagination(response.pagination);
-          setCurrentPageDocs(response.documents);
-          setStatusCounts(response.status_counts);
-
-          const legacyDocs: DocsStatusesResponse = {
-            statuses: {
-              processed: response.documents.filter(doc => doc.status === 'processed'),
-              preprocessed: response.documents.filter(doc => doc.status === 'preprocessed'),
-              processing: response.documents.filter(doc => doc.status === 'processing'),
-              pending: response.documents.filter(doc => doc.status === 'pending'),
-              failed: response.documents.filter(doc => doc.status === 'failed')
-            }
-          };
-
-          if (response.pagination.total_count > 0) {
-            setDocs(legacyDocs);
-          } else {
-            setDocs(null);
-          }
+          updateComponentState(response);
         }
       } else {
         const { customTimeout } = refreshRequest;

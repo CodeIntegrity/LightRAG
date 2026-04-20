@@ -288,6 +288,10 @@
         "scanFailed": "扫描文档失败\n{{error}}",
         "scanProgressFailed": "获取扫描进度失败\n{{error}}"
       },
+      "legacyFallback": {
+        "title": "兼容模式已启用",
+        "description": "{{message}}"
+      },
       "fileNameLabel": "文件名",
       "showButton": "显示",
       "hideButton": "隐藏",

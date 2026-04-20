@@ -103,6 +103,60 @@ async def test_aquery_data_copies_prompt_overrides(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_aquery_llm_omitted_param_uses_fresh_query_param_each_call(
+    tmp_path, monkeypatch
+):
+    rag = _build_rag(tmp_path)
+
+    async def _fake_query_done():
+        return None
+
+    captured: list[QueryParam] = []
+
+    async def _fake_kg_query(
+        query,
+        chunk_entity_relation_graph,
+        entities_vdb,
+        relationships_vdb,
+        text_chunks,
+        param,
+        global_config,
+        hashing_kv=None,
+        system_prompt=None,
+        chunks_vdb=None,
+    ):
+        captured.append(param)
+        return QueryResult(
+            content="ok",
+            raw_data={"status": "success", "message": "ok", "data": {}},
+            is_streaming=False,
+        )
+
+    monkeypatch.setattr(rag, "_query_done", _fake_query_done)
+    monkeypatch.setattr(lightrag_module, "kg_query", _fake_kg_query)
+
+    await rag.aquery_llm("first")
+    await rag.aquery_llm("second")
+
+    assert len(captured) == 2
+    assert captured[0] is not captured[1]
+    assert captured[0].stream is False
+    assert captured[1].stream is False
+
+
+@pytest.mark.asyncio
+async def test_aquery_llm_bypass_does_not_mutate_caller_param_stream(tmp_path):
+    rag = _build_rag(tmp_path)
+    param = QueryParam(mode="bypass", stream=None)
+
+    result = await rag.aquery_llm("test query", param)
+
+    assert result["status"] == "success"
+    assert result["llm_response"]["content"] == "ok"
+    assert param.stream is None
+
+
+@pytest.mark.asyncio
 async def test_kg_query_uses_query_prompt_override_in_only_need_prompt_mode(monkeypatch):
     async def _fake_get_keywords_from_query(*args, **kwargs):
         return ["hl"], ["ll"]

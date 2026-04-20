@@ -248,7 +248,30 @@ def create_workspace_routes(
         workspace: str, request: Request, background_tasks: BackgroundTasks
     ):
         identity = _identity_from_request(request)
+        active_workspace = _active_workspace_from_request(request)
         actor = _require_admin(identity)
+        try:
+            record = await registry_store.get_workspace(workspace)
+        except WorkspaceRegistryError as exc:
+            raise _map_registry_error(exc) from exc
+
+        if active_workspace == workspace:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Workspace '{workspace}' is currently active; "
+                    "switch to another workspace before hard delete"
+                ),
+            )
+        if record.get("is_default"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Workspace '{workspace}' is the default workspace and cannot "
+                    "be hard deleted while the server is running"
+                ),
+            )
+
         try:
             await registry_store.begin_hard_delete(workspace, actor)
             operation = await registry_store.get_workspace_operation(workspace)

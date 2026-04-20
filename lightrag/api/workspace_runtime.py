@@ -91,10 +91,12 @@ class WorkspaceRuntimeManager:
         self.idle_ttl_seconds = idle_ttl_seconds
         self._time_fn = time_fn or time.monotonic
         self._cache: dict[str, WorkspaceRuntimeBundle] = {}
+        self._pending_creations: dict[str, asyncio.Task[WorkspaceRuntimeBundle]] = {}
         self._draining_workspaces: set[str] = set()
         self._lock = asyncio.Lock()
 
     async def acquire_runtime(self, workspace: str) -> WorkspaceRuntimeBundle:
+        creation_task: asyncio.Task[WorkspaceRuntimeBundle] | None = None
         async with self._lock:
             if workspace in self._draining_workspaces:
                 raise WorkspaceStateError(
@@ -103,17 +105,62 @@ class WorkspaceRuntimeManager:
 
             bundle = self._cache.get(workspace)
             if bundle is None:
-                bundle = await self._runtime_factory(workspace)
-                self._cache[workspace] = bundle
+                creation_task = self._pending_creations.get(workspace)
+                if creation_task is None:
+                    creation_task = asyncio.create_task(
+                        self._runtime_factory(workspace)
+                    )
+                    self._pending_creations[workspace] = creation_task
+            else:
+                if not bundle.accepting_requests:
+                    raise WorkspaceStateError(
+                        f"Workspace '{workspace}' is not accepting new requests"
+                    )
 
-            if not bundle.accepting_requests:
-                raise WorkspaceStateError(
-                    f"Workspace '{workspace}' is not accepting new requests"
-                )
+                bundle.active_requests += 1
+                bundle.last_used_at = self._time_fn()
+                return bundle
 
-            bundle.active_requests += 1
-            bundle.last_used_at = self._time_fn()
-            return bundle
+        bundle_to_close: WorkspaceRuntimeBundle | None = None
+        if creation_task is not None:
+            try:
+                bundle = await creation_task
+            except Exception:
+                async with self._lock:
+                    if self._pending_creations.get(workspace) is creation_task:
+                        self._pending_creations.pop(workspace, None)
+                raise
+
+            async with self._lock:
+                if self._pending_creations.get(workspace) is creation_task:
+                    self._pending_creations.pop(workspace, None)
+
+                cached_bundle = self._cache.get(workspace)
+                if cached_bundle is None:
+                    if workspace in self._draining_workspaces:
+                        bundle_to_close = bundle
+                    else:
+                        self._cache[workspace] = bundle
+                        cached_bundle = bundle
+
+                if cached_bundle is None:
+                    raise WorkspaceStateError(
+                        f"Workspace '{workspace}' is draining and cannot accept new requests"
+                    )
+
+                if not cached_bundle.accepting_requests:
+                    raise WorkspaceStateError(
+                        f"Workspace '{workspace}' is not accepting new requests"
+                    )
+
+                cached_bundle.active_requests += 1
+                cached_bundle.last_used_at = self._time_fn()
+                bundle = cached_bundle
+
+        if bundle_to_close is not None and self._close_bundle is not None:
+            await self._close_bundle(bundle_to_close)
+
+        return bundle
 
     async def release_runtime(self, workspace: str) -> None:
         async with self._lock:
@@ -144,7 +191,14 @@ class WorkspaceRuntimeManager:
         while self._time_fn() <= deadline:
             async with self._lock:
                 bundle = self._cache.get(workspace)
-                if bundle is None or bundle.active_requests == 0:
+                pending_creation = self._pending_creations.get(workspace)
+                if (
+                    bundle is None
+                    and pending_creation is None
+                    or bundle is not None
+                    and bundle.active_requests == 0
+                    and pending_creation is None
+                ):
                     return True
             await asyncio.sleep(poll_interval)
         return False

@@ -288,6 +288,10 @@
         "scanFailed": "Failed to scan documents\n{{error}}",
         "scanProgressFailed": "Failed to get scan progress\n{{error}}"
       },
+      "legacyFallback": {
+        "title": "Compatibility mode is active",
+        "description": "{{message}}"
+      },
       "fileNameLabel": "File Name",
       "showButton": "Show",
       "hideButton": "Hide",

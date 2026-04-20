@@ -2666,10 +2666,16 @@ class LightRAG:
             if update_storage:
                 await self._insert_done()
 
+    @staticmethod
+    def _resolve_query_param(param: QueryParam | None) -> QueryParam:
+        if param is None:
+            return QueryParam()
+        return replace(param)
+
     def query(
         self,
         query: str,
-        param: QueryParam = QueryParam(),
+        param: QueryParam | None = None,
         system_prompt: str | None = None,
     ) -> str | Iterator[str]:
         """
@@ -2690,7 +2696,7 @@ class LightRAG:
     async def aquery(
         self,
         query: str,
-        param: QueryParam = QueryParam(),
+        param: QueryParam | None = None,
         system_prompt: str | None = None,
     ) -> str | AsyncIterator[str]:
         """
@@ -2724,7 +2730,7 @@ class LightRAG:
     def query_data(
         self,
         query: str,
-        param: QueryParam = QueryParam(),
+        param: QueryParam | None = None,
     ) -> dict[str, Any]:
         """
         Synchronous data retrieval API: returns structured retrieval results without LLM generation.
@@ -2745,7 +2751,7 @@ class LightRAG:
     async def aquery_data(
         self,
         query: str,
-        param: QueryParam = QueryParam(),
+        param: QueryParam | None = None,
     ) -> dict[str, Any]:
         """
         Asynchronous data retrieval API: returns structured retrieval results without LLM generation.
@@ -2853,6 +2859,7 @@ class LightRAG:
             actual data is nested under the 'data' field, with 'status' and 'message'
             fields at the top level.
         """
+        param = self._resolve_query_param(param)
         global_config = self._build_runtime_global_config()
 
         # Create a copy of param to avoid modifying the original
@@ -2953,7 +2960,7 @@ class LightRAG:
     async def aquery_llm(
         self,
         query: str,
-        param: QueryParam = QueryParam(),
+        param: QueryParam | None = None,
         system_prompt: str | None = None,
     ) -> dict[str, Any]:
         """
@@ -2970,52 +2977,55 @@ class LightRAG:
         Returns:
             dict[str, Any]: Complete response with structured data and LLM response.
         """
-        logger.debug(f"[aquery_llm] Query param: {param}")
+        query_param = self._resolve_query_param(param)
+        logger.debug(f"[aquery_llm] Query param: {query_param}")
 
         global_config = self._build_runtime_global_config()
 
         try:
             query_result = None
 
-            if param.mode in ["local", "global", "hybrid", "mix"]:
+            if query_param.mode in ["local", "global", "hybrid", "mix"]:
                 query_result = await kg_query(
                     query.strip(),
                     self.chunk_entity_relation_graph,
                     self.entities_vdb,
                     self.relationships_vdb,
                     self.text_chunks,
-                    param,
+                    query_param,
                     global_config,
                     hashing_kv=self.llm_response_cache,
                     system_prompt=system_prompt,
                     chunks_vdb=self.chunks_vdb,
                 )
-            elif param.mode == "naive":
+            elif query_param.mode == "naive":
                 query_result = await naive_query(
                     query.strip(),
                     self.chunks_vdb,
-                    param,
+                    query_param,
                     global_config,
                     hashing_kv=self.llm_response_cache,
                     system_prompt=system_prompt,
                 )
-            elif param.mode == "bypass":
-                if param.prompt_overrides is not None:
+            elif query_param.mode == "bypass":
+                if query_param.prompt_overrides is not None:
                     raise ValueError(
                         "prompt_overrides are not supported in bypass mode"
                     )
                 # Bypass mode: directly use LLM without knowledge retrieval
-                use_llm_func = param.model_func or global_config["llm_model_func"]
+                use_llm_func = query_param.model_func or global_config["llm_model_func"]
                 # Apply higher priority (8) to entity/relation summary tasks
                 use_llm_func = partial(use_llm_func, _priority=8)
 
-                param.stream = True if param.stream is None else param.stream
+                query_param.stream = (
+                    True if query_param.stream is None else query_param.stream
+                )
                 response = await use_llm_func(
                     query.strip(),
                     system_prompt=system_prompt,
-                    history_messages=param.conversation_history,
+                    history_messages=query_param.conversation_history,
                     enable_cot=True,
-                    stream=param.stream,
+                    stream=query_param.stream,
                 )
                 if type(response) is str:
                     return {
@@ -3042,7 +3052,7 @@ class LightRAG:
                         },
                     }
             else:
-                raise ValueError(f"Unknown mode {param.mode}")
+                raise ValueError(f"Unknown mode {query_param.mode}")
 
             await self._query_done()
 
@@ -3054,7 +3064,7 @@ class LightRAG:
                     "data": {},
                     "metadata": {
                         "failure_reason": "no_results",
-                        "mode": param.mode,
+                        "mode": query_param.mode,
                     },
                     "llm_response": {
                         "content": PROMPTS["fail_response"],
@@ -3095,7 +3105,7 @@ class LightRAG:
     def query_llm(
         self,
         query: str,
-        param: QueryParam = QueryParam(),
+        param: QueryParam | None = None,
         system_prompt: str | None = None,
     ) -> dict[str, Any]:
         """
