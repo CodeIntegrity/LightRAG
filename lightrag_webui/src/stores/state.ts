@@ -4,6 +4,7 @@ import { ActivePromptVersionSummary, checkHealth, LightragStatus, PromptConfigGr
 import { useSettingsStore } from './settings'
 import { healthCheckInterval } from '@/lib/constants'
 import { parseJwtPayload } from '@/utils/jwt'
+import { allGuestVisibleTabs, normalizeGuestVisibleTabs, type GuestVisibleTab } from '@/lib/guestFeatures'
 
 interface BackendState {
   health: boolean
@@ -11,6 +12,7 @@ interface BackendState {
   messageTitle: string | null
   status: LightragStatus | null
   workspaceCreateAllowed: boolean
+  guestVisibleTabs: GuestVisibleTab[]
   allowPromptOverridesViaApi: boolean
   activePromptVersions: Record<PromptConfigGroup, ActivePromptVersionSummary> | null
   lastCheckTime: number
@@ -54,6 +56,7 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
   lastCheckTime: Date.now(),
   status: null,
   workspaceCreateAllowed: false,
+  guestVisibleTabs: [...allGuestVisibleTabs],
   allowPromptOverridesViaApi: false,
   activePromptVersions: null,
   pipelineBusy: false,
@@ -106,6 +109,7 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
         lastCheckTime: Date.now(),
         status: health,
         workspaceCreateAllowed: health.capabilities?.workspace_create === true,
+        guestVisibleTabs: normalizeGuestVisibleTabs(health.capabilities?.guest_visible_tabs),
         allowPromptOverridesViaApi: health.configuration?.allow_prompt_overrides_via_api === true,
         activePromptVersions: health.configuration?.active_prompt_versions || null,
         pipelineBusy: health.pipeline_busy
@@ -125,6 +129,7 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
       lastCheckTime: Date.now(),
       status: null,
       workspaceCreateAllowed: false,
+      guestVisibleTabs: [...allGuestVisibleTabs],
       allowPromptOverridesViaApi: false,
       activePromptVersions: null,
       pipelineBusy: false,
@@ -139,6 +144,7 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
       messageTitle: null,
       status: null,
       workspaceCreateAllowed: false,
+      guestVisibleTabs: [...allGuestVisibleTabs],
       allowPromptOverridesViaApi: false,
       activePromptVersions: null,
       pipelineBusy: false,

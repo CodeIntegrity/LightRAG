@@ -93,6 +93,13 @@ load_dotenv(dotenv_path=".env", override=False)
 
 webui_title = os.getenv("WEBUI_TITLE")
 webui_description = os.getenv("WEBUI_DESCRIPTION")
+ALL_GUEST_VISIBLE_TABS = (
+    "documents",
+    "knowledge-graph",
+    "prompt-management",
+    "retrieval",
+    "api",
+)
 
 # Global authentication configuration
 auth_configured = bool(auth_handler.accounts)
@@ -786,6 +793,25 @@ def create_app(args):
     def _guest_login_capability() -> bool:
         return bool(auth_handler.accounts) and bool(args.enable_guest_login_entry)
 
+    def _guest_visible_tabs() -> list[str]:
+        configured_tabs = getattr(args, "guest_visible_tabs", None)
+        if not isinstance(configured_tabs, list):
+            return list(ALL_GUEST_VISIBLE_TABS)
+
+        allowed_tabs: list[str] = []
+        seen_tabs: set[str] = set()
+        for tab in configured_tabs:
+            if not isinstance(tab, str):
+                continue
+            normalized_tab = tab.strip()
+            if (
+                normalized_tab in ALL_GUEST_VISIBLE_TABS
+                and normalized_tab not in seen_tabs
+            ):
+                allowed_tabs.append(normalized_tab)
+                seen_tabs.add(normalized_tab)
+        return allowed_tabs
+
     def _build_guest_login_response(
         *, auth_mode: str, message: str
     ) -> dict[str, object]:
@@ -797,6 +823,7 @@ def create_app(args):
             "token_type": "bearer",
             "auth_mode": auth_mode,
             "message": message,
+            "guest_visible_tabs": _guest_visible_tabs(),
             "core_version": core_version,
             "api_version": api_version_display,
             "webui_title": webui_title,
@@ -1499,6 +1526,7 @@ def create_app(args):
             "auth_configured": True,
             "auth_mode": "enabled",
             "guest_login_allowed": _guest_login_capability(),
+            "guest_visible_tabs": _guest_visible_tabs(),
             "core_version": core_version,
             "api_version": api_version_display,
             "webui_title": webui_title,
@@ -1672,6 +1700,7 @@ def create_app(args):
                         request
                     ),
                     "guest_login": _guest_login_capability(),
+                    "guest_visible_tabs": _guest_visible_tabs(),
                 },
                 "pipeline_busy": pipeline_status.get("busy", False),
                 "keyed_locks": keyed_lock_info,

@@ -13,6 +13,7 @@
     "retrieval": "Retrieval",
     "api": "API",
     "projectRepository": "Project Repository",
+    "login": "Login",
     "logout": "Logout",
     "frontendNeedsRebuild": "Frontend needs rebuild",
     "themeToggle": {
@@ -165,7 +166,7 @@
     "errorInvalidCredentials": "Login failed, please check username and password",
     "errorGuestLogin": "Guest login is currently unavailable",
     "authDisabled": "Authentication is disabled. Using login free mode.",
-    "guestMode": "Login Free",
+    "guestMode": "Guest Access",
     "guestLoginEntry": "Continue as guest",
     "guestSuccess": "Guest access enabled."
   },

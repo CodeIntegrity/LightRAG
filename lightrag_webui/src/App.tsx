@@ -18,11 +18,21 @@ import RetrievalTesting from '@/features/RetrievalTesting'
 import ApiSite from '@/features/ApiSite'
 
 import { Tabs, TabsContent } from '@/components/ui/Tabs'
+import {
+  allGuestVisibleTabs,
+  normalizeGuestVisibleTabs,
+  resolveActiveTabForSession,
+  resolveVisibleTabsForSession,
+} from '@/lib/guestFeatures'
 
 function App() {
   const message = useBackendState.use.message()
   const enableHealthCheck = useSettingsStore.use.enableHealthCheck()
   const currentTab = useSettingsStore.use.currentTab()
+  const guestVisibleTabs = useBackendState.use.guestVisibleTabs()
+  const isGuestMode = useAuthStore((state) => state.isGuestMode)
+  const visibleTabs = resolveVisibleTabsForSession(isGuestMode, guestVisibleTabs)
+  const activeTab = resolveActiveTabForSession(currentTab, visibleTabs)
   const [apiKeyAlertOpen, setApiKeyAlertOpen] = useState(false)
   const [initializing, setInitializing] = useState(true) // Add initializing state
   const versionCheckRef = useRef(false); // Prevent duplicate calls in Vite dev mode
@@ -112,6 +122,12 @@ function App() {
         // Get version info
         const token = localStorage.getItem('LIGHTRAG-API-TOKEN');
         const status = await getAuthStatus();
+        useBackendState.setState({
+          guestVisibleTabs: normalizeGuestVisibleTabs(
+            status.guest_visible_tabs,
+            allGuestVisibleTabs
+          )
+        })
 
         // If auth is not configured and a new token is returned, use the new token
         if (!status.auth_configured && status.access_token) {
@@ -149,6 +165,13 @@ function App() {
     // Execute version check
     checkVersion();
   }, []); // Empty dependency array ensures it only runs once on mount
+
+  useEffect(() => {
+    if (activeTab === currentTab) {
+      return
+    }
+    useSettingsStore.getState().setCurrentTab(activeTab)
+  }, [activeTab, currentTab])
 
   const handleTabChange = useCallback(
     (tab: string) => useSettingsStore.getState().setCurrentTab(tab as any),
@@ -199,27 +222,37 @@ function App() {
           // Main content after initialization
           <main className="flex h-screen w-screen overflow-hidden">
             <Tabs
-              defaultValue={currentTab}
+              value={activeTab}
               className="!m-0 flex grow flex-col !p-0 overflow-hidden"
               onValueChange={handleTabChange}
             >
               <SiteHeader />
               <div className="relative grow">
-                <TabsContent value="documents" className="absolute top-0 right-0 bottom-0 left-0 overflow-auto">
-                  <DocumentManager />
-                </TabsContent>
-                <TabsContent value="knowledge-graph" className="absolute top-0 right-0 bottom-0 left-0 overflow-hidden">
-                  <GraphViewer />
-                </TabsContent>
-                <TabsContent value="prompt-management" className="absolute top-0 right-0 bottom-0 left-0 overflow-auto">
-                  <PromptManagement />
-                </TabsContent>
-                <TabsContent value="retrieval" className="absolute top-0 right-0 bottom-0 left-0 overflow-hidden">
-                  <RetrievalTesting />
-                </TabsContent>
-                <TabsContent value="api" className="absolute top-0 right-0 bottom-0 left-0 overflow-hidden">
-                  <ApiSite />
-                </TabsContent>
+                {visibleTabs.includes('documents') && (
+                  <TabsContent value="documents" className="absolute top-0 right-0 bottom-0 left-0 overflow-auto">
+                    <DocumentManager />
+                  </TabsContent>
+                )}
+                {visibleTabs.includes('knowledge-graph') && (
+                  <TabsContent value="knowledge-graph" className="absolute top-0 right-0 bottom-0 left-0 overflow-hidden">
+                    <GraphViewer />
+                  </TabsContent>
+                )}
+                {visibleTabs.includes('prompt-management') && (
+                  <TabsContent value="prompt-management" className="absolute top-0 right-0 bottom-0 left-0 overflow-auto">
+                    <PromptManagement />
+                  </TabsContent>
+                )}
+                {visibleTabs.includes('retrieval') && (
+                  <TabsContent value="retrieval" className="absolute top-0 right-0 bottom-0 left-0 overflow-hidden">
+                    <RetrievalTesting />
+                  </TabsContent>
+                )}
+                {visibleTabs.includes('api') && (
+                  <TabsContent value="api" className="absolute top-0 right-0 bottom-0 left-0 overflow-hidden">
+                    <ApiSite />
+                  </TabsContent>
+                )}
               </div>
             </Tabs>
             {enableHealthCheck && <StatusIndicator />}

@@ -31,7 +31,7 @@
     "errorEmptyFields": "請輸入您的帳號和密碼",
     "errorInvalidCredentials": "登入失敗，請檢查帳號和密碼",
     "authDisabled": "認證已停用，使用免登入模式",
-    "guestMode": "免登入"
+    "guestMode": "遊客訪問"
   },
   "common": {
     "cancel": "取消",

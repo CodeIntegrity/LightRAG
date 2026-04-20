@@ -69,6 +69,7 @@ def _build_test_client(
     *,
     allow_guest_workspace_create: bool = False,
     enable_guest_login_entry: bool = False,
+    guest_visible_tabs: list[str] | None = None,
 ):
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
 
@@ -116,6 +117,13 @@ def _build_test_client(
     args.workspace_registry_path = str(tmp_path / "workspaces" / "registry.sqlite3")
     args.allow_guest_workspace_create = allow_guest_workspace_create
     args.enable_guest_login_entry = enable_guest_login_entry
+    args.guest_visible_tabs = guest_visible_tabs or [
+        "documents",
+        "knowledge-graph",
+        "prompt-management",
+        "retrieval",
+        "api",
+    ]
     app = lightrag_server.create_app(args)
     return TestClient(app)
 
@@ -308,6 +316,36 @@ def test_health_exposes_guest_login_capability_when_disabled(monkeypatch, tmp_pa
 
     assert response.status_code == 200
     assert response.json()["capabilities"]["guest_login"] is False
+
+
+def test_health_exposes_guest_visible_tabs_from_env(monkeypatch, tmp_path):
+    with _build_test_client(
+        monkeypatch,
+        tmp_path,
+        guest_visible_tabs=["documents", "retrieval"],
+    ) as client:
+        response = client.get(
+            "/health",
+            headers={"Authorization": f"Bearer {_build_token('guest', 'guest')}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["capabilities"]["guest_visible_tabs"] == [
+        "documents",
+        "retrieval",
+    ]
+
+
+def test_auth_status_exposes_guest_visible_tabs_from_env(monkeypatch, tmp_path):
+    with _build_test_client(
+        monkeypatch,
+        tmp_path,
+        guest_visible_tabs=["documents", "api"],
+    ) as client:
+        response = client.get("/auth-status")
+
+    assert response.status_code == 200
+    assert response.json()["guest_visible_tabs"] == ["documents", "api"]
 
 
 def test_health_exposes_workspace_create_capability_for_guest_when_disabled(

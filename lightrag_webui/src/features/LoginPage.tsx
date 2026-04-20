@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuthStore } from '@/stores/state'
+import { useAuthStore, useBackendState } from '@/stores/state'
 import { useSettingsStore } from '@/stores/settings'
 import { loginAsGuest, loginToServer, getAuthStatus, type LoginResponse } from '@/api/lightrag'
 import { toast } from 'sonner'
@@ -10,6 +10,7 @@ import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import { ZapIcon } from 'lucide-react'
 import AppSettings from '@/components/AppSettings'
+import { allGuestVisibleTabs, normalizeGuestVisibleTabs } from '@/lib/guestFeatures'
 
 const LoginPage = () => {
   const navigate = useNavigate()
@@ -45,6 +46,12 @@ const LoginPage = () => {
 
         // Check auth status
         const status = await getAuthStatus()
+        useBackendState.setState({
+          guestVisibleTabs: normalizeGuestVisibleTabs(
+            status.guest_visible_tabs,
+            allGuestVisibleTabs
+          )
+        })
 
         // Set session flag for version check to avoid duplicate checks in App component
         if (status.core_version || status.api_version) {
@@ -103,6 +110,12 @@ const LoginPage = () => {
     localStorage.setItem('LIGHTRAG-PREVIOUS-USER', loginIdentity)
 
     const isGuestMode = response.auth_mode === 'disabled' || response.auth_mode === 'guest'
+    useBackendState.setState({
+      guestVisibleTabs: normalizeGuestVisibleTabs(
+        response.guest_visible_tabs,
+        allGuestVisibleTabs
+      )
+    })
     login(
       response.access_token,
       isGuestMode,

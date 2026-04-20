@@ -4,6 +4,7 @@ import { errorMessage } from '@/lib/utils'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/state'
 import { navigationService } from '@/services/navigation'
+import { type GuestVisibleTab } from '@/lib/guestFeatures'
 import { parseJwtPayload } from '@/utils/jwt'
 
 // Types
@@ -245,6 +246,7 @@ export type LightragStatus = {
   capabilities?: {
     workspace_create?: boolean
     guest_login?: boolean
+    guest_visible_tabs?: GuestVisibleTab[]
   }
   configuration: {
     llm_binding: string
@@ -675,6 +677,7 @@ const shouldFallbackToLegacyDocuments = (error: unknown): boolean => {
 export type AuthStatusResponse = {
   auth_configured: boolean
   guest_login_allowed?: boolean
+  guest_visible_tabs?: GuestVisibleTab[]
   access_token?: string
   token_type?: string
   auth_mode?: 'enabled' | 'disabled' | 'guest'
@@ -705,6 +708,7 @@ export type LoginResponse = {
   token_type: string
   auth_mode?: 'enabled' | 'disabled' | 'guest'  // Authentication mode identifier
   message?: string                    // Optional message
+  guest_visible_tabs?: GuestVisibleTab[]
   core_version?: string
   api_version?: string
   webui_title?: string

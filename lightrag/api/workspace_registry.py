@@ -171,8 +171,56 @@ class WorkspaceRegistryStore:
                 )
                 conn.commit()
 
+            self._ensure_single_default_workspace_sync(conn, default_workspace)
             self._purge_hard_deleted_sync(conn)
             self._recover_stuck_hard_deletes_sync(conn)
+
+    def _ensure_single_default_workspace_sync(
+        self, conn: sqlite3.Connection, default_workspace: str
+    ) -> None:
+        now = _utc_now()
+        conn.execute(
+            """
+            UPDATE workspaces
+            SET is_default = 0,
+                is_protected = 0,
+                updated_at = ?
+            WHERE workspace <> ?
+              AND (is_default <> 0 OR is_protected <> 0)
+            """,
+            (now, default_workspace),
+        )
+        conn.execute(
+            """
+            UPDATE workspaces
+            SET is_default = 1,
+                is_protected = 1,
+                updated_at = ?
+            WHERE workspace = ?
+              AND (is_default <> 1 OR is_protected <> 1)
+            """,
+            (now, default_workspace),
+        )
+        conn.execute(
+            """
+            INSERT INTO workspace_operations (
+                workspace,
+                kind,
+                state,
+                requested_by,
+                started_at,
+                finished_at,
+                error,
+                progress_json
+            )
+            SELECT ?, NULL, 'idle', NULL, NULL, NULL, NULL, '{}'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM workspace_operations WHERE workspace = ?
+            )
+            """,
+            (default_workspace, default_workspace),
+        )
+        conn.commit()
 
     def _purge_hard_deleted_sync(self, conn: sqlite3.Connection) -> None:
         hard_deleted = conn.execute(

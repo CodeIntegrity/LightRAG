@@ -49,6 +49,7 @@ describe('backend workspace create capability', () => {
     },
     capabilities: {
       workspace_create: true,
+      guest_visible_tabs: ['documents', 'retrieval'],
     },
     pipeline_busy: true,
   }
@@ -77,6 +78,7 @@ describe('backend workspace create capability', () => {
     const ok = await useBackendState.getState().check()
     expect(ok).toBe(true)
     expect(useBackendState.getState().workspaceCreateAllowed).toBe(true)
+    expect(useBackendState.getState().guestVisibleTabs).toEqual(['documents', 'retrieval'])
   })
 
   test('clear resets workspace create capability and status together', async () => {

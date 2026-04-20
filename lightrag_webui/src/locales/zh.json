@@ -13,6 +13,7 @@
     "retrieval": "检索",
     "api": "API",
     "projectRepository": "项目仓库",
+    "login": "登录",
     "logout": "退出登录",
     "frontendNeedsRebuild": "前端代码需重新构建",
     "themeToggle": {
@@ -165,7 +166,7 @@
     "errorInvalidCredentials": "登录失败，请检查用户名和密码",
     "errorGuestLogin": "当前无法使用游客登录",
     "authDisabled": "认证已禁用，使用无需登陆模式。",
-    "guestMode": "无需登陆",
+    "guestMode": "游客访问",
     "guestLoginEntry": "游客访问",
     "guestSuccess": "已启用游客访问。"
   },

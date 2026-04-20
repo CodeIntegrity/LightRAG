@@ -191,3 +191,54 @@ async def test_initialize_purges_legacy_hard_deleted_workspaces(tmp_path: Path):
             ("legacy_deleted",),
         ).fetchone()
     assert operation_row is None
+
+
+@pytest.mark.asyncio
+async def test_initialize_prefers_explicit_default_workspace_and_demotes_others(
+    tmp_path: Path,
+):
+    from lightrag.api.workspace_registry import WorkspaceRegistryStore
+
+    store = WorkspaceRegistryStore(tmp_path / "registry.sqlite3")
+    await store.initialize(default_workspace="")
+    await store.create_workspace(
+        workspace="legacy_default",
+        display_name="Legacy Default",
+        description="legacy",
+        created_by="alice",
+        visibility="private",
+    )
+    await store.create_workspace(
+        workspace="env_primary",
+        display_name="Env Primary",
+        description="env primary",
+        created_by="alice",
+        visibility="private",
+    )
+
+    with store._connect() as conn:
+        conn.execute(
+            """
+            UPDATE workspaces
+            SET is_default = 1,
+                is_protected = 1
+            WHERE workspace IN ('', 'legacy_default', 'env_primary')
+            """
+        )
+        conn.commit()
+
+    await store.initialize(default_workspace="env_primary")
+    records = {
+        record["workspace"]: record
+        for record in await store.list_workspaces()
+    }
+
+    assert records["env_primary"]["is_default"] is True
+    assert records["env_primary"]["is_protected"] is True
+    assert records[""]["is_default"] is False
+    assert records[""]["is_protected"] is False
+    assert records["legacy_default"]["is_default"] is False
+    assert records["legacy_default"]["is_protected"] is False
+
+    updated = await store.soft_delete_workspace("legacy_default", deleted_by="alice")
+    assert updated["status"] == "soft_deleted"

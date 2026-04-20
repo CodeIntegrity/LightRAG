@@ -4,12 +4,13 @@ import AppSettings from '@/components/AppSettings'
 import WorkspaceSwitcher from '@/components/workspace/WorkspaceSwitcher'
 import { TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { useSettingsStore } from '@/stores/settings'
-import { useAuthStore } from '@/stores/state'
+import { useAuthStore, useBackendState } from '@/stores/state'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
 import { navigationService } from '@/services/navigation'
-import { LogOutIcon } from 'lucide-react'
+import { LogInIcon, LogOutIcon } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip'
+import { resolveVisibleTabsForSession } from '@/lib/guestFeatures'
 
 interface NavigationTabProps {
   value: string
@@ -33,26 +34,39 @@ function NavigationTab({ value, currentTab, children }: NavigationTabProps) {
 
 function TabsNavigation() {
   const currentTab = useSettingsStore.use.currentTab()
+  const guestVisibleTabs = useBackendState.use.guestVisibleTabs()
+  const isGuestMode = useAuthStore((state) => state.isGuestMode)
   const { t } = useTranslation()
+  const visibleTabs = resolveVisibleTabsForSession(isGuestMode, guestVisibleTabs)
 
   return (
     <div className="flex h-8 self-center">
       <TabsList className="h-full gap-2">
-        <NavigationTab value="documents" currentTab={currentTab}>
-          {t('header.documents')}
-        </NavigationTab>
-        <NavigationTab value="knowledge-graph" currentTab={currentTab}>
-          {t('header.knowledgeGraph')}
-        </NavigationTab>
-        <NavigationTab value="prompt-management" currentTab={currentTab}>
-          {t('header.promptManagement')}
-        </NavigationTab>
-        <NavigationTab value="retrieval" currentTab={currentTab}>
-          {t('header.retrieval')}
-        </NavigationTab>
-        <NavigationTab value="api" currentTab={currentTab}>
-          {t('header.api')}
-        </NavigationTab>
+        {visibleTabs.includes('documents') && (
+          <NavigationTab value="documents" currentTab={currentTab}>
+            {t('header.documents')}
+          </NavigationTab>
+        )}
+        {visibleTabs.includes('knowledge-graph') && (
+          <NavigationTab value="knowledge-graph" currentTab={currentTab}>
+            {t('header.knowledgeGraph')}
+          </NavigationTab>
+        )}
+        {visibleTabs.includes('prompt-management') && (
+          <NavigationTab value="prompt-management" currentTab={currentTab}>
+            {t('header.promptManagement')}
+          </NavigationTab>
+        )}
+        {visibleTabs.includes('retrieval') && (
+          <NavigationTab value="retrieval" currentTab={currentTab}>
+            {t('header.retrieval')}
+          </NavigationTab>
+        )}
+        {visibleTabs.includes('api') && (
+          <NavigationTab value="api" currentTab={currentTab}>
+            {t('header.api')}
+          </NavigationTab>
+        )}
       </TabsList>
     </div>
   )
@@ -62,9 +76,16 @@ export default function SiteHeader() {
   const { t } = useTranslation()
   const { isGuestMode, username, webuiTitle, webuiDescription } = useAuthStore()
 
-  const handleLogout = () => {
-    navigationService.navigateToLogin();
+  const handleAuthAction = () => {
+    navigationService.navigateToLogin()
   }
+
+  const authActionLabel = isGuestMode ? t('header.login', 'Login') : t('header.logout')
+  const authActionTooltip = isGuestMode
+    ? t('header.login', 'Login')
+    : username
+      ? `${t('header.logout')} (${username})`
+      : t('header.logout')
 
   return (
     <header className="border-border/40 bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 flex h-10 w-full border-b px-4 backdrop-blur">
@@ -109,17 +130,20 @@ export default function SiteHeader() {
       <nav className="w-[200px] flex items-center justify-end">
         <div className="flex items-center gap-2">
           <AppSettings />
-          {!isGuestMode && (
-            <Button
-              variant="ghost"
-              size="icon"
-              side="bottom"
-              tooltip={`${t('header.logout')} (${username})`}
-              onClick={handleLogout}
-            >
+          <Button
+            variant="ghost"
+            size="sm"
+            side="bottom"
+            tooltip={authActionTooltip}
+            onClick={handleAuthAction}
+          >
+            {isGuestMode ? (
+              <LogInIcon className="size-4" aria-hidden="true" />
+            ) : (
               <LogOutIcon className="size-4" aria-hidden="true" />
-            </Button>
-          )}
+            )}
+            <span>{authActionLabel}</span>
+          </Button>
         </div>
       </nav>
     </header>

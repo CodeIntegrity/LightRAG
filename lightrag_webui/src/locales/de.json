@@ -31,7 +31,7 @@
     "errorEmptyFields": "Bitte geben Sie Ihren Benutzernamen und Ihr Passwort ein",
     "errorInvalidCredentials": "Anmeldung fehlgeschlagen, bitte überprüfen Sie Benutzername und Passwort",
     "authDisabled": "Authentifizierung ist deaktiviert. Verwenden des anmeldefreien Modus.",
-    "guestMode": "Anmeldefrei"
+    "guestMode": "Gastzugang"
   },
   "common": {
     "cancel": "Abbrechen",

@@ -411,6 +411,17 @@ def parse_args() -> argparse.Namespace:
     args.enable_guest_login_entry = get_env_value(
         "ENABLE_GUEST_LOGIN_ENTRY", False, bool
     )
+    args.guest_visible_tabs = get_env_value(
+        "GUEST_VISIBLE_TABS",
+        [
+            "documents",
+            "knowledge-graph",
+            "prompt-management",
+            "retrieval",
+            "api",
+        ],
+        list,
+    )
     args.jwt_algorithm = get_env_value("JWT_ALGORITHM", "HS256")
 
     # Token auto-renewal configuration (sliding window expiration)
