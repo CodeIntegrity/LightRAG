@@ -246,7 +246,7 @@ LightRAG对大型语言模型（LLM）的能力要求远高于传统RAG，因为
 
 ### 使用LightRAG服务器
 
-**有关LightRAG服务器的更多信息，请参阅[LightRAG服务器](./lightrag/api/README.md)。**
+**有关LightRAG服务器的更多信息，请参阅[LightRAG服务器](./docs/LightRAG-API-Server-zh.md)。**
 
 ### 使用LightRAG Core
 
@@ -1454,7 +1454,7 @@ python examples/lightrag_openai_opensearch_graph_demo.py
 
 6. 通过 LightRAG WebUI 或独立 HTML 文件可视化知识图谱：
 
-启动 LightRAG 服务器之前，需要[构建前端组建](https://github.com/HKUDS/LightRAG/blob/main/lightrag/api/README.md).
+启动 LightRAG 服务器之前，需要[构建前端组建](https://github.com/HKUDS/LightRAG/blob/main/docs/LightRAG-API-Server.md).
 ```bash
 # 带上 OpenSearch 存储的配置，启动 LightRAG 服务器
 LIGHTRAG_KV_STORAGE=OpenSearchKVStorage \
@@ -2063,11 +2063,11 @@ rag.clear_cache()
 
 ## LightRAG API
 
-LightRAG 服务器旨在提供 Web UI 和 API 支持。**有关 LightRAG 服务器的更多信息，请参考 [LightRAG Server](./lightrag/api/README.md)。**
+LightRAG 服务器旨在提供 Web UI 和 API 支持。**有关 LightRAG 服务器的更多信息，请参考 [LightRAG Server](./docs/LightRAG-API-Server-zh.md)。**
 
 ## 图谱可视化
 
-LightRAG 服务器提供了全面的知识图谱可视化功能。它支持各种重力布局、节点查询、子图过滤等。**有关 LightRAG 服务器的更多信息，请参考 [LightRAG Server](./lightrag/api/README.md)。**
+LightRAG 服务器提供了全面的知识图谱可视化功能。它支持各种重力布局、节点查询、子图过滤等。**有关 LightRAG 服务器的更多信息，请参考 [LightRAG Server](./docs/LightRAG-API-Server-zh.md)。**
 
 ![iShot_2025-03-23_12.40.08](./README.assets/iShot_2025-03-23_12.40.08.png)
 

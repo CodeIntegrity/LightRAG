@@ -246,7 +246,7 @@ LightRAG's demands on the capabilities of Large Language Models (LLMs) are signi
 
 ### Quick Start for LightRAG Server
 
-* For more information about LightRAG Server, please refer to [LightRAG Server](./lightrag/api/README.md).
+* For more information about LightRAG Server, please refer to [LightRAG Server](./docs/LightRAG-API-Server.md).
 
 ### Quick Start for LightRAG core
 
@@ -899,7 +899,7 @@ lightrag-migrate-workspaces \
   --dry-run
 ```
 
-See [lightrag/api/README.md](./lightrag/api/README.md) for the complete API list, authentication notes, and migration flags.
+See [docs/LightRAG-API-Server.md](./docs/LightRAG-API-Server.md) for the complete API list, authentication notes, and migration flags.
 
 ### Insert
 
@@ -1454,7 +1454,7 @@ python examples/lightrag_openai_opensearch_graph_demo.py
 
 6. Visualize the knowledge graph via LightRAG WebUI or standalone HTML:
 
-Requires [building front-end artifacts](https://github.com/HKUDS/LightRAG/blob/main/lightrag/api/README.md) before starting LightRAG Server.
+Requires [building front-end artifacts](https://github.com/HKUDS/LightRAG/blob/main/docs/LightRAG-API-Server.md) before starting LightRAG Server.
 ```bash
 # Starting lightrag-server with OpenSearch Storage
 LIGHTRAG_KV_STORAGE=OpenSearchKVStorage \
@@ -2063,11 +2063,11 @@ When switching between different embedding models, you must clear the data direc
 
 ## LightRAG API
 
-The LightRAG Server is designed to provide Web UI and API support.  **For more information about LightRAG Server, please refer to [LightRAG Server](./lightrag/api/README.md).**
+The LightRAG Server is designed to provide Web UI and API support.  **For more information about LightRAG Server, please refer to [LightRAG Server](./docs/LightRAG-API-Server.md).**
 
 ## Graph Visualization
 
-The LightRAG Server offers a comprehensive knowledge graph visualization feature. It supports various gravity layouts, node queries, subgraph filtering, and more. **For more information about LightRAG Server, please refer to [LightRAG Server](./lightrag/api/README.md).**
+The LightRAG Server offers a comprehensive knowledge graph visualization feature. It supports various gravity layouts, node queries, subgraph filtering, and more. **For more information about LightRAG Server, please refer to [LightRAG Server](./docs/LightRAG-API-Server.md).**
 
 ![iShot_2025-03-23_12.40.08](./README.assets/iShot_2025-03-23_12.40.08.png)
 

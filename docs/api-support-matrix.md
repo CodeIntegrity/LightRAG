@@ -9,6 +9,11 @@
 
 本文档基于 2026-03-30 的静态代码与测试证据整理，未实际启动服务做运行时探测。
 
+详细用法、参数说明和示例请配合阅读：
+
+- `docs/LightRAG-API-Server.md`
+- `docs/LightRAG-API-Server-zh.md`
+
 ## 服务入口
 
 LightRAG API 的主入口由 `lightrag/api/lightrag_server.py` 创建并挂载，当前纳入服务的主要路由组包括：
@@ -279,7 +284,7 @@ Ollama 兼容接口由服务入口以 `/api` 前缀挂载。
 
 如果要把这份梳理继续推进成可执行任务，建议按下面顺序做：
 
-1. 先补文档缺口：把 prompt 更新接口和 2026-03-31 新增 API 补进 `lightrag/api/README.md` 与 `lightrag/api/README-zh.md`。
+1. 先补文档缺口：把 prompt 更新接口和 2026-03-31 新增 API 补进 `docs/LightRAG-API-Server.md` 与 `docs/LightRAG-API-Server-zh.md`。
 2. 评估是否还需要 `/query/llm` 别名，或保持 `query/raw` 作为唯一完整结果接口。
 3. 如果要拓展客户端生态，再评估是否引入 OpenAI `/v1/*` 兼容层。
 
@@ -295,7 +300,7 @@ Ollama 兼容接口由服务入口以 `/api` 前缀挂载。
 - `lightrag/api/routers/workspace_routes.py`
 - `lightrag/api/routers/ollama_api.py`
 - `lightrag/lightrag.py`
-- `lightrag/api/README.md`
+- `docs/LightRAG-API-Server.md`
 - `lightrag/api/README-zh.md`
 - `tests/test_graph_routes.py`
 - `tests/test_prompt_config_routes.py`
