@@ -628,21 +628,21 @@ LIGHTRAG_DOC_STATUS_STORAGE=PGDocStatusStorage
 
 ### LightRag API 服务器命令行选项
 
-| 参数 | 默认值 | 描述 |
-|-----------|---------|-------------|
-| --host | 0.0.0.0 | 服务器主机 |
-| --port | 9621 | 服务器端口 |
-| --working-dir | ./rag_storage | RAG 存储的工作目录 |
-| --input-dir | ./inputs | 包含输入文档的目录 |
-| --max-async | 4 | 最大异步操作数 |
-| --log-level | INFO | 日志级别（DEBUG、INFO、WARNING、ERROR、CRITICAL） |
-| --verbose | - | 详细调试输出（True、False） |
-| --key | None | 用于认证的 API 密钥。保护 lightrag 服务器免受未授权访问 |
-| --ssl | False | 启用 HTTPS |
-| --ssl-certfile | None | SSL 证书文件路径（如果启用 --ssl 则必需） |
-| --ssl-keyfile | None | SSL 私钥文件路径（如果启用 --ssl 则必需） |
-| --llm-binding | ollama | LLM 绑定类型（lollms、ollama、openai、openai-ollama、azure_openai、aws_bedrock） |
-| --embedding-binding | ollama | 嵌入绑定类型（lollms、ollama、openai、azure_openai、aws_bedrock） |
+| 参数                | 默认值        | 描述                                                                             |
+| ------------------- | ------------- | -------------------------------------------------------------------------------- |
+| --host              | 0.0.0.0       | 服务器主机                                                                       |
+| --port              | 9621          | 服务器端口                                                                       |
+| --working-dir       | ./rag_storage | RAG 存储的工作目录                                                               |
+| --input-dir         | ./inputs      | 包含输入文档的目录                                                               |
+| --max-async         | 4             | 最大异步操作数                                                                   |
+| --log-level         | INFO          | 日志级别（DEBUG、INFO、WARNING、ERROR、CRITICAL）                                |
+| --verbose           | -             | 详细调试输出（True、False）                                                      |
+| --key               | None          | 用于认证的 API 密钥。保护 lightrag 服务器免受未授权访问                          |
+| --ssl               | False         | 启用 HTTPS                                                                       |
+| --ssl-certfile      | None          | SSL 证书文件路径（如果启用 --ssl 则必需）                                        |
+| --ssl-keyfile       | None          | SSL 私钥文件路径（如果启用 --ssl 则必需）                                        |
+| --llm-binding       | ollama        | LLM 绑定类型（lollms、ollama、openai、openai-ollama、azure_openai、aws_bedrock） |
+| --embedding-binding | ollama        | 嵌入绑定类型（lollms、ollama、openai、azure_openai、aws_bedrock）                |
 
 ### Reranking 配置
 
@@ -891,27 +891,27 @@ LightRAG采用异步文档索引机制，便于前端监控和查询文档处理
 
 以下字段由 `/query`、`/query/stream`、`/query/data`、`/query/raw` 共同复用。
 
-| 字段 | 类型 | 必填 | 默认值 | 说明 |
-|---|---|---|---|---|
-| `query` | `string` | 是 | - | 不能为空白字符串 |
-| `mode` | `local \| global \| hybrid \| naive \| mix \| bypass` | 否 | `mix` | 通用场景建议用 `mix` |
-| `only_need_context` | `boolean` | 否 | `null` | 只返回准备好的上下文 |
-| `only_need_prompt` | `boolean` | 否 | `null` | 只返回最终 prompt |
-| `response_type` | `string` | 否 | `null` | 控制回答格式，如 bullet points |
-| `top_k` | `integer` | 否 | `null` | 召回实体或关系的数量 |
-| `chunk_top_k` | `integer` | 否 | `null` | 初始 chunk 召回数量 |
-| `max_entity_tokens` | `integer` | 否 | `null` | 实体上下文 token 预算 |
-| `max_relation_tokens` | `integer` | 否 | `null` | 关系上下文 token 预算 |
-| `max_total_tokens` | `integer` | 否 | `null` | 总上下文 token 预算 |
-| `hl_keywords` | `string[]` | 否 | `[]` | 高层关键词提示 |
-| `ll_keywords` | `string[]` | 否 | `[]` | 低层关键词提示 |
-| `conversation_history` | `object[]` | 否 | `null` | 仅提供给 LLM，不作为检索语料 |
-| `user_prompt` | `string` | 否 | `null` | 检索完成后的回答附加指令 |
-| `prompt_overrides` | `object` | 否 | `null` | 需开启 `ALLOW_PROMPT_OVERRIDES_VIA_API=true` |
-| `enable_rerank` | `boolean` | 否 | `null` | 单次请求级 rerank 开关 |
-| `include_references` | `boolean` | 否 | `true` | `/query/data` 总会返回 references |
-| `include_chunk_content` | `boolean` | 否 | `false` | 仅在返回 references 时生效 |
-| `stream` | `boolean` | 否 | `true` | 某些接口会强制覆盖该值 |
+| 字段                    | 类型                                                  | 必填 | 默认值  | 说明                                         |
+| ----------------------- | ----------------------------------------------------- | ---- | ------- | -------------------------------------------- |
+| `query`                 | `string`                                              | 是   | -       | 不能为空白字符串                             |
+| `mode`                  | `local \| global \| hybrid \| naive \| mix \| bypass` | 否   | `mix`   | 通用场景建议用 `mix`                         |
+| `only_need_context`     | `boolean`                                             | 否   | `null`  | 只返回准备好的上下文                         |
+| `only_need_prompt`      | `boolean`                                             | 否   | `null`  | 只返回最终 prompt                            |
+| `response_type`         | `string`                                              | 否   | `null`  | 控制回答格式，如 bullet points               |
+| `top_k`                 | `integer`                                             | 否   | `null`  | 召回实体或关系的数量                         |
+| `chunk_top_k`           | `integer`                                             | 否   | `null`  | 初始 chunk 召回数量                          |
+| `max_entity_tokens`     | `integer`                                             | 否   | `null`  | 实体上下文 token 预算                        |
+| `max_relation_tokens`   | `integer`                                             | 否   | `null`  | 关系上下文 token 预算                        |
+| `max_total_tokens`      | `integer`                                             | 否   | `null`  | 总上下文 token 预算                          |
+| `hl_keywords`           | `string[]`                                            | 否   | `[]`    | 高层关键词提示                               |
+| `ll_keywords`           | `string[]`                                            | 否   | `[]`    | 低层关键词提示                               |
+| `conversation_history`  | `object[]`                                            | 否   | `null`  | 仅提供给 LLM，不作为检索语料                 |
+| `user_prompt`           | `string`                                              | 否   | `null`  | 检索完成后的回答附加指令                     |
+| `prompt_overrides`      | `object`                                              | 否   | `null`  | 需开启 `ALLOW_PROMPT_OVERRIDES_VIA_API=true` |
+| `enable_rerank`         | `boolean`                                             | 否   | `null`  | 单次请求级 rerank 开关                       |
+| `include_references`    | `boolean`                                             | 否   | `true`  | `/query/data` 总会返回 references            |
+| `include_chunk_content` | `boolean`                                             | 否   | `false` | 仅在返回 references 时生效                   |
+| `stream`                | `boolean`                                             | 否   | `true`  | 某些接口会强制覆盖该值                       |
 
 ### Documents 接口
 
@@ -919,17 +919,17 @@ LightRAG采用异步文档索引机制，便于前端监控和查询文档处理
 
 使用 `multipart/form-data` 上传单个文件，并在后台启动索引。
 
-| 参数 | 位置 | 类型 | 必填 | 说明 |
-|---|---|---|---|---|
-| `file` | form-data | binary | 是 | 文件扩展名必须受支持 |
+| 参数   | 位置      | 类型   | 必填 | 说明                 |
+| ------ | --------- | ------ | ---- | -------------------- |
+| `file` | form-data | binary | 是   | 文件扩展名必须受支持 |
 
 响应字段：
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `status` | `success \| duplicated \| partial_success \| failure` | 文件名重复时会返回 `duplicated` |
-| `message` | `string` | 可读状态说明 |
-| `track_id` | `string` | 用于查询 `/documents/track_status/{track_id}` |
+| 字段       | 类型                                                  | 说明                                          |
+| ---------- | ----------------------------------------------------- | --------------------------------------------- |
+| `status`   | `success \| duplicated \| partial_success \| failure` | 文件名重复时会返回 `duplicated`               |
+| `message`  | `string`                                              | 可读状态说明                                  |
+| `track_id` | `string`                                              | 用于查询 `/documents/track_status/{track_id}` |
 
 ```bash
 curl -X POST "http://localhost:9621/documents/upload" \
@@ -941,10 +941,10 @@ curl -X POST "http://localhost:9621/documents/upload" \
 
 异步索引一段文本。
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `text` | `string` | 是 | trim 后不能为空 |
-| `file_source` | `string` | 否 | 逻辑来源名，会出现在引用里 |
+| 字段          | 类型     | 必填 | 说明                       |
+| ------------- | -------- | ---- | -------------------------- |
+| `text`        | `string` | 是   | trim 后不能为空            |
+| `file_source` | `string` | 否   | 逻辑来源名，会出现在引用里 |
 
 ```bash
 curl -X POST "http://localhost:9621/documents/text" \
@@ -960,10 +960,10 @@ curl -X POST "http://localhost:9621/documents/text" \
 
 一次请求索引多段文本。
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `texts` | `string[]` | 是 | 至少一个元素 |
-| `file_sources` | `string[]` | 否 | 可选的并行来源名 |
+| 字段           | 类型       | 必填 | 说明             |
+| -------------- | ---------- | ---- | ---------------- |
+| `texts`        | `string[]` | 是   | 至少一个元素     |
+| `file_sources` | `string[]` | 否   | 可选的并行来源名 |
 
 ```bash
 curl -X POST "http://localhost:9621/documents/texts" \
@@ -982,18 +982,18 @@ curl -X POST "http://localhost:9621/documents/texts" \
 
 轮询某次上传或导入任务的处理状态。
 
-| 参数 | 位置 | 类型 | 必填 | 说明 |
-|---|---|---|---|---|
-| `track_id` | path | `string` | 是 | 不能为空 |
+| 参数       | 位置 | 类型     | 必填 | 说明     |
+| ---------- | ---- | -------- | ---- | -------- |
+| `track_id` | path | `string` | 是   | 不能为空 |
 
 主要响应字段：
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `track_id` | `string` | 请求的 tracking id |
-| `documents` | `DocStatusResponse[]` | 本次任务关联的所有文档 |
-| `total_count` | `integer` | 当前 tracking group 下文档数量 |
-| `status_summary` | `object` | 各状态聚合计数 |
+| 字段             | 类型                  | 说明                           |
+| ---------------- | --------------------- | ------------------------------ |
+| `track_id`       | `string`              | 请求的 tracking id             |
+| `documents`      | `DocStatusResponse[]` | 本次任务关联的所有文档         |
+| `total_count`    | `integer`             | 当前 tracking group 下文档数量 |
+| `status_summary` | `object`              | 各状态聚合计数                 |
 
 ```bash
 curl "http://localhost:9621/documents/track_status/upload_20250729_170612_abc123" \
@@ -1004,18 +1004,18 @@ curl "http://localhost:9621/documents/track_status/upload_20250729_170612_abc123
 
 按文档 id 批量查询状态。
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `doc_ids` | `string[]` | 是 | 元素必须唯一且不能为空 |
+| 字段      | 类型       | 必填 | 说明                   |
+| --------- | ---------- | ---- | ---------------------- |
+| `doc_ids` | `string[]` | 是   | 元素必须唯一且不能为空 |
 
 主要响应字段：
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `documents` | `DocStatusResponse[]` | 查到的文档 |
-| `requested_count` | `integer` | 请求的 id 数量 |
-| `found_count` | `integer` | 实际命中的数量 |
-| `missing_doc_ids` | `string[]` | 未找到的 id |
+| 字段              | 类型                  | 说明           |
+| ----------------- | --------------------- | -------------- |
+| `documents`       | `DocStatusResponse[]` | 查到的文档     |
+| `requested_count` | `integer`             | 请求的 id 数量 |
+| `found_count`     | `integer`             | 实际命中的数量 |
+| `missing_doc_ids` | `string[]`            | 未找到的 id    |
 
 ```bash
 curl -X POST "http://localhost:9621/documents/by-ids" \
@@ -1028,20 +1028,20 @@ curl -X POST "http://localhost:9621/documents/by-ids" \
 
 直接导入已经切分好的文档，跳过服务端 chunking。
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `full_text` | `string` | 是 | 原始完整文本 |
-| `text_chunks` | `string[]` | 是 | trim 后都必须非空 |
-| `doc_id` | `string` | 否 | 不传则由服务端根据内容派生 |
+| 字段          | 类型       | 必填 | 说明                       |
+| ------------- | ---------- | ---- | -------------------------- |
+| `full_text`   | `string`   | 是   | 原始完整文本               |
+| `text_chunks` | `string[]` | 是   | trim 后都必须非空          |
+| `doc_id`      | `string`   | 否   | 不传则由服务端根据内容派生 |
 
 响应字段：
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `status` | `string` | 成功时当前为 `success` |
-| `message` | `string` | 导入状态说明 |
-| `doc_id` | `string` | 最终落库的文档 id |
-| `requested_chunk_count` | `integer` | 请求中发送的 chunk 数 |
+| 字段                    | 类型      | 说明                   |
+| ----------------------- | --------- | ---------------------- |
+| `status`                | `string`  | 成功时当前为 `success` |
+| `message`               | `string`  | 导入状态说明           |
+| `doc_id`                | `string`  | 最终落库的文档 id      |
+| `requested_chunk_count` | `integer` | 请求中发送的 chunk 数  |
 
 ```bash
 curl -X POST "http://localhost:9621/documents/import/custom-chunks" \
@@ -1069,13 +1069,13 @@ curl -X POST "http://localhost:9621/documents/scan" \
 
 按分页和排序列出文档。
 
-| 参数 | 位置 | 类型 | 必填 | 默认值 | 说明 |
-|---|---|---|---|---|---|
-| `status_filter` | query | `DocStatus` | 否 | `null` | 按状态过滤 |
-| `page` | query | `integer` | 否 | `1` | 从 1 开始 |
-| `page_size` | query | `integer` | 否 | `50` | 取值范围 `10..200` |
-| `sort_field` | query | `created_at \| updated_at \| id \| file_path` | 否 | `updated_at` | 排序字段 |
-| `sort_direction` | query | `asc \| desc` | 否 | `desc` | 排序方向 |
+| 参数             | 位置  | 类型                                          | 必填 | 默认值       | 说明               |
+| ---------------- | ----- | --------------------------------------------- | ---- | ------------ | ------------------ |
+| `status_filter`  | query | `DocStatus`                                   | 否   | `null`       | 按状态过滤         |
+| `page`           | query | `integer`                                     | 否   | `1`          | 从 1 开始          |
+| `page_size`      | query | `integer`                                     | 否   | `50`         | 取值范围 `10..200` |
+| `sort_field`     | query | `created_at \| updated_at \| id \| file_path` | 否   | `updated_at` | 排序字段           |
+| `sort_direction` | query | `asc \| desc`                                 | 否   | `desc`       | 排序方向           |
 
 ```bash
 curl "http://localhost:9621/documents/paginated?page=1&page_size=20&sort_field=updated_at&sort_direction=desc" \
@@ -1084,17 +1084,17 @@ curl "http://localhost:9621/documents/paginated?page=1&page_size=20&sort_field=u
 
 #### 其他 Documents 运维接口
 
-| 路径 | 方法 | 用途 | 主要输入 |
-|---|---|---|---|
-| `/documents/pipeline_status` | GET | 查看当前索引流水线状态 | 无 |
-| `/documents/status_counts` | GET | 聚合各状态文档数量 | 无 |
-| `/documents/reprocess_failed` | POST | 重新排队处理失败文档 | 无 |
-| `/documents/cancel_pipeline` | POST | 请求取消当前流水线 | 无 |
-| `/documents/delete_document` | DELETE | 删除一个或多个文档 | JSON 删除 payload |
-| `/documents/clear_cache` | POST | 清理缓存项 | JSON cache payload |
-| `/documents/delete_entity` | DELETE | 从图/向量存储中删除实体 | JSON entity payload |
-| `/documents/delete_relation` | DELETE | 从图/向量存储中删除关系 | JSON relation payload |
-| `/documents/rebuild_from_indexing_version` | POST | 激活 indexing prompt 版本后触发 workspace rebuild | `{"version_id": "..."}` |
+| 路径                                       | 方法   | 用途                                              | 主要输入                |
+| ------------------------------------------ | ------ | ------------------------------------------------- | ----------------------- |
+| `/documents/pipeline_status`               | GET    | 查看当前索引流水线状态                            | 无                      |
+| `/documents/status_counts`                 | GET    | 聚合各状态文档数量                                | 无                      |
+| `/documents/reprocess_failed`              | POST   | 重新排队处理失败文档                              | 无                      |
+| `/documents/cancel_pipeline`               | POST   | 请求取消当前流水线                                | 无                      |
+| `/documents/delete_document`               | DELETE | 删除一个或多个文档                                | JSON 删除 payload       |
+| `/documents/clear_cache`                   | POST   | 清理缓存项                                        | JSON cache payload      |
+| `/documents/delete_entity`                 | DELETE | 从图/向量存储中删除实体                           | JSON entity payload     |
+| `/documents/delete_relation`               | DELETE | 从图/向量存储中删除关系                           | JSON relation payload   |
+| `/documents/rebuild_from_indexing_version` | POST   | 激活 indexing prompt 版本后触发 workspace rebuild | `{"version_id": "..."}` |
 
 ### Query 接口
 
@@ -1117,9 +1117,9 @@ curl -X POST "http://localhost:9621/query" \
 
 响应结构：
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `response` | `string` | 最终回答文本 |
+| 字段         | 类型                      | 说明                                |
+| ------------ | ------------------------- | ----------------------------------- |
+| `response`   | `string`                  | 最终回答文本                        |
 | `references` | `ReferenceItem[] \| null` | `include_references=false` 时可省略 |
 
 #### POST `/query/stream`
@@ -1149,12 +1149,12 @@ curl -N -X POST "http://localhost:9621/query/stream" \
 
 响应结构：
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `status` | `string` | 查询状态 |
-| `message` | `string` | 状态说明 |
-| `data` | `object` | entities、relationships、chunks、references |
-| `metadata` | `object` | 模式、关键词、诊断信息 |
+| 字段       | 类型     | 说明                                        |
+| ---------- | -------- | ------------------------------------------- |
+| `status`   | `string` | 查询状态                                    |
+| `message`  | `string` | 状态说明                                    |
+| `data`     | `object` | entities、relationships、chunks、references |
+| `metadata` | `object` | 模式、关键词、诊断信息                      |
 
 ```bash
 curl -X POST "http://localhost:9621/query/data" \
@@ -1176,12 +1176,12 @@ curl -X POST "http://localhost:9621/query/data" \
 
 响应结构：
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `status` | `string` | 查询执行状态 |
-| `message` | `string` | 状态说明 |
-| `data` | `object` | 原始结构化检索结果 |
-| `metadata` | `object` | 原始 metadata |
+| 字段           | 类型     | 说明                  |
+| -------------- | -------- | --------------------- |
+| `status`       | `string` | 查询执行状态          |
+| `message`      | `string` | 状态说明              |
+| `data`         | `object` | 原始结构化检索结果    |
+| `metadata`     | `object` | 原始 metadata         |
 | `llm_response` | `object` | 最终 LLM 内容和元数据 |
 
 ```bash
@@ -1197,38 +1197,38 @@ curl -X POST "http://localhost:9621/query/raw" \
 
 #### Query mode 选择建议
 
-| 模式 | 适用场景 |
-|---|---|
-| `local` | 实体中心查询 |
-| `global` | 关系模式或全局拓扑分析 |
-| `hybrid` | 图谱检索的平衡模式 |
-| `naive` | 纯向量检索 |
-| `mix` | 通用问答主路径 |
+| 模式     | 适用场景                       |
+| -------- | ------------------------------ |
+| `local`  | 实体中心查询                   |
+| `global` | 关系模式或全局拓扑分析         |
+| `hybrid` | 图谱检索的平衡模式             |
+| `naive`  | 纯向量检索                     |
+| `mix`    | 通用问答主路径                 |
 | `bypass` | 完全绕过检索，直接调用底层 LLM |
 
 ### Graph 接口
 
-| 路径 | 方法 | 用途 | 主要参数 |
-|---|---|---|---|
-| `/graph/label/list` | GET | 列出全部图标签 | 无 |
-| `/graph/entity-type/list` | GET | 列出实体类型 | 无 |
-| `/graph/label/popular` | GET | 返回热门标签 | `limit` |
-| `/graph/label/search` | GET | 按关键字搜索标签 | `q`、`limit` |
-| `/graphs` | GET | 获取 legacy 连通子图 | `label`、`max_depth`、`max_nodes` |
-| `/graph/query` | POST | 结构化图查询 | `scope`、`node_filters`、`edge_filters`、`source_filters`、`view_options` |
-| `/graph/entity/detail` | GET | 获取实体详情 | `entity_name`、`include_vector_data` |
-| `/graph/relation/detail` | GET | 获取关系详情 | `source_entity`、`target_entity`、`include_vector_data` |
-| `/graph/export` | POST | 导出图数据文件 | `file_format`、`include_vector_data` |
-| `/graph/import/custom-kg` | POST | 导入结构化自定义 KG | custom KG JSON payload |
-| `/graph/entity` | DELETE | 删除实体 | `entity_name` |
-| `/graph/relation` | DELETE | 删除关系 | `source_entity`、`target_entity` |
-| `/graph/merge/suggestions` | POST | 生成实体合并建议 | merge suggestion payload |
-| `/graph/entity/exists` | GET | 判断实体是否存在 | `name` |
-| `/graph/entity/edit` | POST | 更新实体字段 | entity update payload |
-| `/graph/relation/edit` | POST | 更新关系字段 | relation update payload |
-| `/graph/entity/create` | POST | 创建实体 | entity create payload |
-| `/graph/relation/create` | POST | 创建关系 | relation create payload |
-| `/graph/entities/merge` | POST | 合并多个实体 | entity merge payload |
+| 路径                       | 方法   | 用途                 | 主要参数                                                                  |
+| -------------------------- | ------ | -------------------- | ------------------------------------------------------------------------- |
+| `/graph/label/list`        | GET    | 列出全部图标签       | 无                                                                        |
+| `/graph/entity-type/list`  | GET    | 列出实体类型         | 无                                                                        |
+| `/graph/label/popular`     | GET    | 返回热门标签         | `limit`                                                                   |
+| `/graph/label/search`      | GET    | 按关键字搜索标签     | `q`、`limit`                                                              |
+| `/graphs`                  | GET    | 获取 legacy 连通子图 | `label`、`max_depth`、`max_nodes`                                         |
+| `/graph/query`             | POST   | 结构化图查询         | `scope`、`node_filters`、`edge_filters`、`source_filters`、`view_options` |
+| `/graph/entity/detail`     | GET    | 获取实体详情         | `entity_name`、`include_vector_data`                                      |
+| `/graph/relation/detail`   | GET    | 获取关系详情         | `source_entity`、`target_entity`、`include_vector_data`                   |
+| `/graph/export`            | POST   | 导出图数据文件       | `file_format`、`include_vector_data`                                      |
+| `/graph/import/custom-kg`  | POST   | 导入结构化自定义 KG  | custom KG JSON payload                                                    |
+| `/graph/entity`            | DELETE | 删除实体             | `entity_name`                                                             |
+| `/graph/relation`          | DELETE | 删除关系             | `source_entity`、`target_entity`                                          |
+| `/graph/merge/suggestions` | POST   | 生成实体合并建议     | merge suggestion payload                                                  |
+| `/graph/entity/exists`     | GET    | 判断实体是否存在     | `name`                                                                    |
+| `/graph/entity/edit`       | POST   | 更新实体字段         | entity update payload                                                     |
+| `/graph/relation/edit`     | POST   | 更新关系字段         | relation update payload                                                   |
+| `/graph/entity/create`     | POST   | 创建实体             | entity create payload                                                     |
+| `/graph/relation/create`   | POST   | 创建关系             | relation create payload                                                   |
+| `/graph/entities/merge`    | POST   | 合并多个实体         | entity merge payload                                                      |
 
 导出示例：
 
@@ -1247,17 +1247,17 @@ curl -X POST "http://localhost:9621/graph/export" \
 
 所有 Prompt 版本接口都受 workspace 作用域影响。
 
-| 路径 | 方法 | 用途 | 主要参数 |
-|---|---|---|---|
-| `/prompt-config/initialize` | POST | 为某个 workspace 初始化 prompt registry | query 参数 `locale`，默认 `zh` |
-| `/prompt-config/groups` | GET | 一次返回 indexing 和 retrieval 两组 | 无 |
-| `/prompt-config/{group_type}/versions` | GET | 列出某组下的全部版本 | `group_type=indexing|retrieval` |
-| `/prompt-config/{group_type}/versions/{version_id}` | GET | 获取单个版本 | `group_type`、`version_id` |
-| `/prompt-config/{group_type}/versions` | POST | 创建版本 | `version_name`、`comment`、`payload`、`source_version_id` |
-| `/prompt-config/{group_type}/versions/{version_id}` | PATCH | 更新版本 | `version_name`、`comment`、`payload` |
-| `/prompt-config/{group_type}/versions/{version_id}/activate` | POST | 激活版本 | 仅路径参数 |
-| `/prompt-config/{group_type}/versions/{version_id}` | DELETE | 删除版本 | 仅路径参数 |
-| `/prompt-config/{group_type}/versions/{version_id}/diff` | GET | 与激活版本或显式 base 版本做 diff | 可选 `base_version_id` |
+| 路径                                                         | 方法   | 用途                                    | 主要参数                                                  |
+| ------------------------------------------------------------ | ------ | --------------------------------------- | --------------------------------------------------------- |
+| `/prompt-config/initialize`                                  | POST   | 为某个 workspace 初始化 prompt registry | query 参数 `locale`，默认 `zh`                            |
+| `/prompt-config/groups`                                      | GET    | 一次返回 indexing 和 retrieval 两组     | 无                                                        |
+| `/prompt-config/{group_type}/versions`                       | GET    | 列出某组下的全部版本                    | `group_type=indexing                                      | retrieval` |
+| `/prompt-config/{group_type}/versions/{version_id}`          | GET    | 获取单个版本                            | `group_type`、`version_id`                                |
+| `/prompt-config/{group_type}/versions`                       | POST   | 创建版本                                | `version_name`、`comment`、`payload`、`source_version_id` |
+| `/prompt-config/{group_type}/versions/{version_id}`          | PATCH  | 更新版本                                | `version_name`、`comment`、`payload`                      |
+| `/prompt-config/{group_type}/versions/{version_id}/activate` | POST   | 激活版本                                | 仅路径参数                                                |
+| `/prompt-config/{group_type}/versions/{version_id}`          | DELETE | 删除版本                                | 仅路径参数                                                |
+| `/prompt-config/{group_type}/versions/{version_id}/diff`     | GET    | 与激活版本或显式 base 版本做 diff       | 可选 `base_version_id`                                    |
 
 重要语义：
 
@@ -1267,37 +1267,37 @@ curl -X POST "http://localhost:9621/graph/export" \
 
 ### Workspace 接口
 
-| 路径 | 方法 | 用途 | 主要参数 |
-|---|---|---|---|
-| `/workspaces` | GET | 列出当前可见的 workspace | `include_deleted` |
-| `/workspaces` | POST | 创建 workspace | `workspace`、`display_name`、`description`、`visibility` |
-| `/workspaces/{workspace}` | GET | 获取 workspace 记录 | path `workspace` |
-| `/workspaces/{workspace}/stats` | GET | 获取 best-effort 统计信息 | path `workspace` |
-| `/workspaces/{workspace}/soft-delete` | POST | 软删除，隐藏但不删数据 | path `workspace` |
-| `/workspaces/{workspace}/restore` | POST | 恢复软删除的 workspace | path `workspace` |
-| `/workspaces/{workspace}/hard-delete` | POST | 调度不可逆的真实删除 | path `workspace` |
-| `/workspaces/{workspace}/operation` | GET | 轮询异步删除状态 | path `workspace` |
+| 路径                                  | 方法 | 用途                      | 主要参数                                                 |
+| ------------------------------------- | ---- | ------------------------- | -------------------------------------------------------- |
+| `/workspaces`                         | GET  | 列出当前可见的 workspace  | `include_deleted`                                        |
+| `/workspaces`                         | POST | 创建 workspace            | `workspace`、`display_name`、`description`、`visibility` |
+| `/workspaces/{workspace}`             | GET  | 获取 workspace 记录       | path `workspace`                                         |
+| `/workspaces/{workspace}/stats`       | GET  | 获取 best-effort 统计信息 | path `workspace`                                         |
+| `/workspaces/{workspace}/soft-delete` | POST | 软删除，隐藏但不删数据    | path `workspace`                                         |
+| `/workspaces/{workspace}/restore`     | POST | 恢复软删除的 workspace    | path `workspace`                                         |
+| `/workspaces/{workspace}/hard-delete` | POST | 调度不可逆的真实删除      | path `workspace`                                         |
+| `/workspaces/{workspace}/operation`   | GET  | 轮询异步删除状态          | path `workspace`                                         |
 
 创建请求字段：
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `workspace` | `string` | 是 | 归一化后的 workspace 标识 |
-| `display_name` | `string` | 是 | 用于展示的名称 |
-| `description` | `string` | 否 | 自由描述 |
-| `visibility` | `public \| private` | 否 | 默认 `public` |
+| 字段           | 类型                | 必填 | 说明                      |
+| -------------- | ------------------- | ---- | ------------------------- |
+| `workspace`    | `string`            | 是   | 归一化后的 workspace 标识 |
+| `display_name` | `string`            | 是   | 用于展示的名称            |
+| `description`  | `string`            | 否   | 自由描述                  |
+| `visibility`   | `public \| private` | 否   | 默认 `public`             |
 
 ### Ollama 兼容接口
 
 这些路由统一挂载在 `/api/*` 下。
 
-| 路径 | 方法 | 用途 | 主要参数 |
-|---|---|---|---|
-| `/api/version` | GET | 返回 Ollama 兼容版本信息 | 无 |
-| `/api/tags` | GET | 返回可用模型列表 | 无 |
-| `/api/ps` | GET | 返回运行中的模型 | 无 |
-| `/api/generate` | POST | Ollama 兼容 generate | Ollama generate 请求体 |
-| `/api/chat` | POST | Ollama 兼容 chat | Ollama chat 请求体 |
+| 路径            | 方法 | 用途                     | 主要参数               |
+| --------------- | ---- | ------------------------ | ---------------------- |
+| `/api/version`  | GET  | 返回 Ollama 兼容版本信息 | 无                     |
+| `/api/tags`     | GET  | 返回可用模型列表         | 无                     |
+| `/api/ps`       | GET  | 返回运行中的模型         | 无                     |
+| `/api/generate` | POST | Ollama 兼容 generate     | Ollama generate 请求体 |
+| `/api/chat`     | POST | Ollama 兼容 chat         | Ollama chat 请求体     |
 
 重要行为：
 

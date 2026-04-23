@@ -124,12 +124,12 @@ When creating a release on GitHub:
 
 ## Quick Reference
 
-| Scenario | Command | Frontend Required | Can Build After |
-|----------|---------|-------------------|-----------------|
-| From PyPI | `pip install lightrag-hku[api]` | Included | No (already installed) |
-| Development | `pip install -e ".[api]"` | No | ✅ Yes (anytime) |
-| Normal Install | `pip install ".[api]"` | ✅ Yes (before) | No (must reinstall) |
-| Create Package | `python -m build` | ✅ Yes (before) | N/A |
+| Scenario       | Command                         | Frontend Required | Can Build After        |
+| -------------- | ------------------------------- | ----------------- | ---------------------- |
+| From PyPI      | `pip install lightrag-hku[api]` | Included          | No (already installed) |
+| Development    | `pip install -e ".[api]"`       | No                | ✅ Yes (anytime)        |
+| Normal Install | `pip install ".[api]"`          | ✅ Yes (before)    | No (must reinstall)    |
+| Create Package | `python -m build`               | ✅ Yes (before)    | N/A                    |
 
 ---
 

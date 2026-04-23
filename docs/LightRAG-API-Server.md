@@ -628,21 +628,21 @@ When switching the storage implementation in LightRAG, the LLM cache can be migr
 
 ### LightRAG API Server Command Line Options
 
-| Parameter             | Default       | Description                                                                                                                     |
-| --------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| --host                | 0.0.0.0       | Server host                                                                                                                     |
-| --port                | 9621          | Server port                                                                                                                     |
-| --working-dir         | ./rag_storage | Working directory for RAG storage                                                                                               |
-| --input-dir           | ./inputs      | Directory containing input documents                                                                                            |
-| --max-async           | 4             | Maximum number of async operations                                                                                              |
-| --log-level           | INFO          | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)                                                                           |
-| --verbose             | -             | Verbose debug output (True, False)                                                                                              |
-| --key                 | None          | API key for authentication. Protects the LightRAG server against unauthorized access                                            |
-| --ssl                 | False         | Enable HTTPS                                                                                                                    |
-| --ssl-certfile        | None          | Path to SSL certificate file (required if --ssl is enabled)                                                                     |
-| --ssl-keyfile         | None          | Path to SSL private key file (required if --ssl is enabled)                                                                     |
-| --llm-binding         | ollama        | LLM binding type (lollms, ollama, openai, openai-ollama, azure_openai, aws_bedrock)                                                          |
-| --embedding-binding   | ollama        | Embedding binding type (lollms, ollama, openai, azure_openai, aws_bedrock)                                                                   |
+| Parameter           | Default       | Description                                                                          |
+| ------------------- | ------------- | ------------------------------------------------------------------------------------ |
+| --host              | 0.0.0.0       | Server host                                                                          |
+| --port              | 9621          | Server port                                                                          |
+| --working-dir       | ./rag_storage | Working directory for RAG storage                                                    |
+| --input-dir         | ./inputs      | Directory containing input documents                                                 |
+| --max-async         | 4             | Maximum number of async operations                                                   |
+| --log-level         | INFO          | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)                                |
+| --verbose           | -             | Verbose debug output (True, False)                                                   |
+| --key               | None          | API key for authentication. Protects the LightRAG server against unauthorized access |
+| --ssl               | False         | Enable HTTPS                                                                         |
+| --ssl-certfile      | None          | Path to SSL certificate file (required if --ssl is enabled)                          |
+| --ssl-keyfile       | None          | Path to SSL private key file (required if --ssl is enabled)                          |
+| --llm-binding       | ollama        | LLM binding type (lollms, ollama, openai, openai-ollama, azure_openai, aws_bedrock)  |
+| --embedding-binding | ollama        | Embedding binding type (lollms, ollama, openai, azure_openai, aws_bedrock)           |
 
 ### Reranking Configuration
 
@@ -891,27 +891,27 @@ The server also exposes a small set of direct import and inspection endpoints fo
 
 The following request fields are reused by `/query`, `/query/stream`, `/query/data`, and `/query/raw`.
 
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `query` | `string` | Yes | - | Must contain non-whitespace text |
-| `mode` | `local \| global \| hybrid \| naive \| mix \| bypass` | No | `mix` | `mix` is the recommended general mode |
-| `only_need_context` | `boolean` | No | `null` | Return prepared context only |
-| `only_need_prompt` | `boolean` | No | `null` | Return prompt only |
-| `response_type` | `string` | No | `null` | Controls answer format, such as bullet points |
-| `top_k` | `integer` | No | `null` | Entity/relationship recall size depending on mode |
-| `chunk_top_k` | `integer` | No | `null` | Initial chunk recall count |
-| `max_entity_tokens` | `integer` | No | `null` | Entity context token budget |
-| `max_relation_tokens` | `integer` | No | `null` | Relation context token budget |
-| `max_total_tokens` | `integer` | No | `null` | Total context token budget |
-| `hl_keywords` | `string[]` | No | `[]` | High-level retrieval hints |
-| `ll_keywords` | `string[]` | No | `[]` | Low-level retrieval hints |
-| `conversation_history` | `object[]` | No | `null` | LLM context only; not used as retrieval corpus |
-| `user_prompt` | `string` | No | `null` | Post-retrieval answer instruction |
-| `prompt_overrides` | `object` | No | `null` | Requires `ALLOW_PROMPT_OVERRIDES_VIA_API=true` |
-| `enable_rerank` | `boolean` | No | `null` | Per-request rerank toggle |
-| `include_references` | `boolean` | No | `true` | `/query/data` always includes references |
-| `include_chunk_content` | `boolean` | No | `false` | Only effective when references are included |
-| `stream` | `boolean` | No | `true` | Relevant to stream behavior; some endpoints force it |
+| Field                   | Type                                                  | Required | Default | Notes                                                |
+| ----------------------- | ----------------------------------------------------- | -------- | ------- | ---------------------------------------------------- |
+| `query`                 | `string`                                              | Yes      | -       | Must contain non-whitespace text                     |
+| `mode`                  | `local \| global \| hybrid \| naive \| mix \| bypass` | No       | `mix`   | `mix` is the recommended general mode                |
+| `only_need_context`     | `boolean`                                             | No       | `null`  | Return prepared context only                         |
+| `only_need_prompt`      | `boolean`                                             | No       | `null`  | Return prompt only                                   |
+| `response_type`         | `string`                                              | No       | `null`  | Controls answer format, such as bullet points        |
+| `top_k`                 | `integer`                                             | No       | `null`  | Entity/relationship recall size depending on mode    |
+| `chunk_top_k`           | `integer`                                             | No       | `null`  | Initial chunk recall count                           |
+| `max_entity_tokens`     | `integer`                                             | No       | `null`  | Entity context token budget                          |
+| `max_relation_tokens`   | `integer`                                             | No       | `null`  | Relation context token budget                        |
+| `max_total_tokens`      | `integer`                                             | No       | `null`  | Total context token budget                           |
+| `hl_keywords`           | `string[]`                                            | No       | `[]`    | High-level retrieval hints                           |
+| `ll_keywords`           | `string[]`                                            | No       | `[]`    | Low-level retrieval hints                            |
+| `conversation_history`  | `object[]`                                            | No       | `null`  | LLM context only; not used as retrieval corpus       |
+| `user_prompt`           | `string`                                              | No       | `null`  | Post-retrieval answer instruction                    |
+| `prompt_overrides`      | `object`                                              | No       | `null`  | Requires `ALLOW_PROMPT_OVERRIDES_VIA_API=true`       |
+| `enable_rerank`         | `boolean`                                             | No       | `null`  | Per-request rerank toggle                            |
+| `include_references`    | `boolean`                                             | No       | `true`  | `/query/data` always includes references             |
+| `include_chunk_content` | `boolean`                                             | No       | `false` | Only effective when references are included          |
+| `stream`                | `boolean`                                             | No       | `true`  | Relevant to stream behavior; some endpoints force it |
 
 ### Documents APIs
 
@@ -919,17 +919,17 @@ The following request fields are reused by `/query`, `/query/stream`, `/query/da
 
 Uploads one file with `multipart/form-data` and starts background indexing.
 
-| Parameter | Location | Type | Required | Notes |
-|---|---|---|---|---|
-| `file` | form-data | binary | Yes | Must use a supported extension |
+| Parameter | Location  | Type   | Required | Notes                          |
+| --------- | --------- | ------ | -------- | ------------------------------ |
+| `file`    | form-data | binary | Yes      | Must use a supported extension |
 
 Response fields:
 
-| Field | Type | Notes |
-|---|---|---|
-| `status` | `success \| duplicated \| partial_success \| failure` | `duplicated` is returned for filename duplicates |
-| `message` | `string` | Human-readable status |
-| `track_id` | `string` | Use with `/documents/track_status/{track_id}` |
+| Field      | Type                                                  | Notes                                            |
+| ---------- | ----------------------------------------------------- | ------------------------------------------------ |
+| `status`   | `success \| duplicated \| partial_success \| failure` | `duplicated` is returned for filename duplicates |
+| `message`  | `string`                                              | Human-readable status                            |
+| `track_id` | `string`                                              | Use with `/documents/track_status/{track_id}`    |
 
 ```bash
 curl -X POST "http://localhost:9621/documents/upload" \
@@ -941,10 +941,10 @@ curl -X POST "http://localhost:9621/documents/upload" \
 
 Indexes a single text payload asynchronously.
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `text` | `string` | Yes | Empty-after-trim values are rejected |
-| `file_source` | `string` | No | Logical source name shown in references |
+| Field         | Type     | Required | Notes                                   |
+| ------------- | -------- | -------- | --------------------------------------- |
+| `text`        | `string` | Yes      | Empty-after-trim values are rejected    |
+| `file_source` | `string` | No       | Logical source name shown in references |
 
 ```bash
 curl -X POST "http://localhost:9621/documents/text" \
@@ -960,10 +960,10 @@ curl -X POST "http://localhost:9621/documents/text" \
 
 Indexes multiple texts in one request.
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `texts` | `string[]` | Yes | At least one item |
-| `file_sources` | `string[]` | No | Optional parallel source names |
+| Field          | Type       | Required | Notes                          |
+| -------------- | ---------- | -------- | ------------------------------ |
+| `texts`        | `string[]` | Yes      | At least one item              |
+| `file_sources` | `string[]` | No       | Optional parallel source names |
 
 ```bash
 curl -X POST "http://localhost:9621/documents/texts" \
@@ -982,18 +982,18 @@ curl -X POST "http://localhost:9621/documents/texts" \
 
 Polls indexing progress for a previously returned `track_id`.
 
-| Parameter | Location | Type | Required | Notes |
-|---|---|---|---|---|
-| `track_id` | path | `string` | Yes | Cannot be blank |
+| Parameter  | Location | Type     | Required | Notes           |
+| ---------- | -------- | -------- | -------- | --------------- |
+| `track_id` | path     | `string` | Yes      | Cannot be blank |
 
 Main response fields:
 
-| Field | Type | Notes |
-|---|---|---|
-| `track_id` | `string` | Requested tracking id |
-| `documents` | `DocStatusResponse[]` | One entry per document in this job |
-| `total_count` | `integer` | Number of documents in this tracking group |
-| `status_summary` | `object` | Aggregated status counts |
+| Field            | Type                  | Notes                                      |
+| ---------------- | --------------------- | ------------------------------------------ |
+| `track_id`       | `string`              | Requested tracking id                      |
+| `documents`      | `DocStatusResponse[]` | One entry per document in this job         |
+| `total_count`    | `integer`             | Number of documents in this tracking group |
+| `status_summary` | `object`              | Aggregated status counts                   |
 
 ```bash
 curl "http://localhost:9621/documents/track_status/upload_20250729_170612_abc123" \
@@ -1004,18 +1004,18 @@ curl "http://localhost:9621/documents/track_status/upload_20250729_170612_abc123
 
 Fetches status rows for a batch of known document ids.
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `doc_ids` | `string[]` | Yes | Must be unique and non-empty |
+| Field     | Type       | Required | Notes                        |
+| --------- | ---------- | -------- | ---------------------------- |
+| `doc_ids` | `string[]` | Yes      | Must be unique and non-empty |
 
 Main response fields:
 
-| Field | Type | Notes |
-|---|---|---|
-| `documents` | `DocStatusResponse[]` | Found documents only |
-| `requested_count` | `integer` | Count of requested ids |
-| `found_count` | `integer` | Count of matched ids |
-| `missing_doc_ids` | `string[]` | Requested ids not present in storage |
+| Field             | Type                  | Notes                                |
+| ----------------- | --------------------- | ------------------------------------ |
+| `documents`       | `DocStatusResponse[]` | Found documents only                 |
+| `requested_count` | `integer`             | Count of requested ids               |
+| `found_count`     | `integer`             | Count of matched ids                 |
+| `missing_doc_ids` | `string[]`            | Requested ids not present in storage |
 
 ```bash
 curl -X POST "http://localhost:9621/documents/by-ids" \
@@ -1028,20 +1028,20 @@ curl -X POST "http://localhost:9621/documents/by-ids" \
 
 Imports a pre-chunked document directly, bypassing server-side chunking.
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `full_text` | `string` | Yes | Full original document text |
-| `text_chunks` | `string[]` | Yes | Trimmed, non-empty chunks |
-| `doc_id` | `string` | No | If omitted, server derives it from content |
+| Field         | Type       | Required | Notes                                      |
+| ------------- | ---------- | -------- | ------------------------------------------ |
+| `full_text`   | `string`   | Yes      | Full original document text                |
+| `text_chunks` | `string[]` | Yes      | Trimmed, non-empty chunks                  |
+| `doc_id`      | `string`   | No       | If omitted, server derives it from content |
 
 Response fields:
 
-| Field | Type | Notes |
-|---|---|---|
-| `status` | `string` | Currently `success` on success |
-| `message` | `string` | Import status text |
-| `doc_id` | `string` | Final document id used by storage |
-| `requested_chunk_count` | `integer` | Number of chunks sent |
+| Field                   | Type      | Notes                             |
+| ----------------------- | --------- | --------------------------------- |
+| `status`                | `string`  | Currently `success` on success    |
+| `message`               | `string`  | Import status text                |
+| `doc_id`                | `string`  | Final document id used by storage |
+| `requested_chunk_count` | `integer` | Number of chunks sent             |
 
 ```bash
 curl -X POST "http://localhost:9621/documents/import/custom-chunks" \
@@ -1069,13 +1069,13 @@ curl -X POST "http://localhost:9621/documents/scan" \
 
 Lists stored documents with pagination and sorting.
 
-| Parameter | Location | Type | Required | Default | Notes |
-|---|---|---|---|---|---|
-| `status_filter` | query | `DocStatus` | No | `null` | Filter by status |
-| `page` | query | `integer` | No | `1` | 1-based |
-| `page_size` | query | `integer` | No | `50` | Range `10..200` |
-| `sort_field` | query | `created_at \| updated_at \| id \| file_path` | No | `updated_at` | Sort key |
-| `sort_direction` | query | `asc \| desc` | No | `desc` | Sort direction |
+| Parameter        | Location | Type                                          | Required | Default      | Notes            |
+| ---------------- | -------- | --------------------------------------------- | -------- | ------------ | ---------------- |
+| `status_filter`  | query    | `DocStatus`                                   | No       | `null`       | Filter by status |
+| `page`           | query    | `integer`                                     | No       | `1`          | 1-based          |
+| `page_size`      | query    | `integer`                                     | No       | `50`         | Range `10..200`  |
+| `sort_field`     | query    | `created_at \| updated_at \| id \| file_path` | No       | `updated_at` | Sort key         |
+| `sort_direction` | query    | `asc \| desc`                                 | No       | `desc`       | Sort direction   |
 
 ```bash
 curl "http://localhost:9621/documents/paginated?page=1&page_size=20&sort_field=updated_at&sort_direction=desc" \
@@ -1084,17 +1084,17 @@ curl "http://localhost:9621/documents/paginated?page=1&page_size=20&sort_field=u
 
 #### Operational document endpoints
 
-| Path | Method | Usage | Main input |
-|---|---|---|---|
-| `/documents/pipeline_status` | GET | Inspect current indexing pipeline state | none |
-| `/documents/status_counts` | GET | Aggregate stored document counts by status | none |
-| `/documents/reprocess_failed` | POST | Requeue failed documents | none |
-| `/documents/cancel_pipeline` | POST | Request pipeline cancellation | none |
-| `/documents/delete_document` | DELETE | Delete one or more documents | JSON delete payload |
-| `/documents/clear_cache` | POST | Clear cache entries | JSON cache payload |
-| `/documents/delete_entity` | DELETE | Delete an entity from graph/vector storage | JSON entity payload |
-| `/documents/delete_relation` | DELETE | Delete a relation from graph/vector storage | JSON relation payload |
-| `/documents/rebuild_from_indexing_version` | POST | Rebuild workspace after activating an indexing prompt version | `{"version_id": "..."}` |
+| Path                                       | Method | Usage                                                         | Main input              |
+| ------------------------------------------ | ------ | ------------------------------------------------------------- | ----------------------- |
+| `/documents/pipeline_status`               | GET    | Inspect current indexing pipeline state                       | none                    |
+| `/documents/status_counts`                 | GET    | Aggregate stored document counts by status                    | none                    |
+| `/documents/reprocess_failed`              | POST   | Requeue failed documents                                      | none                    |
+| `/documents/cancel_pipeline`               | POST   | Request pipeline cancellation                                 | none                    |
+| `/documents/delete_document`               | DELETE | Delete one or more documents                                  | JSON delete payload     |
+| `/documents/clear_cache`                   | POST   | Clear cache entries                                           | JSON cache payload      |
+| `/documents/delete_entity`                 | DELETE | Delete an entity from graph/vector storage                    | JSON entity payload     |
+| `/documents/delete_relation`               | DELETE | Delete a relation from graph/vector storage                   | JSON relation payload   |
+| `/documents/rebuild_from_indexing_version` | POST   | Rebuild workspace after activating an indexing prompt version | `{"version_id": "..."}` |
 
 ### Query APIs
 
@@ -1117,9 +1117,9 @@ curl -X POST "http://localhost:9621/query" \
 
 Response shape:
 
-| Field | Type | Notes |
-|---|---|---|
-| `response` | `string` | Final answer text |
+| Field        | Type                      | Notes                                   |
+| ------------ | ------------------------- | --------------------------------------- |
+| `response`   | `string`                  | Final answer text                       |
 | `references` | `ReferenceItem[] \| null` | Omitted when `include_references=false` |
 
 #### POST `/query/stream`
@@ -1149,11 +1149,11 @@ Returns structured retrieval data for debugging, evaluation, graph-aware analysi
 
 Response shape:
 
-| Field | Type | Notes |
-|---|---|---|
-| `status` | `string` | Query status |
-| `message` | `string` | Status message |
-| `data` | `object` | Entities, relationships, chunks, references |
+| Field      | Type     | Notes                                       |
+| ---------- | -------- | ------------------------------------------- |
+| `status`   | `string` | Query status                                |
+| `message`  | `string` | Status message                              |
+| `data`     | `object` | Entities, relationships, chunks, references |
 | `metadata` | `object` | Query mode, generated keywords, diagnostics |
 
 ```bash
@@ -1176,13 +1176,13 @@ This endpoint is the lowest-level HTTP contract for advanced integrations that w
 
 Response shape:
 
-| Field | Type | Notes |
-|---|---|---|
-| `status` | `string` | Query execution status |
-| `message` | `string` | Status message |
-| `data` | `object` | Raw structured retrieval payload |
-| `metadata` | `object` | Raw metadata payload |
-| `llm_response` | `object` | Final LLM content and metadata |
+| Field          | Type     | Notes                            |
+| -------------- | -------- | -------------------------------- |
+| `status`       | `string` | Query execution status           |
+| `message`      | `string` | Status message                   |
+| `data`         | `object` | Raw structured retrieval payload |
+| `metadata`     | `object` | Raw metadata payload             |
+| `llm_response` | `object` | Final LLM content and metadata   |
 
 ```bash
 curl -X POST "http://localhost:9621/query/raw" \
@@ -1197,38 +1197,38 @@ curl -X POST "http://localhost:9621/query/raw" \
 
 #### Query mode guidance
 
-| Mode | Best for |
-|---|---|
-| `local` | Entity-centric lookup |
+| Mode     | Best for                                       |
+| -------- | ---------------------------------------------- |
+| `local`  | Entity-centric lookup                          |
 | `global` | Relationship-pattern or topology-driven lookup |
-| `hybrid` | Balanced graph retrieval |
-| `naive` | Vector-only lookup |
-| `mix` | General-purpose answer generation |
-| `bypass` | Direct LLM call without retrieval |
+| `hybrid` | Balanced graph retrieval                       |
+| `naive`  | Vector-only lookup                             |
+| `mix`    | General-purpose answer generation              |
+| `bypass` | Direct LLM call without retrieval              |
 
 ### Graph APIs
 
-| Path | Method | Usage | Main params |
-|---|---|---|---|
-| `/graph/label/list` | GET | List all graph labels | none |
-| `/graph/entity-type/list` | GET | List known entity types | none |
-| `/graph/label/popular` | GET | Return popular labels | `limit` |
-| `/graph/label/search` | GET | Search labels by text | `q`, `limit` |
-| `/graphs` | GET | Fetch legacy connected subgraph | `label`, `max_depth`, `max_nodes` |
-| `/graph/query` | POST | Structured graph query | `scope`, `node_filters`, `edge_filters`, `source_filters`, `view_options` |
-| `/graph/entity/detail` | GET | Fetch entity detail | `entity_name`, `include_vector_data` |
-| `/graph/relation/detail` | GET | Fetch relation detail | `source_entity`, `target_entity`, `include_vector_data` |
-| `/graph/export` | POST | Export graph data as file | `file_format`, `include_vector_data` |
-| `/graph/import/custom-kg` | POST | Import structured custom KG payload | custom KG JSON body |
-| `/graph/entity` | DELETE | Delete one entity | `entity_name` |
-| `/graph/relation` | DELETE | Delete one relation | `source_entity`, `target_entity` |
-| `/graph/merge/suggestions` | POST | Generate merge suggestions | merge suggestion payload |
-| `/graph/entity/exists` | GET | Check entity existence | `name` |
-| `/graph/entity/edit` | POST | Update entity fields | entity update payload |
-| `/graph/relation/edit` | POST | Update relation fields | relation update payload |
-| `/graph/entity/create` | POST | Create entity | entity create payload |
-| `/graph/relation/create` | POST | Create relation | relation create payload |
-| `/graph/entities/merge` | POST | Merge multiple entities | entity merge payload |
+| Path                       | Method | Usage                               | Main params                                                               |
+| -------------------------- | ------ | ----------------------------------- | ------------------------------------------------------------------------- |
+| `/graph/label/list`        | GET    | List all graph labels               | none                                                                      |
+| `/graph/entity-type/list`  | GET    | List known entity types             | none                                                                      |
+| `/graph/label/popular`     | GET    | Return popular labels               | `limit`                                                                   |
+| `/graph/label/search`      | GET    | Search labels by text               | `q`, `limit`                                                              |
+| `/graphs`                  | GET    | Fetch legacy connected subgraph     | `label`, `max_depth`, `max_nodes`                                         |
+| `/graph/query`             | POST   | Structured graph query              | `scope`, `node_filters`, `edge_filters`, `source_filters`, `view_options` |
+| `/graph/entity/detail`     | GET    | Fetch entity detail                 | `entity_name`, `include_vector_data`                                      |
+| `/graph/relation/detail`   | GET    | Fetch relation detail               | `source_entity`, `target_entity`, `include_vector_data`                   |
+| `/graph/export`            | POST   | Export graph data as file           | `file_format`, `include_vector_data`                                      |
+| `/graph/import/custom-kg`  | POST   | Import structured custom KG payload | custom KG JSON body                                                       |
+| `/graph/entity`            | DELETE | Delete one entity                   | `entity_name`                                                             |
+| `/graph/relation`          | DELETE | Delete one relation                 | `source_entity`, `target_entity`                                          |
+| `/graph/merge/suggestions` | POST   | Generate merge suggestions          | merge suggestion payload                                                  |
+| `/graph/entity/exists`     | GET    | Check entity existence              | `name`                                                                    |
+| `/graph/entity/edit`       | POST   | Update entity fields                | entity update payload                                                     |
+| `/graph/relation/edit`     | POST   | Update relation fields              | relation update payload                                                   |
+| `/graph/entity/create`     | POST   | Create entity                       | entity create payload                                                     |
+| `/graph/relation/create`   | POST   | Create relation                     | relation create payload                                                   |
+| `/graph/entities/merge`    | POST   | Merge multiple entities             | entity merge payload                                                      |
 
 Representative export example:
 
@@ -1247,17 +1247,17 @@ curl -X POST "http://localhost:9621/graph/export" \
 
 All prompt version endpoints are workspace-scoped.
 
-| Path | Method | Usage | Main params |
-|---|---|---|---|
-| `/prompt-config/initialize` | POST | Seed prompt registry for a workspace | `locale` query param, default `zh` |
-| `/prompt-config/groups` | GET | Return indexing and retrieval groups together | none |
-| `/prompt-config/{group_type}/versions` | GET | List versions in one group | `group_type=indexing|retrieval` |
-| `/prompt-config/{group_type}/versions/{version_id}` | GET | Fetch one version | `group_type`, `version_id` |
-| `/prompt-config/{group_type}/versions` | POST | Create version | `version_name`, `comment`, `payload`, `source_version_id` |
-| `/prompt-config/{group_type}/versions/{version_id}` | PATCH | Update version | `version_name`, `comment`, `payload` |
-| `/prompt-config/{group_type}/versions/{version_id}/activate` | POST | Activate version | path params only |
-| `/prompt-config/{group_type}/versions/{version_id}` | DELETE | Delete version | path params only |
-| `/prompt-config/{group_type}/versions/{version_id}/diff` | GET | Diff against active or explicit base version | optional `base_version_id` |
+| Path                                                         | Method | Usage                                         | Main params                                               |
+| ------------------------------------------------------------ | ------ | --------------------------------------------- | --------------------------------------------------------- |
+| `/prompt-config/initialize`                                  | POST   | Seed prompt registry for a workspace          | `locale` query param, default `zh`                        |
+| `/prompt-config/groups`                                      | GET    | Return indexing and retrieval groups together | none                                                      |
+| `/prompt-config/{group_type}/versions`                       | GET    | List versions in one group                    | `group_type=indexing                                      | retrieval` |
+| `/prompt-config/{group_type}/versions/{version_id}`          | GET    | Fetch one version                             | `group_type`, `version_id`                                |
+| `/prompt-config/{group_type}/versions`                       | POST   | Create version                                | `version_name`, `comment`, `payload`, `source_version_id` |
+| `/prompt-config/{group_type}/versions/{version_id}`          | PATCH  | Update version                                | `version_name`, `comment`, `payload`                      |
+| `/prompt-config/{group_type}/versions/{version_id}/activate` | POST   | Activate version                              | path params only                                          |
+| `/prompt-config/{group_type}/versions/{version_id}`          | DELETE | Delete version                                | path params only                                          |
+| `/prompt-config/{group_type}/versions/{version_id}/diff`     | GET    | Diff against active or explicit base version  | optional `base_version_id`                                |
 
 Important semantics:
 
@@ -1267,37 +1267,37 @@ Important semantics:
 
 ### Workspace APIs
 
-| Path | Method | Usage | Main params |
-|---|---|---|---|
-| `/workspaces` | GET | List visible workspaces | `include_deleted` |
-| `/workspaces` | POST | Create workspace | `workspace`, `display_name`, `description`, `visibility` |
-| `/workspaces/{workspace}` | GET | Get workspace record | path `workspace` |
-| `/workspaces/{workspace}/stats` | GET | Get best-effort workspace stats | path `workspace` |
-| `/workspaces/{workspace}/soft-delete` | POST | Hide workspace without deleting data | path `workspace` |
-| `/workspaces/{workspace}/restore` | POST | Restore soft-deleted workspace | path `workspace` |
-| `/workspaces/{workspace}/hard-delete` | POST | Schedule irreversible data deletion | path `workspace` |
-| `/workspaces/{workspace}/operation` | GET | Poll async delete operation | path `workspace` |
+| Path                                  | Method | Usage                                | Main params                                              |
+| ------------------------------------- | ------ | ------------------------------------ | -------------------------------------------------------- |
+| `/workspaces`                         | GET    | List visible workspaces              | `include_deleted`                                        |
+| `/workspaces`                         | POST   | Create workspace                     | `workspace`, `display_name`, `description`, `visibility` |
+| `/workspaces/{workspace}`             | GET    | Get workspace record                 | path `workspace`                                         |
+| `/workspaces/{workspace}/stats`       | GET    | Get best-effort workspace stats      | path `workspace`                                         |
+| `/workspaces/{workspace}/soft-delete` | POST   | Hide workspace without deleting data | path `workspace`                                         |
+| `/workspaces/{workspace}/restore`     | POST   | Restore soft-deleted workspace       | path `workspace`                                         |
+| `/workspaces/{workspace}/hard-delete` | POST   | Schedule irreversible data deletion  | path `workspace`                                         |
+| `/workspaces/{workspace}/operation`   | GET    | Poll async delete operation          | path `workspace`                                         |
 
 Creation request fields:
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `workspace` | `string` | Yes | Normalized workspace identifier |
-| `display_name` | `string` | Yes | Human-readable name |
-| `description` | `string` | No | Free text |
-| `visibility` | `public \| private` | No | Default `public` |
+| Field          | Type                | Required | Notes                           |
+| -------------- | ------------------- | -------- | ------------------------------- |
+| `workspace`    | `string`            | Yes      | Normalized workspace identifier |
+| `display_name` | `string`            | Yes      | Human-readable name             |
+| `description`  | `string`            | No       | Free text                       |
+| `visibility`   | `public \| private` | No       | Default `public`                |
 
 ### Ollama-Compatible APIs
 
 These routes are mounted under `/api/*`.
 
-| Path | Method | Usage | Main params |
-|---|---|---|---|
-| `/api/version` | GET | Return Ollama-compatible version info | none |
-| `/api/tags` | GET | Return available models | none |
-| `/api/ps` | GET | Return running models | none |
-| `/api/generate` | POST | Ollama-compatible generate | Ollama generate request body |
-| `/api/chat` | POST | Ollama-compatible chat | Ollama chat request body |
+| Path            | Method | Usage                                 | Main params                  |
+| --------------- | ------ | ------------------------------------- | ---------------------------- |
+| `/api/version`  | GET    | Return Ollama-compatible version info | none                         |
+| `/api/tags`     | GET    | Return available models               | none                         |
+| `/api/ps`       | GET    | Return running models                 | none                         |
+| `/api/generate` | POST   | Ollama-compatible generate            | Ollama generate request body |
+| `/api/chat`     | POST   | Ollama-compatible chat                | Ollama chat request body     |
 
 Important behavior:
 

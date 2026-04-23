@@ -158,13 +158,13 @@ This command resolves the base project requirements plus both the `api` and `off
 
 ## Summary
 
-| Command               | Updates `uv.lock` | Typical use                               |
-|-----------------------|-------------------|-------------------------------------------|
-| `uv lock`             | ✅ Yes            | After editing constraints                 |
-| `uv lock --upgrade`   | ✅ Yes            | Upgrade to the newest compatible versions |
-| `uv add <pkg>`        | ✅ Yes            | Add a dependency                          |
-| `uv remove <pkg>`     | ✅ Yes            | Remove a dependency                       |
-| `uv sync`             | ⚠️ Maybe          | Local development; can regenerate the lock |
-| `uv sync --frozen`    | ❌ No             | CI/CD, Docker, reproducible builds        |
+| Command             | Updates `uv.lock` | Typical use                                |
+| ------------------- | ----------------- | ------------------------------------------ |
+| `uv lock`           | ✅ Yes             | After editing constraints                  |
+| `uv lock --upgrade` | ✅ Yes             | Upgrade to the newest compatible versions  |
+| `uv add <pkg>`      | ✅ Yes             | Add a dependency                           |
+| `uv remove <pkg>`   | ✅ Yes             | Remove a dependency                        |
+| `uv sync`           | ⚠️ Maybe           | Local development; can regenerate the lock |
+| `uv sync --frozen`  | ❌ No              | CI/CD, Docker, reproducible builds         |
 
 Remember: `uv.lock` only changes when you run a command that tells it to. Keep it in sync with your project and commit it whenever it changes.
