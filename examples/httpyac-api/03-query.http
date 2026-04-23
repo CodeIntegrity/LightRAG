@@ -3,9 +3,13 @@
 @WORKSPACE = {{$dotenv LIGHTRAG_WORKSPACE}}
 @QUERY = {{$dotenv LIGHTRAG_QUERY}}
 
+# @import ./01-auth.http
+
 ### Query
 # 用途：执行标准问答查询并返回答案。
+# @ref login
 POST {{BASE_URL}}/query
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -22,7 +26,9 @@ Accept: application/json
 
 ### Query Data
 # 用途：只取上下文数据，便于调试检索结果。
+# @ref login
 POST {{BASE_URL}}/query/data
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -38,7 +44,9 @@ Accept: application/json
 
 ### Query Raw
 # 用途：查看完整原始查询结果和覆盖参数效果。
+# @ref login
 POST {{BASE_URL}}/query/raw
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -70,7 +78,9 @@ Accept: application/json
 
 ### Query Stream
 # 用途：以流式方式接收问答输出。
+# @ref login
 POST {{BASE_URL}}/query/stream
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json

@@ -37,6 +37,7 @@ httpyac send 02-documents.http --all -o body
 
 - 当前示例统一使用 `{{$dotenv ...}}` 读取变量，因此请把值写进本目录的 `.env.local`。
 - 鉴权默认使用 `X-API-Key` 头；如果你的服务只启用了登录鉴权，可先执行 `01-auth.http` 获取 token，再把各请求改成 `Authorization: Bearer <token>`。
+- `02-documents.http`、`03-query.http`、`04-graph.http`、`05-prompt-config.http`、`06-workspaces.http`、`07-ollama.http` 都已通过 `# @import ./01-auth.http` 自动复用登录令牌，执行前请先确保 `.env.local` 里的用户名和密码可用。
 - 多工作区接口默认带 `LIGHTRAG-WORKSPACE` 头；未启用多工作区时可保留默认值。
 - 含删除、重建、导入、合并的请求都已单独标注，执行前先确认目标数据。
 - `/documents/upload` 示例使用原始 `multipart/form-data` 体，直接可发，不依赖额外文件。

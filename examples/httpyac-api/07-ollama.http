@@ -1,27 +1,37 @@
 @BASE_URL = {{$dotenv LIGHTRAG_BASE_URL}}
 @API_KEY = {{$dotenv LIGHTRAG_API_KEY}}
 
+# @import ./01-auth.http
+
 ### Ollama Version
 # 用途：查看 Ollama 兼容接口版本信息。
+# @ref login
 GET {{BASE_URL}}/api/version
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 Accept: application/json
 
 ### Ollama Tags
 # 用途：查看 Ollama 模型标签列表。
+# @ref login
 GET {{BASE_URL}}/api/tags
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 Accept: application/json
 
 ### Ollama Ps
 # 用途：查看 Ollama 当前模型运行状态。
+# @ref login
 GET {{BASE_URL}}/api/ps
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 Accept: application/json
 
 ### Ollama Generate
 # 用途：调用 Ollama 兼容生成接口。
+# @ref login
 POST {{BASE_URL}}/api/generate
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 Content-Type: application/json
 Accept: application/json
@@ -34,7 +44,9 @@ Accept: application/json
 
 ### Ollama Chat
 # 用途：调用 Ollama 兼容对话接口。
+# @ref login
 POST {{BASE_URL}}/api/chat
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 Content-Type: application/json
 Accept: application/json

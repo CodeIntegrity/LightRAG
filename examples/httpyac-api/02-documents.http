@@ -4,9 +4,13 @@
 @TRACK_ID = {{$dotenv LIGHTRAG_TRACK_ID}}
 @DOC_ID = {{$dotenv LIGHTRAG_DOC_ID}}
 
+# @import ./01-auth.http
+
 ### Upload Document
 # 用途：上传文件并触发后台索引。
+# @ref login
 POST {{BASE_URL}}/documents/upload
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: multipart/form-data; boundary=LightRAGBoundary
@@ -22,7 +26,9 @@ This file is used to exercise /documents/upload.
 
 ### Insert Text
 # 用途：直接写入单段文本到知识库。
+# @ref login
 POST {{BASE_URL}}/documents/text
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -35,7 +41,9 @@ Accept: application/json
 
 ### Insert Texts
 # 用途：批量写入多段文本到知识库。
+# @ref login
 POST {{BASE_URL}}/documents/texts
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -54,7 +62,9 @@ Accept: application/json
 
 ### Import Custom Chunks
 # 用途：导入上游已切分好的 chunks。
+# @ref login
 POST {{BASE_URL}}/documents/import/custom-chunks
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -71,7 +81,9 @@ Accept: application/json
 
 ### Documents By IDs
 # 用途：按文档 ID 批量查询文档状态。
+# @ref login
 POST {{BASE_URL}}/documents/by-ids
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -85,7 +97,9 @@ Accept: application/json
 
 ### Paginated Documents
 # 用途：按分页和状态筛选文档列表。
+# @ref login
 POST {{BASE_URL}}/documents/paginated
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -101,42 +115,54 @@ Accept: application/json
 
 ### Scan Documents
 # 用途：扫描输入目录中的新文件。
+# @ref login
 POST {{BASE_URL}}/documents/scan
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Pipeline Status
 # 用途：查看当前文档处理流水线状态。
+# @ref login
 GET {{BASE_URL}}/documents/pipeline_status
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Track Status
 # 用途：根据 track_id 查询异步处理进度。
+# @ref login
 GET {{BASE_URL}}/documents/track_status/{{TRACK_ID}}
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Status Counts
 # 用途：统计各文档处理状态数量。
+# @ref login
 GET {{BASE_URL}}/documents/status_counts
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Reprocess Failed Documents
 # 用途：重新处理失败的文档。
+# @ref login
 POST {{BASE_URL}}/documents/reprocess_failed
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Rebuild From Indexing Version
 # 用途：按指定 indexing 版本重建文档。
+# @ref login
 POST {{BASE_URL}}/documents/rebuild_from_indexing_version
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -148,14 +174,18 @@ Accept: application/json
 
 ### Cancel Pipeline
 # 用途：取消当前后台文档处理任务。
+# @ref login
 POST {{BASE_URL}}/documents/cancel_pipeline
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Clear Cache
 # 用途：清理文档相关缓存。
+# @ref login
 POST {{BASE_URL}}/documents/clear_cache
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -165,7 +195,9 @@ Accept: application/json
 
 ### Delete Document By IDs
 # 用途：按文档 ID 删除文档及可选附属数据。
+# @ref login
 DELETE {{BASE_URL}}/documents/delete_document
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -181,7 +213,9 @@ Accept: application/json
 
 ### Delete Entity Via Documents API
 # 用途：通过文档域接口删除实体。
+# @ref login
 DELETE {{BASE_URL}}/documents/delete_entity
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -193,7 +227,9 @@ Accept: application/json
 
 ### Delete Relation Via Documents API
 # 用途：通过文档域接口删除关系。
+# @ref login
 DELETE {{BASE_URL}}/documents/delete_relation
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -206,7 +242,9 @@ Accept: application/json
 
 ### Clear All Documents
 # 用途：清空当前工作区全部文档。
+# @ref login
 DELETE {{BASE_URL}}/documents
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json

@@ -6,44 +6,58 @@
 @SOURCE_ENTITY = {{$dotenv LIGHTRAG_SOURCE_ENTITY}}
 @TARGET_ENTITY = {{$dotenv LIGHTRAG_TARGET_ENTITY}}
 
+# @import ./01-auth.http
+
 ### Graph Labels
 # 用途：列出可用图谱标签。
+# @ref login
 GET {{BASE_URL}}/graph/label/list
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Graph Entity Types
 # 用途：列出图中实体类型。
+# @ref login
 GET {{BASE_URL}}/graph/entity-type/list
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Graph Popular Labels
 # 用途：查询热门图谱标签。
+# @ref login
 GET {{BASE_URL}}/graph/label/popular?limit=20
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Graph Search Labels
 # 用途：按关键字搜索图谱标签。
+# @ref login
 GET {{BASE_URL}}/graph/label/search?q=tes&limit=10
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Legacy Graphs Endpoint
 # 用途：按旧接口方式读取图谱视图。
+# @ref login
 GET {{BASE_URL}}/graphs?label={{LABEL}}&max_depth=2&max_nodes=200
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Graph Query
 # 用途：按范围和过滤条件查询图谱工作台数据。
+# @ref login
 POST {{BASE_URL}}/graph/query
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -79,7 +93,9 @@ Accept: application/json
 
 ### Graph Export
 # 用途：导出当前图谱数据文件。
+# @ref login
 POST {{BASE_URL}}/graph/export
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -91,7 +107,9 @@ Content-Type: application/json
 
 ### Graph Merge Suggestions
 # 用途：生成可合并实体建议。
+# @ref login
 POST {{BASE_URL}}/graph/merge/suggestions
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -110,28 +128,36 @@ Accept: application/json
 
 ### Graph Entity Exists
 # 用途：检查指定实体是否存在。
+# @ref login
 GET {{BASE_URL}}/graph/entity/exists?name={{ENTITY_NAME}}
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Graph Entity Detail
 # 用途：查询实体详情。
+# @ref login
 GET {{BASE_URL}}/graph/entity/detail?entity_name={{ENTITY_NAME}}&include_vector_data=false
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Graph Relation Detail
 # 用途：查询两实体间关系详情。
+# @ref login
 GET {{BASE_URL}}/graph/relation/detail?source_entity={{SOURCE_ENTITY}}&target_entity={{TARGET_ENTITY}}&include_vector_data=false
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Graph Create Entity
 # 用途：创建一个新实体。
+# @ref login
 POST {{BASE_URL}}/graph/entity/create
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -147,7 +173,9 @@ Accept: application/json
 
 ### Graph Update Entity
 # 用途：更新已有实体属性。
+# @ref login
 POST {{BASE_URL}}/graph/entity/edit
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -164,7 +192,9 @@ Accept: application/json
 
 ### Graph Create Relation
 # 用途：创建两个实体之间的新关系。
+# @ref login
 POST {{BASE_URL}}/graph/relation/create
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -182,7 +212,9 @@ Accept: application/json
 
 ### Graph Update Relation
 # 用途：更新已有关系属性。
+# @ref login
 POST {{BASE_URL}}/graph/relation/edit
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -198,7 +230,9 @@ Accept: application/json
 
 ### Graph Merge Entities
 # 用途：将多个重复实体合并到目标实体。
+# @ref login
 POST {{BASE_URL}}/graph/entities/merge
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -214,7 +248,9 @@ Accept: application/json
 
 ### Graph Import Custom KG
 # 用途：直接导入结构化知识图谱数据。
+# @ref login
 POST {{BASE_URL}}/graph/import/custom-kg
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -255,7 +291,9 @@ Accept: application/json
 
 ### Graph Delete Entity
 # 用途：删除指定实体。
+# @ref login
 DELETE {{BASE_URL}}/graph/entity
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -267,7 +305,9 @@ Accept: application/json
 
 ### Graph Delete Relation
 # 用途：删除指定关系。
+# @ref login
 DELETE {{BASE_URL}}/graph/relation
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json

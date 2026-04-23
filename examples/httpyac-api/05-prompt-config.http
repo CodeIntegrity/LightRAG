@@ -4,37 +4,49 @@
 @GROUP_TYPE = retrieval
 @VERSION_ID = {{$dotenv LIGHTRAG_VERSION_ID}}
 
+# @import ./01-auth.http
+
 ### Prompt Config Initialize
 # 用途：初始化当前工作区的 prompt 配置。
+# @ref login
 POST {{BASE_URL}}/prompt-config/initialize?locale=zh
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Prompt Config Groups
 # 用途：查看各 prompt 分组及激活状态。
+# @ref login
 GET {{BASE_URL}}/prompt-config/groups
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Prompt Config Versions
 # 用途：列出某个分组下的全部版本。
+# @ref login
 GET {{BASE_URL}}/prompt-config/{{GROUP_TYPE}}/versions
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Prompt Config Get Version
 # 用途：读取指定 prompt 版本详情。
+# @ref login
 GET {{BASE_URL}}/prompt-config/{{GROUP_TYPE}}/versions/{{VERSION_ID}}
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Prompt Config Create Version
 # 用途：新建一个 prompt 版本。
+# @ref login
 POST {{BASE_URL}}/prompt-config/{{GROUP_TYPE}}/versions
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -50,7 +62,9 @@ Accept: application/json
 
 ### Prompt Config Update Version
 # 用途：更新指定 prompt 版本内容。
+# @ref login
 PATCH {{BASE_URL}}/prompt-config/{{GROUP_TYPE}}/versions/{{VERSION_ID}}
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Content-Type: application/json
@@ -66,21 +80,27 @@ Accept: application/json
 
 ### Prompt Config Activate Version
 # 用途：激活指定 prompt 版本。
+# @ref login
 POST {{BASE_URL}}/prompt-config/{{GROUP_TYPE}}/versions/{{VERSION_ID}}/activate
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Prompt Config Diff Version
 # 用途：查看指定版本与基线的差异。
+# @ref login
 GET {{BASE_URL}}/prompt-config/{{GROUP_TYPE}}/versions/{{VERSION_ID}}/diff
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
 
 ### Prompt Config Delete Version
 # 用途：删除指定 prompt 版本。
+# @ref login
 DELETE {{BASE_URL}}/prompt-config/{{GROUP_TYPE}}/versions/{{VERSION_ID}}
+Authorization: Bearer {{login.access_token}}
 X-API-Key: {{API_KEY}}
 LIGHTRAG-WORKSPACE: {{WORKSPACE}}
 Accept: application/json
