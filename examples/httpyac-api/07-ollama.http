@@ -1,0 +1,51 @@
+@BASE_URL = {{$dotenv LIGHTRAG_BASE_URL}}
+@API_KEY = {{$dotenv LIGHTRAG_API_KEY}}
+
+### Ollama Version
+# 用途：查看 Ollama 兼容接口版本信息。
+GET {{BASE_URL}}/api/version
+X-API-Key: {{API_KEY}}
+Accept: application/json
+
+### Ollama Tags
+# 用途：查看 Ollama 模型标签列表。
+GET {{BASE_URL}}/api/tags
+X-API-Key: {{API_KEY}}
+Accept: application/json
+
+### Ollama Ps
+# 用途：查看 Ollama 当前模型运行状态。
+GET {{BASE_URL}}/api/ps
+X-API-Key: {{API_KEY}}
+Accept: application/json
+
+### Ollama Generate
+# 用途：调用 Ollama 兼容生成接口。
+POST {{BASE_URL}}/api/generate
+X-API-Key: {{API_KEY}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "model": "lightrag",
+  "prompt": "请概述当前知识库的主题。",
+  "stream": false
+}
+
+### Ollama Chat
+# 用途：调用 Ollama 兼容对话接口。
+POST {{BASE_URL}}/api/chat
+X-API-Key: {{API_KEY}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "model": "lightrag",
+  "stream": false,
+  "messages": [
+    {
+      "role": "user",
+      "content": "请用中文总结当前知识库。"
+    }
+  ]
+}

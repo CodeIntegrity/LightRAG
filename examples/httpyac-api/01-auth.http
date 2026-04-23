@@ -1,0 +1,17 @@
+@BASE_URL = {{$dotenv LIGHTRAG_BASE_URL}}
+@USERNAME = {{$dotenv LIGHTRAG_USERNAME}}
+@PASSWORD = {{$dotenv LIGHTRAG_PASSWORD}}
+
+### Password Login
+# 用途：用用户名密码登录并获取访问令牌。
+# @name login
+POST {{BASE_URL}}/login
+Content-Type: application/x-www-form-urlencoded
+Accept: application/json
+
+grant_type=password&username={{USERNAME}}&password={{PASSWORD}}
+
+### Guest Login
+# 用途：在服务允许时获取访客令牌。
+POST {{BASE_URL}}/login/guest
+Accept: application/json

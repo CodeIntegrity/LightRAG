@@ -1,0 +1,16 @@
+@BASE_URL = {{$dotenv LIGHTRAG_BASE_URL}}
+
+### Root
+# 用途：检查服务根路由是否可访问。
+GET {{BASE_URL}}
+Accept: application/json
+
+### Health
+# 用途：检查服务健康状态和当前运行配置。
+GET {{BASE_URL}}/health
+Accept: application/json
+
+### Auth Status
+# 用途：查看当前服务启用的鉴权能力。
+GET {{BASE_URL}}/auth-status
+Accept: application/json

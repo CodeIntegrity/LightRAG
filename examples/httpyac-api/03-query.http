@@ -1,0 +1,84 @@
+@BASE_URL = {{$dotenv LIGHTRAG_BASE_URL}}
+@API_KEY = {{$dotenv LIGHTRAG_API_KEY}}
+@WORKSPACE = {{$dotenv LIGHTRAG_WORKSPACE}}
+@QUERY = {{$dotenv LIGHTRAG_QUERY}}
+
+### Query
+# 用途：执行标准问答查询并返回答案。
+POST {{BASE_URL}}/query
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "query": "{{QUERY}}",
+  "mode": "mix",
+  "top_k": 10,
+  "chunk_top_k": 10,
+  "include_references": true,
+  "include_chunk_content": false
+}
+
+### Query Data
+# 用途：只取上下文数据，便于调试检索结果。
+POST {{BASE_URL}}/query/data
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "query": "{{QUERY}}",
+  "mode": "hybrid",
+  "only_need_context": true,
+  "top_k": 5,
+  "chunk_top_k": 5
+}
+
+### Query Raw
+# 用途：查看完整原始查询结果和覆盖参数效果。
+POST {{BASE_URL}}/query/raw
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "query": "{{QUERY}}",
+  "mode": "mix",
+  "response_type": "Bullet Points",
+  "conversation_history": [
+    {
+      "role": "user",
+      "content": "请先关注 Tesla。"
+    },
+    {
+      "role": "assistant",
+      "content": "已关注 Tesla。"
+    }
+  ],
+  "prompt_overrides": {
+    "query": {
+      "rag_response": "请使用中文，先给结论，再给依据。"
+    },
+    "keywords": {
+      "keywords_extraction": "优先抽取公司、人物和产品名词。"
+    }
+  }
+}
+
+### Query Stream
+# 用途：以流式方式接收问答输出。
+POST {{BASE_URL}}/query/stream
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: text/event-stream
+
+{
+  "query": "{{QUERY}}",
+  "mode": "mix",
+  "stream": true,
+  "include_references": true
+}

@@ -1,0 +1,212 @@
+@BASE_URL = {{$dotenv LIGHTRAG_BASE_URL}}
+@API_KEY = {{$dotenv LIGHTRAG_API_KEY}}
+@WORKSPACE = {{$dotenv LIGHTRAG_WORKSPACE}}
+@TRACK_ID = {{$dotenv LIGHTRAG_TRACK_ID}}
+@DOC_ID = {{$dotenv LIGHTRAG_DOC_ID}}
+
+### Upload Document
+# 用途：上传文件并触发后台索引。
+POST {{BASE_URL}}/documents/upload
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: multipart/form-data; boundary=LightRAGBoundary
+Accept: application/json
+
+--LightRAGBoundary
+Content-Disposition: form-data; name="file"; filename="upload-sample.txt"
+Content-Type: text/plain
+
+LightRAG upload sample from httpyac.
+This file is used to exercise /documents/upload.
+--LightRAGBoundary--
+
+### Insert Text
+# 用途：直接写入单段文本到知识库。
+POST {{BASE_URL}}/documents/text
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "text": "LightRAG can combine graph retrieval and vector retrieval.",
+  "file_source": "httpyac-single-text"
+}
+
+### Insert Texts
+# 用途：批量写入多段文本到知识库。
+POST {{BASE_URL}}/documents/texts
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "texts": [
+    "Elon Musk leads Tesla.",
+    "Tesla produces electric vehicles."
+  ],
+  "file_sources": [
+    "httpyac-batch-1",
+    "httpyac-batch-2"
+  ]
+}
+
+### Import Custom Chunks
+# 用途：导入上游已切分好的 chunks。
+POST {{BASE_URL}}/documents/import/custom-chunks
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "doc_id": "httpyac-custom-doc",
+  "full_text": "Tesla is an electric vehicle company founded in the United States.",
+  "text_chunks": [
+    "Tesla is an electric vehicle company.",
+    "Tesla was founded in the United States."
+  ]
+}
+
+### Documents By IDs
+# 用途：按文档 ID 批量查询文档状态。
+POST {{BASE_URL}}/documents/by-ids
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "doc_ids": [
+    "{{DOC_ID}}"
+  ]
+}
+
+### Paginated Documents
+# 用途：按分页和状态筛选文档列表。
+POST {{BASE_URL}}/documents/paginated
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "status_filter": "PROCESSED",
+  "page": 1,
+  "page_size": 20,
+  "sort_field": "updated_at",
+  "sort_direction": "desc"
+}
+
+### Scan Documents
+# 用途：扫描输入目录中的新文件。
+POST {{BASE_URL}}/documents/scan
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Pipeline Status
+# 用途：查看当前文档处理流水线状态。
+GET {{BASE_URL}}/documents/pipeline_status
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Track Status
+# 用途：根据 track_id 查询异步处理进度。
+GET {{BASE_URL}}/documents/track_status/{{TRACK_ID}}
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Status Counts
+# 用途：统计各文档处理状态数量。
+GET {{BASE_URL}}/documents/status_counts
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Reprocess Failed Documents
+# 用途：重新处理失败的文档。
+POST {{BASE_URL}}/documents/reprocess_failed
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Rebuild From Indexing Version
+# 用途：按指定 indexing 版本重建文档。
+POST {{BASE_URL}}/documents/rebuild_from_indexing_version
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "version_id": "{{$dotenv LIGHTRAG_VERSION_ID}}"
+}
+
+### Cancel Pipeline
+# 用途：取消当前后台文档处理任务。
+POST {{BASE_URL}}/documents/cancel_pipeline
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Clear Cache
+# 用途：清理文档相关缓存。
+POST {{BASE_URL}}/documents/clear_cache
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{}
+
+### Delete Document By IDs
+# 用途：按文档 ID 删除文档及可选附属数据。
+DELETE {{BASE_URL}}/documents/delete_document
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "doc_ids": [
+    "{{DOC_ID}}"
+  ],
+  "delete_file": false,
+  "delete_llm_cache": false
+}
+
+### Delete Entity Via Documents API
+# 用途：通过文档域接口删除实体。
+DELETE {{BASE_URL}}/documents/delete_entity
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "entity_name": "{{$dotenv LIGHTRAG_ENTITY_NAME}}"
+}
+
+### Delete Relation Via Documents API
+# 用途：通过文档域接口删除关系。
+DELETE {{BASE_URL}}/documents/delete_relation
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "source_entity": "{{$dotenv LIGHTRAG_SOURCE_ENTITY}}",
+  "target_entity": "{{$dotenv LIGHTRAG_TARGET_ENTITY}}"
+}
+
+### Clear All Documents
+# 用途：清空当前工作区全部文档。
+DELETE {{BASE_URL}}/documents
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json

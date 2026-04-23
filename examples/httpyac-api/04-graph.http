@@ -1,0 +1,279 @@
+@BASE_URL = {{$dotenv LIGHTRAG_BASE_URL}}
+@API_KEY = {{$dotenv LIGHTRAG_API_KEY}}
+@WORKSPACE = {{$dotenv LIGHTRAG_WORKSPACE}}
+@LABEL = {{$dotenv LIGHTRAG_GRAPH_LABEL}}
+@ENTITY_NAME = {{$dotenv LIGHTRAG_ENTITY_NAME}}
+@SOURCE_ENTITY = {{$dotenv LIGHTRAG_SOURCE_ENTITY}}
+@TARGET_ENTITY = {{$dotenv LIGHTRAG_TARGET_ENTITY}}
+
+### Graph Labels
+# 用途：列出可用图谱标签。
+GET {{BASE_URL}}/graph/label/list
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Graph Entity Types
+# 用途：列出图中实体类型。
+GET {{BASE_URL}}/graph/entity-type/list
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Graph Popular Labels
+# 用途：查询热门图谱标签。
+GET {{BASE_URL}}/graph/label/popular?limit=20
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Graph Search Labels
+# 用途：按关键字搜索图谱标签。
+GET {{BASE_URL}}/graph/label/search?q=tes&limit=10
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Legacy Graphs Endpoint
+# 用途：按旧接口方式读取图谱视图。
+GET {{BASE_URL}}/graphs?label={{LABEL}}&max_depth=2&max_nodes=200
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Graph Query
+# 用途：按范围和过滤条件查询图谱工作台数据。
+POST {{BASE_URL}}/graph/query
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "scope": {
+    "label": "{{LABEL}}",
+    "max_depth": 2,
+    "max_nodes": 200,
+    "only_matched_neighborhood": false
+  },
+  "node_filters": {
+    "entity_types": [
+      "ORGANIZATION"
+    ],
+    "name_query": "tes",
+    "isolated_only": false
+  },
+  "edge_filters": {
+    "relation_types": [
+      "related"
+    ],
+    "keyword_query": ""
+  },
+  "source_filters": {
+    "source_id_query": ""
+  },
+  "view_options": {
+    "highlight_matches": true
+  }
+}
+
+### Graph Export
+# 用途：导出当前图谱数据文件。
+POST {{BASE_URL}}/graph/export
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+
+{
+  "file_format": "csv",
+  "include_vector_data": false
+}
+
+### Graph Merge Suggestions
+# 用途：生成可合并实体建议。
+POST {{BASE_URL}}/graph/merge/suggestions
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "scope": {
+    "label": "{{LABEL}}",
+    "max_depth": 2,
+    "max_nodes": 100
+  },
+  "limit": 10,
+  "min_score": 0.5,
+  "use_llm": false
+}
+
+### Graph Entity Exists
+# 用途：检查指定实体是否存在。
+GET {{BASE_URL}}/graph/entity/exists?name={{ENTITY_NAME}}
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Graph Entity Detail
+# 用途：查询实体详情。
+GET {{BASE_URL}}/graph/entity/detail?entity_name={{ENTITY_NAME}}&include_vector_data=false
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Graph Relation Detail
+# 用途：查询两实体间关系详情。
+GET {{BASE_URL}}/graph/relation/detail?source_entity={{SOURCE_ENTITY}}&target_entity={{TARGET_ENTITY}}&include_vector_data=false
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Graph Create Entity
+# 用途：创建一个新实体。
+POST {{BASE_URL}}/graph/entity/create
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "entity_name": "Tesla",
+  "entity_data": {
+    "description": "Electric vehicle manufacturer",
+    "entity_type": "ORGANIZATION"
+  }
+}
+
+### Graph Update Entity
+# 用途：更新已有实体属性。
+POST {{BASE_URL}}/graph/entity/edit
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "entity_name": "Tesla",
+  "updated_data": {
+    "description": "Electric vehicle and energy company"
+  },
+  "allow_rename": false,
+  "allow_merge": false
+}
+
+### Graph Create Relation
+# 用途：创建两个实体之间的新关系。
+POST {{BASE_URL}}/graph/relation/create
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "source_entity": "Elon Musk",
+  "target_entity": "Tesla",
+  "relation_data": {
+    "description": "Elon Musk is associated with Tesla",
+    "keywords": "CEO, founder",
+    "weight": 1.0
+  }
+}
+
+### Graph Update Relation
+# 用途：更新已有关系属性。
+POST {{BASE_URL}}/graph/relation/edit
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "source_id": "Elon Musk",
+  "target_id": "Tesla",
+  "updated_data": {
+    "description": "Updated relation from httpyac"
+  }
+}
+
+### Graph Merge Entities
+# 用途：将多个重复实体合并到目标实体。
+POST {{BASE_URL}}/graph/entities/merge
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "entities_to_change": [
+    "Elon Msk",
+    "Ellon Musk"
+  ],
+  "entity_to_change_into": "Elon Musk"
+}
+
+### Graph Import Custom KG
+# 用途：直接导入结构化知识图谱数据。
+POST {{BASE_URL}}/graph/import/custom-kg
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "full_doc_id": "httpyac-full-doc",
+  "custom_kg": {
+    "chunks": [
+      {
+        "content": "Elon Musk leads Tesla.",
+        "source_id": "chunk-1"
+      }
+    ],
+    "entities": [
+      {
+        "entity_name": "Elon Musk",
+        "entity_type": "PERSON",
+        "description": "Business leader"
+      },
+      {
+        "entity_name": "Tesla",
+        "entity_type": "ORGANIZATION",
+        "description": "Electric vehicle company"
+      }
+    ],
+    "relationships": [
+      {
+        "source_entity": "Elon Musk",
+        "target_entity": "Tesla",
+        "description": "Leads Tesla",
+        "keywords": "CEO",
+        "weight": 1.0
+      }
+    ]
+  }
+}
+
+### Graph Delete Entity
+# 用途：删除指定实体。
+DELETE {{BASE_URL}}/graph/entity
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "entity_name": "{{ENTITY_NAME}}"
+}
+
+### Graph Delete Relation
+# 用途：删除指定关系。
+DELETE {{BASE_URL}}/graph/relation
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "source_entity": "{{SOURCE_ENTITY}}",
+  "target_entity": "{{TARGET_ENTITY}}"
+}

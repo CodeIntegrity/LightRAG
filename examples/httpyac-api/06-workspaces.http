@@ -1,0 +1,68 @@
+@BASE_URL = {{$dotenv LIGHTRAG_BASE_URL}}
+@API_KEY = {{$dotenv LIGHTRAG_API_KEY}}
+@WORKSPACE = {{$dotenv LIGHTRAG_WORKSPACE}}
+@WORKSPACE_TO_DELETE = {{$dotenv LIGHTRAG_WORKSPACE_TO_DELETE}}
+
+### List Workspaces
+# 用途：列出当前可见工作区。
+GET {{BASE_URL}}/workspaces?include_deleted=false
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Create Workspace
+# 用途：创建一个新工作区。
+POST {{BASE_URL}}/workspaces
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "workspace": "httpyac-demo",
+  "display_name": "httpyac demo",
+  "description": "workspace created from httpyac example",
+  "visibility": "public"
+}
+
+### Get Workspace
+# 用途：读取单个工作区详情。
+GET {{BASE_URL}}/workspaces/httpyac-demo
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Workspace Stats
+# 用途：查看工作区统计信息。
+GET {{BASE_URL}}/workspaces/httpyac-demo/stats
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Soft Delete Workspace
+# 用途：将工作区标记为软删除。
+POST {{BASE_URL}}/workspaces/{{WORKSPACE_TO_DELETE}}/soft-delete
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Restore Workspace
+# 用途：恢复已软删除的工作区。
+POST {{BASE_URL}}/workspaces/{{WORKSPACE_TO_DELETE}}/restore
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Hard Delete Workspace
+# 用途：彻底删除工作区及其后台任务。
+POST {{BASE_URL}}/workspaces/{{WORKSPACE_TO_DELETE}}/hard-delete
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Workspace Operation
+# 用途：查看工作区删除操作状态。
+GET {{BASE_URL}}/workspaces/{{WORKSPACE_TO_DELETE}}/operation
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
