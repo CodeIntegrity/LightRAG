@@ -26,7 +26,12 @@ def _build_token(username: str, role: str) -> str:
 
 @pytest.fixture
 def workspace_app_factory(monkeypatch, tmp_path: Path):
-    def _build(*, allow_guest_create: bool = False, default_workspace: str = ""):
+    def _build(
+        *,
+        allow_guest_create: bool = False,
+        default_workspace: str = "",
+        workspace_initializer=None,
+    ):
         monkeypatch.setattr(sys, "argv", [sys.argv[0]])
         import lightrag.api.routers.workspace_routes as workspace_routes
         from lightrag.api.workspace_registry import WorkspaceRegistryStore
@@ -43,6 +48,7 @@ def workspace_app_factory(monkeypatch, tmp_path: Path):
                 created_by="alice",
                 visibility="private",
             )
+            await store.complete_workspace_creation("private_ws")
             await store.create_workspace(
                 workspace="public_ws",
                 display_name="Public",
@@ -50,6 +56,7 @@ def workspace_app_factory(monkeypatch, tmp_path: Path):
                 created_by="alice",
                 visibility="public",
             )
+            await store.complete_workspace_creation("public_ws")
 
         asyncio.run(_init())
         monkeypatch.setattr(
@@ -61,7 +68,8 @@ def workspace_app_factory(monkeypatch, tmp_path: Path):
             workspace_routes.create_workspace_routes(
                 registry_store=store,
                 delete_scheduler=scheduler,
-                stats_provider=lambda workspace: {
+                workspace_initializer=workspace_initializer,
+                stats_provider=lambda workspace, include_runtime=False: {
                     "document_count": 2,
                     "entity_count": None,
                     "relation_count": None,
@@ -125,6 +133,7 @@ def test_create_workspace_as_user_sets_creator_and_owner(workspace_app):
 
     stored = asyncio.run(store.get_workspace("books"))
     assert stored["visibility"] == "private"
+    assert stored["status"] == "ready"
 
 
 def test_create_workspace_as_guest_returns_403_when_disabled(workspace_app_factory):
@@ -291,3 +300,76 @@ def test_workspace_stats_include_capabilities(workspace_app):
     assert body["prompt_version_count"] == 4
     assert body["capabilities"]["document_count"] == "available"
     assert body["capabilities"]["storage_size_bytes"] == "unsupported_by_backend"
+
+
+def test_create_workspace_failure_marks_workspace_as_create_failed(workspace_app_factory):
+    async def _failing_initializer(_: str) -> None:
+        raise RuntimeError("seed init failed")
+
+    client, store, _ = workspace_app_factory(workspace_initializer=_failing_initializer)
+
+    response = client.post(
+        "/workspaces",
+        json={
+            "workspace": "broken_ws",
+            "display_name": "Broken",
+            "description": "broken workspace",
+            "visibility": "private",
+        },
+        headers={"Authorization": f"Bearer {_build_token('alice', 'user')}"},
+    )
+
+    assert response.status_code == 500
+    assert "Workspace initialization failed" in response.json()["detail"]
+
+    stored = asyncio.run(store.get_workspace("broken_ws"))
+    assert stored["status"] == "create_failed"
+    assert stored["delete_error"] == "seed init failed"
+
+    operation = asyncio.run(store.get_workspace_operation("broken_ws"))
+    assert operation["kind"] == "create"
+    assert operation["state"] == "failed"
+    assert operation["error"] == "seed init failed"
+
+    listed = client.get("/workspaces").json()["workspaces"]
+    assert all(item["workspace"] != "broken_ws" for item in listed)
+
+    listed_with_deleted = client.get(
+        "/workspaces?include_deleted=true",
+        headers={"Authorization": f"Bearer {_build_token('alice', 'user')}"},
+    ).json()["workspaces"]
+    assert any(
+        item["workspace"] == "broken_ws" and item["status"] == "create_failed"
+        for item in listed_with_deleted
+    )
+
+
+def test_create_workspace_retry_reuses_failed_record(workspace_app_factory):
+    attempts = {"count": 0}
+
+    async def _flaky_initializer(_: str) -> None:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise RuntimeError("seed init failed")
+
+    client, store, _ = workspace_app_factory(workspace_initializer=_flaky_initializer)
+    payload = {
+        "workspace": "retry_ws",
+        "display_name": "Retry",
+        "description": "retry workspace",
+        "visibility": "private",
+    }
+    headers = {"Authorization": f"Bearer {_build_token('alice', 'user')}"}
+
+    first = client.post("/workspaces", json=payload, headers=headers)
+    assert first.status_code == 500
+
+    second = client.post("/workspaces", json=payload, headers=headers)
+    assert second.status_code == 201
+    assert second.json()["status"] == "ready"
+
+    stored = asyncio.run(store.get_workspace("retry_ws"))
+    assert stored["status"] == "ready"
+
+    operation = asyncio.run(store.get_workspace_operation("retry_ws"))
+    assert operation["state"] == "idle"

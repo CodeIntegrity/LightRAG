@@ -185,7 +185,7 @@ afterEach(async () => {
 })
 
 describe('WorkspaceManagerDialog', () => {
-  test('getWorkspacesNeedingStats returns ready workspaces missing cached stats', async () => {
+  test('getWorkspacesNeedingStats only auto-loads the active ready workspace', async () => {
     const module = await import('./WorkspaceManagerDialog')
 
     expect(
@@ -195,6 +195,7 @@ describe('WorkspaceManagerDialog', () => {
           { workspace: 'trash', status: 'hard_deleting' },
           { workspace: 'notes', status: 'ready' }
         ] as any,
+        'notes',
         {
           books: {
             document_count: 1,
@@ -815,6 +816,7 @@ describe('WorkspaceManagerDialog', () => {
           }
         }
       }, noop]) as never)
+      .mockImplementationOnce((() => [{}, noop]) as never)
       .mockImplementationOnce((() => [{
         trash: {
           workspace: 'trash',

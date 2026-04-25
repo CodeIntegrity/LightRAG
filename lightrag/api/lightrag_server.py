@@ -374,10 +374,18 @@ def create_app(args):
         busy_timeout_ms=args.workspace_registry_busy_timeout_ms,
     )
 
+    def resolve_prompt_seed_locale(summary_language: str | None) -> str:
+        normalized = (summary_language or "").strip().lower()
+        if normalized in {"english", "en"}:
+            return "en"
+        if normalized in {"chinese", "中文", "zh"}:
+            return "zh"
+        return "en"
+
     async def initialize_workspace_assets(workspace: str) -> None:
         DocumentManager(args.input_dir, workspace=workspace)
         PromptVersionStore(args.working_dir, workspace=workspace).initialize(
-            locale="zh"
+            locale=resolve_prompt_seed_locale(args.summary_language)
         )
 
     async def build_runtime_bundle(
@@ -528,7 +536,9 @@ def create_app(args):
             if delete_bundle is not None:
                 await close_runtime_bundle(delete_bundle)
 
-    async def get_workspace_stats(workspace: str) -> dict[str, object]:
+    async def get_workspace_stats(
+        workspace: str, include_runtime: bool = False
+    ) -> dict[str, object]:
         prompt_store = PromptVersionStore(args.working_dir, workspace=workspace)
         prompt_version_count = 0
         for group_type in ("indexing", "retrieval"):
@@ -540,14 +550,34 @@ def create_app(args):
                 pass
 
         document_count: int | None = None
-        document_capability = "unsupported_by_backend"
+        document_capability = "not_loaded"
         chunk_count: int | None = None
-        chunk_capability = "unsupported_by_backend"
+        chunk_capability = "not_loaded"
+
+        if not include_runtime:
+            return {
+                "document_count": document_count,
+                "entity_count": None,
+                "relation_count": None,
+                "chunk_count": chunk_count,
+                "storage_size_bytes": None,
+                "prompt_version_count": prompt_version_count,
+                "capabilities": {
+                    "document_count": document_capability,
+                    "entity_count": "unsupported_by_backend",
+                    "relation_count": "unsupported_by_backend",
+                    "chunk_count": chunk_capability,
+                    "storage_size_bytes": "unsupported_by_backend",
+                    "prompt_version_count": "available",
+                },
+            }
 
         try:
             bundle = await runtime_manager.acquire_runtime(workspace)
         except WorkspaceStateError:
             bundle = None
+            document_capability = "temporarily_unavailable"
+            chunk_capability = "temporarily_unavailable"
 
         if bundle is not None:
             try:
@@ -555,7 +585,10 @@ def create_app(args):
                 status_counts = await bundle.rag.doc_status.get_all_status_counts()
                 document_count = int(status_counts.get("all", 0))
                 document_capability = "available"
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    f"Workspace stats document count failed: workspace={workspace} error={exc}"
+                )
                 document_count = None
                 document_capability = "unsupported_by_backend"
             try:
@@ -571,7 +604,10 @@ def create_app(args):
                         total_chunks += int(chunks_count)
                 chunk_count = total_chunks
                 chunk_capability = "available"
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    f"Workspace stats chunk count failed: workspace={workspace} error={exc}"
+                )
                 chunk_count = None
                 chunk_capability = "unsupported_by_backend"
             finally:
@@ -579,11 +615,17 @@ def create_app(args):
 
         return {
             "document_count": document_count,
+            "entity_count": None,
+            "relation_count": None,
             "chunk_count": chunk_count,
+            "storage_size_bytes": None,
             "prompt_version_count": prompt_version_count,
             "capabilities": {
                 "document_count": document_capability,
+                "entity_count": "unsupported_by_backend",
+                "relation_count": "unsupported_by_backend",
                 "chunk_count": chunk_capability,
+                "storage_size_bytes": "unsupported_by_backend",
                 "prompt_version_count": "available",
             },
         }

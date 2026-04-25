@@ -39,6 +39,10 @@ class WorkspaceValidationError(WorkspaceRegistryError):
     """Raised when a workspace identifier is invalid."""
 
 
+class WorkspaceInitializationError(WorkspaceRegistryError):
+    """Raised when workspace initialization fails."""
+
+
 def normalize_workspace_identifier(workspace: str, *, allow_empty: bool = False) -> str:
     normalized = str(workspace).strip()
     if not normalized:
@@ -173,6 +177,7 @@ class WorkspaceRegistryStore:
 
             self._ensure_single_default_workspace_sync(conn, default_workspace)
             self._purge_hard_deleted_sync(conn)
+            self._recover_stuck_creates_sync(conn)
             self._recover_stuck_hard_deletes_sync(conn)
 
     def _ensure_single_default_workspace_sync(
@@ -238,6 +243,41 @@ class WorkspaceRegistryStore:
         conn.execute(
             f"DELETE FROM workspaces WHERE workspace IN ({placeholders})",
             workspaces,
+        )
+        conn.commit()
+
+    def _recover_stuck_creates_sync(self, conn: sqlite3.Connection) -> None:
+        stuck = conn.execute(
+            "SELECT workspace FROM workspaces WHERE status = 'creating'"
+        ).fetchall()
+        if not stuck:
+            return
+
+        workspaces = [row["workspace"] for row in stuck]
+        placeholders = ", ".join("?" for _ in workspaces)
+        now = _utc_now()
+        error_msg = "SERVER_RESTART_DURING_CREATE"
+
+        conn.execute(
+            f"""
+            UPDATE workspaces
+            SET status = 'create_failed',
+                updated_at = ?,
+                delete_error = ?
+            WHERE workspace IN ({placeholders})
+            """,
+            [now, error_msg] + workspaces,
+        )
+        conn.execute(
+            f"""
+            UPDATE workspace_operations
+            SET kind = 'create',
+                state = 'failed',
+                finished_at = ?,
+                error = ?
+            WHERE workspace IN ({placeholders})
+            """,
+            [now, error_msg] + workspaces,
         )
         conn.commit()
 
@@ -315,6 +355,16 @@ class WorkspaceRegistryStore:
             created_by,
             visibility,
         )
+        return await self.get_workspace(workspace)
+
+    async def complete_workspace_creation(self, workspace: str) -> dict[str, Any]:
+        await asyncio.to_thread(self._complete_workspace_creation_sync, workspace)
+        return await self.get_workspace(workspace)
+
+    async def fail_workspace_creation(
+        self, workspace: str, error: str
+    ) -> dict[str, Any]:
+        await asyncio.to_thread(self._fail_workspace_creation_sync, workspace, error)
         return await self.get_workspace(workspace)
 
     async def soft_delete_workspace(
@@ -429,7 +479,12 @@ class WorkspaceRegistryStore:
                 raise WorkspaceStateTransitionError(
                     f"Workspace '{workspace}' is already hard deleting"
                 )
-            if row["status"] not in {"ready", "delete_failed", "soft_deleted"}:
+            if row["status"] not in {
+                "ready",
+                "delete_failed",
+                "soft_deleted",
+                "create_failed",
+            }:
                 raise WorkspaceStateTransitionError(
                     f"Workspace '{workspace}' cannot start hard delete from status '{row['status']}'"
                 )
@@ -592,56 +647,181 @@ class WorkspaceRegistryStore:
 
         with self._connect() as conn:
             existing = conn.execute(
-                "SELECT workspace FROM workspaces WHERE workspace = ?",
+                """
+                SELECT workspace, status
+                FROM workspaces
+                WHERE workspace = ?
+                """,
                 (workspace,),
             ).fetchone()
-            if existing is not None:
+            if existing is None:
+                conn.execute(
+                    """
+                    INSERT INTO workspaces (
+                        workspace,
+                        display_name,
+                        description,
+                        status,
+                        visibility,
+                        created_by,
+                        owners_json,
+                        is_default,
+                        is_protected,
+                        created_at,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+                    """,
+                    (
+                        workspace,
+                        display_name,
+                        description,
+                        "creating",
+                        visibility,
+                        created_by,
+                        json.dumps(owners),
+                        now,
+                        now,
+                    ),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO workspace_operations (
+                        workspace,
+                        kind,
+                        state,
+                        requested_by,
+                        started_at,
+                        finished_at,
+                        error,
+                        progress_json
+                    ) VALUES (?, 'create', 'running', ?, ?, NULL, NULL, '{}')
+                    """,
+                    (workspace, created_by, now),
+                )
+                conn.commit()
+                return
+
+            if existing["status"] != "create_failed":
                 raise WorkspaceAlreadyExistsError(
                     f"Workspace '{workspace}' already exists"
                 )
 
             conn.execute(
                 """
-                INSERT INTO workspaces (
-                    workspace,
-                    display_name,
-                    description,
-                    status,
-                    visibility,
-                    created_by,
-                    owners_json,
-                    is_default,
-                    is_protected,
-                    created_at,
-                    updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+                UPDATE workspaces
+                SET display_name = ?,
+                    description = ?,
+                    status = 'creating',
+                    visibility = ?,
+                    created_by = ?,
+                    owners_json = ?,
+                    updated_at = ?,
+                    deleted_at = NULL,
+                    deleted_by = NULL,
+                    delete_error = NULL
+                WHERE workspace = ?
                 """,
                 (
-                    workspace,
                     display_name,
                     description,
-                    "ready",
                     visibility,
                     created_by,
                     json.dumps(owners),
                     now,
-                    now,
+                    workspace,
                 ),
             )
             conn.execute(
                 """
-                INSERT INTO workspace_operations (
-                    workspace,
-                    kind,
-                    state,
-                    requested_by,
-                    started_at,
-                    finished_at,
-                    error,
-                    progress_json
-                ) VALUES (?, NULL, 'idle', NULL, NULL, NULL, NULL, '{}')
+                UPDATE workspace_operations
+                SET kind = 'create',
+                    state = 'running',
+                    requested_by = ?,
+                    started_at = ?,
+                    finished_at = NULL,
+                    error = NULL,
+                    progress_json = '{}'
+                WHERE workspace = ?
                 """,
+                (created_by, now, workspace),
+            )
+            conn.commit()
+
+    def _complete_workspace_creation_sync(self, workspace: str) -> None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT workspace, status FROM workspaces WHERE workspace = ?",
                 (workspace,),
+            ).fetchone()
+            if row is None:
+                raise WorkspaceNotFoundError(f"Workspace '{workspace}' not found")
+            if row["status"] != "creating":
+                raise WorkspaceStateTransitionError(
+                    f"Workspace '{workspace}' is not in creating state"
+                )
+
+            now = _utc_now()
+            conn.execute(
+                """
+                UPDATE workspaces
+                SET status = 'ready',
+                    updated_at = ?,
+                    delete_error = NULL
+                WHERE workspace = ?
+                """,
+                (now, workspace),
+            )
+            conn.execute(
+                """
+                UPDATE workspace_operations
+                SET kind = NULL,
+                    state = 'idle',
+                    requested_by = NULL,
+                    started_at = NULL,
+                    finished_at = ?,
+                    error = NULL,
+                    progress_json = '{}'
+                WHERE workspace = ?
+                """,
+                (now, workspace),
+            )
+            conn.commit()
+
+    def _fail_workspace_creation_sync(self, workspace: str, error: str) -> None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT workspace, status FROM workspaces WHERE workspace = ?",
+                (workspace,),
+            ).fetchone()
+            if row is None:
+                raise WorkspaceNotFoundError(f"Workspace '{workspace}' not found")
+            if row["status"] != "creating":
+                raise WorkspaceStateTransitionError(
+                    f"Workspace '{workspace}' is not in creating state"
+                )
+
+            now = _utc_now()
+            conn.execute(
+                """
+                UPDATE workspaces
+                SET status = 'create_failed',
+                    updated_at = ?,
+                    delete_error = ?
+                WHERE workspace = ?
+                """,
+                (now, error, workspace),
+            )
+            conn.execute(
+                """
+                UPDATE workspace_operations
+                SET kind = 'create',
+                    state = 'failed',
+                    finished_at = ?,
+                    error = ?,
+                    progress_json = '{}'
+                WHERE workspace = ?
+                """,
+                (now, error, workspace),
             )
             conn.commit()
 

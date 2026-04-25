@@ -440,10 +440,13 @@ Important semantics:
 - Unknown workspaces are rejected by default instead of being created from request traffic.
 - Guest/login-free workspace creation is opt-in and controlled by `ALLOW_GUEST_WORKSPACE_CREATE=true`.
 - `POST /workspaces` accepts `guest` sessions only when `ALLOW_GUEST_WORKSPACE_CREATE=true`; guest-created records are stored as `created_by='guest'` and `owners=['guest']`.
+- `POST /workspaces` is now two-phase: the registry record is created as `creating`, and the workspace is promoted to `ready` only after prompt/document assets initialize successfully.
+- If initialization fails, the workspace is kept as `create_failed`; clients can inspect `/workspaces/{workspace}/operation` for the last error and retry the same `POST /workspaces` request to resume initialization.
 - The guest-create toggle affects only workspace creation and does not widen dangerous admin-only operations such as `hard-delete`.
 - `soft-delete` hides a workspace from the normal selector but keeps the underlying data.
 - `hard-delete` is asynchronous and returns `202 Accepted`; clients should poll `/workspaces/{workspace}/operation` for progress.
-- `GET /workspaces/{workspace}/stats` is best-effort and includes a `capabilities` object explaining why some fields may be `null`.
+- New workspace prompt seeds follow the instance summary language by default (`English -> en`, `Chinese/中文 -> zh`). Manual `POST /prompt-config/initialize?locale=...` remains the explicit override path.
+- `GET /workspaces/{workspace}/stats` is best-effort and includes a `capabilities` object explaining why some fields may be `null`. By default it returns lightweight metadata only; pass `include_runtime=true` when the caller explicitly wants runtime-backed counts such as `document_count` and `chunk_count`.
 
 ### Workspace Migration CLI
 

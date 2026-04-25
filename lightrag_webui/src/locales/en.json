@@ -899,6 +899,8 @@
     "refresh": "Refresh",
     "create": "Create Workspace",
     "createSuccess": "Workspace created",
+    "loadStats": "Load stats",
+    "statsLoadFailed": "Failed to load stats for {{workspace}}",
     "readyDescription": "Switch between active workspaces and review each workspace summary at a glance.",
     "deletedDescription": "Track deleted workspaces, restores, and any hard-delete jobs that are still running.",
     "workspacePlaceholder": "workspace_name",
@@ -946,6 +948,14 @@
       "failed": "Failed",
       "completed": "Completed"
     },
+    "workspaceStatus": {
+      "creating": "Creating",
+      "create_failed": "Create failed",
+      "soft_deleted": "Soft deleted",
+      "hard_deleting": "Hard deleting",
+      "delete_failed": "Delete failed",
+      "ready": "Ready"
+    },
     "capabilityLabels": {
       "document_count": "Document count",
       "entity_count": "Entity count",
@@ -956,7 +966,9 @@
     },
     "capabilityStatus": {
       "available": "Available",
-      "unsupported_by_backend": "Unsupported by backend"
+      "unsupported_by_backend": "Unsupported by backend",
+      "not_loaded": "Not loaded",
+      "temporarily_unavailable": "Temporarily unavailable"
     }
   },
   "pagination": {

@@ -45,10 +45,11 @@ const operationStatusVariantMap: Record<string, 'default' | 'secondary' | 'destr
 
 export const getWorkspacesNeedingStats = (
   workspaces: WorkspaceRecord[],
+  currentWorkspace: string,
   workspaceStats: Record<string, WorkspaceStatsResponse>
 ): string[] =>
   workspaces
-    .filter((item) => item.status === 'ready')
+    .filter((item) => item.status === 'ready' && item.workspace === currentWorkspace)
     .map((item) => item.workspace)
     .filter((workspaceName) => workspaceStats[workspaceName] === undefined)
 
@@ -101,6 +102,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
   const [description, setDescription] = useState('')
   const [visibility, setVisibility] = useState<WorkspaceVisibility>('private')
   const [workspaceStats, setWorkspaceStats] = useState<Record<string, WorkspaceStatsResponse>>({})
+  const [workspaceStatsLoading, setWorkspaceStatsLoading] = useState<Record<string, boolean>>({})
   const [workspaceOperations, setWorkspaceOperations] = useState<Record<string, WorkspaceOperationResponse>>({})
 
   const role = useMemo(() => getJwtRole(localStorage.getItem('LIGHTRAG-API-TOKEN')), [open])
@@ -108,6 +110,8 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
   const isGuestMode = role === 'guest' || role === null
   const translateOperationStatus = (status: string) =>
     t(`workspaceManager.operationStatus.${status}`, { defaultValue: status })
+  const translateWorkspaceStatus = (status: string) =>
+    t(`workspaceManager.workspaceStatus.${status}`, { defaultValue: status })
 
   const refresh = async () => {
     setIsLoading(true)
@@ -132,39 +136,66 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
     }
   }, [open])
 
+  const loadStats = async (workspaceName: string, includeRuntime: boolean = false) => {
+    setWorkspaceStatsLoading((current) => ({
+      ...current,
+      [workspaceName]: true
+    }))
+    try {
+      const stats = await getWorkspaceStats(workspaceName, { include_runtime: includeRuntime })
+      setWorkspaceStats((current) => ({
+        ...current,
+        [workspaceName]: stats
+      }))
+    } catch {
+      toast.error(
+        t('workspaceManager.statsLoadFailed', {
+          workspace: workspaceName,
+          defaultValue: `Failed to load stats for ${workspaceName}`
+        })
+      )
+    } finally {
+      setWorkspaceStatsLoading((current) => ({
+        ...current,
+        [workspaceName]: false
+      }))
+    }
+  }
+
+  const loadStatsBatch = async (workspaceNames: string[], includeRuntime: boolean = false) => {
+    const queue = workspaceNames.filter(
+      (workspaceName, index, all) =>
+        all.indexOf(workspaceName) === index && !workspaceStatsLoading[workspaceName]
+    )
+    if (queue.length === 0) {
+      return
+    }
+
+    const concurrency = Math.min(2, queue.length)
+    const workers = Array.from({ length: concurrency }, async () => {
+      while (queue.length > 0) {
+        const workspaceName = queue.shift()
+        if (!workspaceName) {
+          return
+        }
+        await loadStats(workspaceName, includeRuntime)
+      }
+    })
+
+    await Promise.all(workers)
+  }
+
   useEffect(() => {
     if (!open) {
       return
     }
 
-    const targets = getWorkspacesNeedingStats(workspaces, workspaceStats)
+    const targets = getWorkspacesNeedingStats(workspaces, currentWorkspace, workspaceStats)
     if (targets.length === 0) {
       return
     }
 
-    let cancelled = false
-
-    const loadStats = async (workspaceName: string) => {
-      try {
-        const stats = await getWorkspaceStats(workspaceName)
-        if (!cancelled) {
-          setWorkspaceStats((current) => ({
-            ...current,
-            [workspaceName]: stats
-          }))
-        }
-      } catch {
-        // best-effort only
-      }
-    }
-
-    targets.forEach((workspaceName) => {
-      void loadStats(workspaceName)
-    })
-
-    return () => {
-      cancelled = true
-    }
+    void loadStatsBatch(targets, true)
   }, [open, workspaces, workspaceStats, currentWorkspace])
 
   useEffect(() => {
@@ -251,6 +282,9 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
         message.includes('Workspace creation is not allowed for this session')
       ) {
         void useBackendState.getState().check()
+      }
+      if (message.includes('Workspace initialization failed')) {
+        await refresh()
       }
       toast.error(message)
     }
@@ -518,7 +552,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
                               {record.description && (
                                 <div className="text-muted-foreground text-sm">{record.description}</div>
                               )}
-                              {workspaceStats[record.workspace] && (
+                              {workspaceStats[record.workspace] ? (
                                 <div className="space-y-3 text-xs">
                                   <div className="grid gap-2 sm:grid-cols-2">
                                     <div className="bg-muted/40 rounded-md border px-3 py-2">
@@ -538,6 +572,19 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
                                       </div>
                                     </div>
                                   </div>
+                                </div>
+                              ) : (
+                                <div className="flex flex-wrap items-center gap-2 text-xs">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={workspaceStatsLoading[record.workspace]}
+                                    onClick={() => void loadStats(record.workspace, true)}
+                                  >
+                                    {workspaceStatsLoading[record.workspace]
+                                      ? t('workspaceManager.loading', 'Loading...')
+                                      : t('workspaceManager.loadStats', 'Load stats')}
+                                  </Button>
                                 </div>
                               )}
                             </div>
@@ -599,7 +646,8 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
                         <div className="min-w-0 space-y-2">
                           <div className="font-semibold">{record.display_name || record.workspace}</div>
                           <div className="text-muted-foreground font-mono text-xs">
-                            {(record.workspace || t('workspaceManager.defaultWorkspace', 'default'))} · {record.status}
+                            {(record.workspace || t('workspaceManager.defaultWorkspace', 'default'))} ·{' '}
+                            {translateWorkspaceStatus(record.status)}
                           </div>
                           {record.description && (
                             <div className="text-muted-foreground text-sm">{record.description}</div>

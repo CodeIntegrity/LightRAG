@@ -897,6 +897,8 @@
     "refresh": "刷新",
     "create": "创建工作区",
     "createSuccess": "工作区已创建",
+    "loadStats": "加载统计",
+    "statsLoadFailed": "加载 {{workspace}} 统计失败",
     "readyDescription": "快速查看工作区概览，并在不同工作区之间切换。",
     "deletedDescription": "跟踪已删除工作区、恢复操作，以及仍在运行的硬删除任务。",
     "workspacePlaceholder": "workspace_name",
@@ -944,6 +946,14 @@
       "failed": "失败",
       "completed": "已完成"
     },
+    "workspaceStatus": {
+      "creating": "创建中",
+      "create_failed": "创建失败",
+      "soft_deleted": "已软删除",
+      "hard_deleting": "硬删除中",
+      "delete_failed": "删除失败",
+      "ready": "可用"
+    },
     "capabilityLabels": {
       "document_count": "文档数量",
       "entity_count": "实体数量",
@@ -954,7 +964,9 @@
     },
     "capabilityStatus": {
       "available": "可用",
-      "unsupported_by_backend": "当前后端不支持"
+      "unsupported_by_backend": "当前后端不支持",
+      "not_loaded": "未加载",
+      "temporarily_unavailable": "暂时不可用"
     }
   },
   "pagination": {
