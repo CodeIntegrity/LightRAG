@@ -103,6 +103,16 @@ describe('FilterWorkbench', () => {
     expect(html).not.toContain('Apply')
   })
 
+  test('默认仅展开 scope，其余高级筛选默认折叠', async () => {
+    const { FilterWorkbench } = await loadFilterWorkbenchModule()
+    const html = renderToString(<FilterWorkbench />)
+
+    expect(html).toContain('Start Label')
+    expect(html).toContain('Max Depth')
+    expect(html).not.toContain('Entity Types')
+    expect(html).not.toContain('Relation Types')
+  })
+
   test('成对字段在桌面侧栏宽度下不会固定双列挤压', async () => {
     const { FilterWorkbench } = await loadFilterWorkbenchModule()
     const html = renderToString(<FilterWorkbench />)
@@ -112,15 +122,10 @@ describe('FilterWorkbench', () => {
     expect(html).not.toContain('grid grid-cols-2 gap-2')
   })
 
-  test('实体类型和起始标签字段使用可搜索下拉', async () => {
+  test('起始标签字段使用可搜索下拉', async () => {
     const { FilterWorkbench } = await loadFilterWorkbenchModule()
     const html = renderToString(<FilterWorkbench />)
-    const comboboxCount = html.match(/role="combobox"/g)?.length ?? 0
 
-    expect(comboboxCount).toBeGreaterThanOrEqual(4)
-    expect(html).toContain('aria-label="Entity Types"')
-    expect(html).toContain('aria-label="Source Entity Types"')
-    expect(html).toContain('aria-label="Target Entity Types"')
     expect(html).toContain('aria-label="Start Label"')
   })
 
@@ -273,6 +278,9 @@ describe('FilterWorkbench', () => {
       'graphPanel.workbench.filter.messages.noEntityTypeResults',
       'graphPanel.workbench.filter.messages.noLabelResults',
       'graphPanel.workbench.actionInspector.title',
+      'graphPanel.workbench.actionInspector.inspectHint',
+      'graphPanel.workbench.actionInspector.actions.collapse',
+      'graphPanel.workbench.actionInspector.actions.expand',
       'graphPanel.workbench.actionInspector.tabs.merge',
       'graphPanel.workbench.merge.manual.title',
       'graphPanel.workbench.merge.suggestions.title'

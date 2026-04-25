@@ -94,4 +94,17 @@ describe('graphWorkbench store', () => {
 
     expect(useGraphWorkbenchStore.getState().queryVersion).toBe(before + 1)
   })
+
+  test('默认 inspect 优先，且仅 scope 分组默认展开', () => {
+    const state = useGraphWorkbenchStore.getState()
+
+    expect(state.activeActionMode).toBe('inspect')
+    expect(state.filterSections).toEqual({
+      scope: true,
+      node: false,
+      edge: false,
+      source: false,
+      view: false
+    })
+  })
 })

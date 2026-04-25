@@ -5,7 +5,7 @@ import {
   searchLabels,
   type GraphWorkbenchQueryRequest
 } from '@/api/lightrag'
-import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import Badge from '@/components/ui/Badge'
 import { useTranslation } from 'react-i18next'
 import Button from '@/components/ui/Button'
@@ -191,10 +191,30 @@ export const resetWorkbenchFilters = () => {
   store.applyFilterDraft()
 }
 
-const Section = ({ title, children }: { title: string; children: ReactNode }) => (
+const Section = ({
+  title,
+  expanded,
+  onToggle,
+  children
+}: {
+  title: string
+  expanded: boolean
+  onToggle: () => void
+  children: ReactNode
+}) => (
   <section className="bg-background/70 rounded-lg border p-3">
-    <h3 className="mb-2 text-sm font-semibold">{title}</h3>
-    <div className="space-y-2">{children}</div>
+    <button
+      type="button"
+      className="flex w-full items-center justify-between gap-2 text-left"
+      onClick={onToggle}
+      aria-expanded={expanded}
+    >
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <ChevronDown
+        className={cn('h-4 w-4 transition-transform', !expanded && '-rotate-90')}
+      />
+    </button>
+    {expanded && <div className="mt-3 space-y-2">{children}</div>}
   </section>
 )
 
@@ -386,7 +406,9 @@ export const FilterWorkbench = ({
   const filterDraft = useGraphWorkbenchStore.use.filterDraft()
   const appliedQuery = useGraphWorkbenchStore.use.appliedQuery()
   const queryVersion = useGraphWorkbenchStore.use.queryVersion()
+  const filterSections = useGraphWorkbenchStore.use.filterSections()
   const setFilterDraft = useGraphWorkbenchStore.use.setFilterDraft()
+  const toggleFilterSection = useGraphWorkbenchStore.use.toggleFilterSection()
   const rawGraph = useGraphStore.use.rawGraph()
   const toggleLabel = t(
     collapsed
@@ -494,7 +516,50 @@ export const FilterWorkbench = ({
 
             <ScrollArea id="graph-filter-workbench-body" className="min-h-0 flex-1 pr-2">
               <div className="space-y-3 pr-1">
-                <Section title={t('graphPanel.workbench.filter.sections.nodeFilters')}>
+                <Section
+                  title={t('graphPanel.workbench.filter.sections.scopeFilters')}
+                  expanded={filterSections.scope}
+                  onToggle={() => toggleFilterSection('scope')}
+                >
+                  <SearchableSelectField
+                    label={t('graphPanel.workbench.filter.fields.startLabel')}
+                    value={filterDraft.scope.label}
+                    placeholder={t('graphPanel.workbench.filter.placeholders.startLabel')}
+                    searchPlaceholder={t(
+                      'graphPanel.workbench.filter.placeholders.searchStartLabel'
+                    )}
+                    noResultsMessage={t('graphPanel.workbench.filter.messages.noLabelResults')}
+                    fetcher={fetchStartLabelOptions}
+                    onChange={(value) => updateStructuredField('scope', 'label', value)}
+                  />
+                  <div className={pairFieldGridClass}>
+                    <TextField
+                      label={t('graphPanel.workbench.filter.fields.maxDepth')}
+                      type="number"
+                      value={filterDraft.scope.max_depth}
+                      onChange={(value) => updateField('scope', 'max_depth', value)}
+                    />
+                    <TextField
+                      label={t('graphPanel.workbench.filter.fields.maxNodes')}
+                      type="number"
+                      value={filterDraft.scope.max_nodes}
+                      onChange={(value) => updateField('scope', 'max_nodes', value)}
+                    />
+                  </div>
+                  <ToggleField
+                    label={t('graphPanel.workbench.filter.fields.onlyMatchedNeighborhood')}
+                    checked={filterDraft.scope.only_matched_neighborhood}
+                    onCheckedChange={(checked) =>
+                      updateField('scope', 'only_matched_neighborhood', checked)
+                    }
+                  />
+                </Section>
+
+                <Section
+                  title={t('graphPanel.workbench.filter.sections.nodeFilters')}
+                  expanded={filterSections.node}
+                  onToggle={() => toggleFilterSection('node')}
+                >
                   <SearchableMultiSelectField
                     label={t('graphPanel.workbench.filter.fields.entityTypes')}
                     selectedValues={filterDraft.node_filters.entity_types}
@@ -553,7 +618,11 @@ export const FilterWorkbench = ({
                   />
                 </Section>
 
-                <Section title={t('graphPanel.workbench.filter.sections.edgeFilters')}>
+                <Section
+                  title={t('graphPanel.workbench.filter.sections.edgeFilters')}
+                  expanded={filterSections.edge}
+                  onToggle={() => toggleFilterSection('edge')}
+                >
                   <TextField
                     label={t('graphPanel.workbench.filter.fields.relationTypes')}
                     value={filterDraft.edge_filters.relation_types.join(', ')}
@@ -631,42 +700,11 @@ export const FilterWorkbench = ({
                   />
                 </Section>
 
-                <Section title={t('graphPanel.workbench.filter.sections.scopeFilters')}>
-                  <SearchableSelectField
-                    label={t('graphPanel.workbench.filter.fields.startLabel')}
-                    value={filterDraft.scope.label}
-                    placeholder={t('graphPanel.workbench.filter.placeholders.startLabel')}
-                    searchPlaceholder={t(
-                      'graphPanel.workbench.filter.placeholders.searchStartLabel'
-                    )}
-                    noResultsMessage={t('graphPanel.workbench.filter.messages.noLabelResults')}
-                    fetcher={fetchStartLabelOptions}
-                    onChange={(value) => updateStructuredField('scope', 'label', value)}
-                  />
-                  <div className={pairFieldGridClass}>
-                    <TextField
-                      label={t('graphPanel.workbench.filter.fields.maxDepth')}
-                      type="number"
-                      value={filterDraft.scope.max_depth}
-                      onChange={(value) => updateField('scope', 'max_depth', value)}
-                    />
-                    <TextField
-                      label={t('graphPanel.workbench.filter.fields.maxNodes')}
-                      type="number"
-                      value={filterDraft.scope.max_nodes}
-                      onChange={(value) => updateField('scope', 'max_nodes', value)}
-                    />
-                  </div>
-                  <ToggleField
-                    label={t('graphPanel.workbench.filter.fields.onlyMatchedNeighborhood')}
-                    checked={filterDraft.scope.only_matched_neighborhood}
-                    onCheckedChange={(checked) =>
-                      updateField('scope', 'only_matched_neighborhood', checked)
-                    }
-                  />
-                </Section>
-
-                <Section title={t('graphPanel.workbench.filter.sections.sourceFilters')}>
+                <Section
+                  title={t('graphPanel.workbench.filter.sections.sourceFilters')}
+                  expanded={filterSections.source}
+                  onToggle={() => toggleFilterSection('source')}
+                >
                   <TextField
                     label={t('graphPanel.workbench.filter.fields.sourceIdQuery')}
                     value={filterDraft.source_filters.source_id_query}
@@ -694,7 +732,11 @@ export const FilterWorkbench = ({
                   </div>
                 </Section>
 
-                <Section title={t('graphPanel.workbench.filter.sections.viewControls')}>
+                <Section
+                  title={t('graphPanel.workbench.filter.sections.viewControls')}
+                  expanded={filterSections.view}
+                  onToggle={() => toggleFilterSection('view')}
+                >
                   <ToggleField
                     label={t('graphPanel.workbench.filter.fields.showNodesOnly')}
                     checked={filterDraft.view_options.show_nodes_only}

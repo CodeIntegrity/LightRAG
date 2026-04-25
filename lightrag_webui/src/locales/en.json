@@ -325,6 +325,17 @@
   },
   "graphPanel": {
     "dataIsTruncated": "Graph data is truncated to Max Nodes",
+    "loadingGraph": "Loading graph data...",
+    "switchingTheme": "Switching theme...",
+    "overlay": {
+      "loadingTitle": "Preparing graph",
+      "emptyTitle": "No graph data",
+      "emptyDescription": "Adjust the scope or refresh the graph to load results.",
+      "authErrorTitle": "Authentication required",
+      "authErrorDescription": "Sign in again to load graph data.",
+      "errorTitle": "Graph request failed",
+      "errorDescription": "The latest graph request did not complete."
+    },
     "statusDialog": {
       "title": "LightRAG Server Settings",
       "description": "View current system status and connection information"
@@ -586,6 +597,11 @@
         "title": "Action Inspector",
         "description": "Inspect, mutate, and validate graph objects without leaving this workbench.",
         "clearError": "Clear",
+        "inspectHint": "Inspect stays pinned above. Open create, delete, or merge only when needed.",
+        "actions": {
+          "collapse": "Collapse inspector",
+          "expand": "Expand inspector"
+        },
         "tabs": {
           "inspect": "Inspect",
           "create": "Create",
@@ -794,7 +810,13 @@
       "references_one": "1 reference",
       "references_other": "{{count}} references",
       "showSnippet": "Show snippet",
+      "showSnippets": "Show {{count}} snippets",
       "retrievalData": "Retrieval Data",
+      "loadingRetrievalData": "Loading retrieval data...",
+      "retrievalDataError": "Failed to load retrieval data",
+      "retryLoadData": "Retry",
+      "resultCount": "Showing {{shown}} / {{total}}",
+      "loadMore": "Load more",
       "noData": "No {{tab}} data"
     },
     "querySettings": {
@@ -825,6 +847,9 @@
       "maxTotalTokens": "Max Total Tokens",
       "maxTotalTokensTooltip": "Overall token budget for the query context",
       "maxTotalTokensPlaceholder": "Max total tokens",
+      "historyTurns": "History Turns",
+      "historyTurnsTooltip": "Number of recent user/assistant turns to include in the query context",
+      "historyTurnsPlaceholder": "Conversation turns",
       "enableRerank": "Enable Rerank",
       "enableRerankTooltip": "Rerank retrieved chunks for better relevance",
       "onlyNeedContext": "Only Need Context",
@@ -833,6 +858,8 @@
       "onlyNeedPromptTooltip": "Return the constructed prompt without LLM generation",
       "streamResponse": "Stream Response",
       "streamResponseTooltip": "Stream the response in real-time",
+      "includeReferences": "Include References",
+      "includeReferencesTooltip": "Return reference items together with the answer",
       "includeChunkContent": "Include Chunk Content",
       "includeChunkContentTooltip": "Include actual chunk text in references for debugging and evaluation",
       "userPrompt": "User Prompt",

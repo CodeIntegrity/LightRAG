@@ -6,15 +6,28 @@ import Button from '@/components/ui/Button'
 import WorkspaceManagerDialog from '@/components/workspace/WorkspaceManagerDialog'
 import { useSettingsStore } from '@/stores/settings'
 
+export function resolveWorkspaceLabel(
+  currentWorkspace: string,
+  workspaceDisplayNames: Record<string, string>,
+  t: (key: string, fallback?: string) => string
+) {
+  return (
+    workspaceDisplayNames[currentWorkspace] ||
+    currentWorkspace ||
+    t('workspaceManager.defaultWorkspace', 'default')
+  )
+}
+
 export default function WorkspaceSwitcher() {
   const { t } = useTranslation()
   const currentWorkspace = useSettingsStore.use.currentWorkspace()
   const workspaceDisplayNames = useSettingsStore.use.workspaceDisplayNames()
   const [open, setOpen] = useState(false)
-  const currentWorkspaceLabel =
-    workspaceDisplayNames[currentWorkspace] ||
-    currentWorkspace ||
-    t('workspaceManager.defaultWorkspace', 'default')
+  const currentWorkspaceLabel = resolveWorkspaceLabel(
+    currentWorkspace,
+    workspaceDisplayNames,
+    t
+  )
 
   return (
     <>
@@ -27,7 +40,7 @@ export default function WorkspaceSwitcher() {
         <FolderKanbanIcon className="size-4" />
         <span>{currentWorkspaceLabel}</span>
       </Button>
-      <WorkspaceManagerDialog open={open} onOpenChange={setOpen} />
+      {open ? <WorkspaceManagerDialog open={open} onOpenChange={setOpen} /> : null}
     </>
   )
 }

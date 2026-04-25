@@ -178,22 +178,22 @@ const useSettingsStoreBase = create<SettingsState>()(
       setGraphQueryMaxDepth: (depth: number) => set({ graphQueryMaxDepth: depth }),
 
       setGraphMaxNodes: (nodes: number, triggerRefresh: boolean = false) => {
-        const state = useSettingsStore.getState();
+        const state = useSettingsStore.getState()
         if (state.graphMaxNodes === nodes) {
-          return;
+          return
         }
 
         if (triggerRefresh) {
-          const currentLabel = state.queryLabel;
+          const currentLabel = state.queryLabel
           // Atomically update both the node count and the query label to trigger a refresh.
-          set({ graphMaxNodes: nodes, queryLabel: '' });
+          set({ graphMaxNodes: nodes, queryLabel: '' })
 
           // Restore the label after a short delay.
           setTimeout(() => {
-            set({ queryLabel: currentLabel });
-          }, 300);
+            set({ queryLabel: currentLabel })
+          }, 300)
         } else {
-          set({ graphMaxNodes: nodes });
+          set({ graphMaxNodes: nodes })
         }
       },
 
@@ -286,7 +286,7 @@ const useSettingsStoreBase = create<SettingsState>()(
     {
       name: 'settings-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 24,
+      version: 25,
       migrate: (state: any, version: number) => {
         if (version < 2) {
           state.showEdgeLabel = false
@@ -334,7 +334,7 @@ const useSettingsStoreBase = create<SettingsState>()(
         }
         if (version < 10) {
           delete state.graphMinDegree // 删除废弃参数
-          state.graphMaxNodes = 1000  // 添加新参数
+          state.graphMaxNodes = 1000 // 添加新参数
         }
         if (version < 11) {
           state.minEdgeSize = 1
@@ -366,7 +366,7 @@ const useSettingsStoreBase = create<SettingsState>()(
             max_relation_tokens: 10000,
             max_total_tokens: 32000,
             enable_rerank: true,
-            history_turns: 0,
+            history_turns: 0
           }
         }
         if (version < 16) {
@@ -410,6 +410,13 @@ const useSettingsStoreBase = create<SettingsState>()(
         }
         if (version < 24) {
           state.workspaceDisplayNames = {}
+        }
+        if (version < 25) {
+          state.querySettings = {
+            ...state.querySettings,
+            include_references: state.querySettings?.include_references ?? true,
+            include_chunk_content: state.querySettings?.include_chunk_content ?? false
+          }
         }
         return state
       }

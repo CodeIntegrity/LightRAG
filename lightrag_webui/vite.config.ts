@@ -78,14 +78,18 @@ export default defineConfig(({ mode }) => {
               '@sigma/node-border',
             ],
             'vendor-mermaid': ['mermaid'],
-            'vendor-markdown': [
+            'vendor-markdown-core': [
               'react-markdown',
-              'rehype-katex',
               'rehype-raw',
               'rehype-react',
-              'katex',
               'remark-gfm',
-              'remark-math',
+              'remark-math'
+            ],
+            'vendor-katex': [
+              'rehype-katex',
+              'katex'
+            ],
+            'vendor-highlight': [
               'react-syntax-highlighter',
             ],
             'vendor-ui': [

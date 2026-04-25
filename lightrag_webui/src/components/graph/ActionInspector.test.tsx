@@ -101,48 +101,31 @@ describe('ActionInspector', () => {
     useGraphWorkbenchStore.getState().reset()
   })
 
-  test('Inspect / Create / Delete / merge 四个 tab 可切换', async () => {
+  test('默认优先展示 inspect，其他动作按需展开', async () => {
     const { ActionInspector, resolveActionInspectorTab } = await import('./ActionInspector')
 
     const inspectHtml = renderToString(
-      <ActionInspector
-        initialTab="inspect"
-        selection={nodeSelection as any}
-        inspectPane={<div>Inspect Pane</div>}
-      />
+      <ActionInspector initialTab="inspect" selection={nodeSelection as any} />
     )
-    expect(inspectHtml).toContain('Inspect Pane')
+    expect(inspectHtml).toContain('Mock PropertiesView')
+    expect(inspectHtml).not.toContain('Create Node')
 
     const createTab = resolveActionInspectorTab('inspect', 'create')
     const createHtml = renderToString(
-      <ActionInspector
-        initialTab={createTab}
-        selection={nodeSelection as any}
-        inspectPane={<div>Inspect Pane</div>}
-      />
+      <ActionInspector initialTab={createTab} selection={nodeSelection as any} />
     )
     expect(createHtml).toContain('Create Node')
     expect(createHtml).toContain('Create Relation')
-    expect(createHtml).toContain('Type')
-    expect(createHtml).toContain('overflow-y-auto')
 
     const deleteTab = resolveActionInspectorTab(createTab, 'delete')
     const deleteHtml = renderToString(
-      <ActionInspector
-        initialTab={deleteTab}
-        selection={relationSelection as any}
-        inspectPane={<div>Inspect Pane</div>}
-      />
+      <ActionInspector initialTab={deleteTab} selection={relationSelection as any} />
     )
     expect(deleteHtml).toContain('Delete Selection')
 
     const mergeTab = resolveActionInspectorTab(deleteTab, 'merge')
     const mergeHtml = renderToString(
-      <ActionInspector
-        initialTab={mergeTab}
-        selection={relationSelection as any}
-        inspectPane={<div>Inspect Pane</div>}
-      />
+      <ActionInspector initialTab={mergeTab} selection={relationSelection as any} />
     )
     expect(mergeHtml).toContain('Manual Merge')
     expect(mergeHtml).toContain('Merge Suggestions')

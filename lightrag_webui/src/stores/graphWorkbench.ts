@@ -22,6 +22,17 @@ export type GraphWorkbenchMutationError = {
   isConflict: boolean
 }
 
+export type GraphWorkbenchActionMode = 'inspect' | 'create' | 'delete' | 'merge'
+
+export type GraphWorkbenchFilterSection =
+  | 'scope'
+  | 'node'
+  | 'edge'
+  | 'source'
+  | 'view'
+
+export type GraphWorkbenchFilterSectionState = Record<GraphWorkbenchFilterSection, boolean>
+
 const isRevisionConflictMessage = (message: string): boolean => {
   const normalized = message.toLowerCase()
   return normalized.includes('revision token') || normalized.includes('stale')
@@ -146,10 +157,14 @@ interface GraphWorkbenchState {
   mutationError: string | null
   conflictError: string | null
   queryVersion: number
+  activeActionMode: GraphWorkbenchActionMode
+  filterSections: GraphWorkbenchFilterSectionState
 
   setFilterDraft: (draft: GraphWorkbenchQueryRequest) => void
   applyFilterDraft: () => void
   applyScopeLabel: (label: string) => void
+  setActiveActionMode: (mode: GraphWorkbenchActionMode) => void
+  toggleFilterSection: (section: GraphWorkbenchFilterSection) => void
   setMergeCandidates: (candidates: GraphMergeSuggestionCandidate[]) => void
   selectMergeCandidate: (targetEntity: string) => void
   setMergeDraft: (draft: GraphMergeDraft) => void
@@ -174,6 +189,14 @@ const useGraphWorkbenchStoreBase = create<GraphWorkbenchState>()((set, get) => (
   mutationError: null,
   conflictError: null,
   queryVersion: 0,
+  activeActionMode: 'inspect',
+  filterSections: {
+    scope: true,
+    node: false,
+    edge: false,
+    source: false,
+    view: false
+  },
 
   setFilterDraft: (draft) => set({ filterDraft: cloneQuery(draft) }),
   applyFilterDraft: () => {
@@ -193,6 +216,14 @@ const useGraphWorkbenchStoreBase = create<GraphWorkbenchState>()((set, get) => (
         queryVersion: state.queryVersion + 1
       }
     }),
+  setActiveActionMode: (mode) => set({ activeActionMode: mode }),
+  toggleFilterSection: (section) =>
+    set((state) => ({
+      filterSections: {
+        ...state.filterSections,
+        [section]: !state.filterSections[section]
+      }
+    })),
   setMergeCandidates: (candidates) => set({ mergeCandidates: [...candidates] }),
   selectMergeCandidate: (targetEntity) =>
     set((state) => {
@@ -253,7 +284,15 @@ const useGraphWorkbenchStoreBase = create<GraphWorkbenchState>()((set, get) => (
       mergeFollowUp: null,
       mutationError: null,
       conflictError: null,
-      queryVersion: 0
+      queryVersion: 0,
+      activeActionMode: 'inspect',
+      filterSections: {
+        scope: true,
+        node: false,
+        edge: false,
+        source: false,
+        view: false
+      }
     })
 }))
 

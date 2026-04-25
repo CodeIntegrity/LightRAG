@@ -81,6 +81,8 @@ export class RawGraph {
   }
 }
 
+export type GraphViewState = 'idle' | 'loading' | 'ready' | 'empty' | 'auth_error' | 'error'
+
 interface GraphState {
   selectedNode: string | null
   focusedNode: string | null
@@ -96,6 +98,8 @@ interface GraphState {
   moveToSelectedNode: boolean
   isFetching: boolean
   graphIsEmpty: boolean
+  viewState: GraphViewState
+  requestError: string | null
   lastSuccessfulQueryLabel: string
 
   typeColorMap: Map<string, string>
@@ -114,6 +118,8 @@ interface GraphState {
 
   setMoveToSelectedNode: (moveToSelectedNode: boolean) => void
   setGraphIsEmpty: (isEmpty: boolean) => void
+  setViewState: (viewState: GraphViewState) => void
+  setRequestError: (message: string | null) => void
   setLastSuccessfulQueryLabel: (label: string) => void
 
   setRawGraph: (rawGraph: RawGraph | null) => void
@@ -157,6 +163,8 @@ const useGraphStoreBase = create<GraphState>()((set, get) => ({
   moveToSelectedNode: false,
   isFetching: false,
   graphIsEmpty: false,
+  viewState: 'idle',
+  requestError: null,
   lastSuccessfulQueryLabel: '', // Initialize as empty to ensure fetchAllDatabaseLabels runs on first query
 
   // Initialize global flags
@@ -172,6 +180,8 @@ const useGraphStoreBase = create<GraphState>()((set, get) => ({
   searchEngine: null,
 
   setGraphIsEmpty: (isEmpty: boolean) => set({ graphIsEmpty: isEmpty }),
+  setViewState: (viewState: GraphViewState) => set({ viewState }),
+  setRequestError: (requestError: string | null) => set({ requestError }),
   setLastSuccessfulQueryLabel: (label: string) => set({ lastSuccessfulQueryLabel: label }),
 
 
@@ -200,6 +210,8 @@ const useGraphStoreBase = create<GraphState>()((set, get) => ({
       searchEngine: null,
       moveToSelectedNode: false,
       graphIsEmpty: false,
+      viewState: 'idle',
+      requestError: null,
       typeColorMap: new Map<string, string>(),
       graphDataFetchAttempted: false,
       labelsFetchAttempted: false

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { lazy, Suspense, useState, useCallback, useEffect, useRef } from 'react'
 import ThemeProvider from '@/components/ThemeProvider'
 import TabVisibilityProvider from '@/contexts/TabVisibilityProvider'
 import ApiKeyAlert from '@/components/ApiKeyAlert'
@@ -11,12 +11,6 @@ import SiteHeader from '@/features/SiteHeader'
 import { InvalidApiKeyError, RequireApiKeError } from '@/api/lightrag'
 import { ZapIcon } from 'lucide-react'
 
-import GraphViewer from '@/features/GraphViewer'
-import DocumentManager from '@/features/DocumentManager'
-import PromptManagement from '@/features/PromptManagement'
-import RetrievalTesting from '@/features/RetrievalTesting'
-import ApiSite from '@/features/ApiSite'
-
 import { Tabs, TabsContent } from '@/components/ui/Tabs'
 import {
   allGuestVisibleTabs,
@@ -24,6 +18,12 @@ import {
   resolveActiveTabForSession,
   resolveVisibleTabsForSession,
 } from '@/lib/guestFeatures'
+
+const DocumentManager = lazy(() => import('@/features/DocumentManager'))
+const GraphViewer = lazy(() => import('@/features/GraphViewer'))
+const PromptManagement = lazy(() => import('@/features/PromptManagement'))
+const RetrievalTesting = lazy(() => import('@/features/RetrievalTesting'))
+const ApiSite = lazy(() => import('@/features/ApiSite'))
 
 function App() {
   const message = useBackendState.use.message()
@@ -35,6 +35,7 @@ function App() {
   const activeTab = resolveActiveTabForSession(currentTab, visibleTabs)
   const [apiKeyAlertOpen, setApiKeyAlertOpen] = useState(false)
   const [initializing, setInitializing] = useState(true) // Add initializing state
+  const [visitedTabs, setVisitedTabs] = useState(() => new Set<string>([activeTab]))
   const versionCheckRef = useRef(false); // Prevent duplicate calls in Vite dev mode
   const healthCheckInitializedRef = useRef(false); // Prevent duplicate health checks in Vite dev mode
 
@@ -173,6 +174,17 @@ function App() {
     useSettingsStore.getState().setCurrentTab(activeTab)
   }, [activeTab, currentTab])
 
+  useEffect(() => {
+    setVisitedTabs((previousTabs) => {
+      if (previousTabs.has(activeTab)) {
+        return previousTabs
+      }
+      const nextTabs = new Set(previousTabs)
+      nextTabs.add(activeTab)
+      return nextTabs
+    })
+  }, [activeTab])
+
   const handleTabChange = useCallback(
     (tab: string) => useSettingsStore.getState().setCurrentTab(tab as any),
     []
@@ -185,6 +197,12 @@ function App() {
       }
     }
   }, [message])
+
+  const tabFallback = (
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      Loading...
+    </div>
+  )
 
   return (
     <ThemeProvider>
@@ -230,27 +248,47 @@ function App() {
               <div className="relative grow">
                 {visibleTabs.includes('documents') && (
                   <TabsContent value="documents" className="absolute top-0 right-0 bottom-0 left-0 overflow-auto">
-                    <DocumentManager />
+                    {visitedTabs.has('documents') ? (
+                      <Suspense fallback={tabFallback}>
+                        <DocumentManager />
+                      </Suspense>
+                    ) : null}
                   </TabsContent>
                 )}
                 {visibleTabs.includes('knowledge-graph') && (
                   <TabsContent value="knowledge-graph" className="absolute top-0 right-0 bottom-0 left-0 overflow-hidden">
-                    <GraphViewer />
+                    {visitedTabs.has('knowledge-graph') ? (
+                      <Suspense fallback={tabFallback}>
+                        <GraphViewer />
+                      </Suspense>
+                    ) : null}
                   </TabsContent>
                 )}
                 {visibleTabs.includes('prompt-management') && (
                   <TabsContent value="prompt-management" className="absolute top-0 right-0 bottom-0 left-0 overflow-auto">
-                    <PromptManagement />
+                    {visitedTabs.has('prompt-management') ? (
+                      <Suspense fallback={tabFallback}>
+                        <PromptManagement />
+                      </Suspense>
+                    ) : null}
                   </TabsContent>
                 )}
                 {visibleTabs.includes('retrieval') && (
                   <TabsContent value="retrieval" className="absolute top-0 right-0 bottom-0 left-0 overflow-hidden">
-                    <RetrievalTesting />
+                    {visitedTabs.has('retrieval') ? (
+                      <Suspense fallback={tabFallback}>
+                        <RetrievalTesting />
+                      </Suspense>
+                    ) : null}
                   </TabsContent>
                 )}
                 {visibleTabs.includes('api') && (
                   <TabsContent value="api" className="absolute top-0 right-0 bottom-0 left-0 overflow-hidden">
-                    <ApiSite />
+                    {visitedTabs.has('api') ? (
+                      <Suspense fallback={tabFallback}>
+                        <ApiSite />
+                      </Suspense>
+                    ) : null}
                   </TabsContent>
                 )}
               </div>

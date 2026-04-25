@@ -813,16 +813,21 @@ axiosInstance.interceptors.response.use(
 export const queryGraphs = async (
   label: string,
   maxDepth: number,
-  maxNodes: number
+  maxNodes: number,
+  signal?: AbortSignal
 ): Promise<LightragGraphType> => {
-  const response = await axiosInstance.get(`/graphs?label=${encodeURIComponent(label)}&max_depth=${maxDepth}&max_nodes=${maxNodes}`)
+  const response = await axiosInstance.get(
+    `/graphs?label=${encodeURIComponent(label)}&max_depth=${maxDepth}&max_nodes=${maxNodes}`,
+    { signal }
+  )
   return response.data
 }
 
 export const queryGraphWorkbench = async (
-  request: GraphWorkbenchQueryRequest
+  request: GraphWorkbenchQueryRequest,
+  signal?: AbortSignal
 ): Promise<GraphWorkbenchQueryResponse> => {
-  const response = await axiosInstance.post('/graph/query', request)
+  const response = await axiosInstance.post('/graph/query', request, { signal })
   return response.data
 }
 

@@ -6,6 +6,7 @@ import { GraphSearchOption, OptionItem } from '@react-sigma/graph-search'
 import { EdgeArrowProgram, NodePointProgram, NodeCircleProgram } from 'sigma/rendering'
 import { NodeBorderProgram } from '@sigma/node-border'
 import { EdgeCurvedArrowProgram, createEdgeCurveProgram } from '@sigma/edge-curve'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 import FocusOnNode from '@/components/graph/FocusOnNode'
 import LayoutsControl from '@/components/graph/LayoutsControl'
@@ -17,6 +18,7 @@ import Settings from '@/components/graph/Settings'
 import GraphSearch from '@/components/graph/GraphSearch'
 import GraphLabels from '@/components/graph/GraphLabels'
 import ActionInspector from '@/components/graph/ActionInspector'
+import GraphCanvasOverlay from '@/components/graph/GraphCanvasOverlay'
 import SettingsDisplay from '@/components/graph/SettingsDisplay'
 import Legend from '@/components/graph/Legend'
 import LegendButton from '@/components/graph/LegendButton'
@@ -27,6 +29,8 @@ import { useSettingsStore } from '@/stores/settings'
 import { useGraphStore } from '@/stores/graph'
 import { labelColorDarkTheme, labelColorLightTheme } from '@/lib/constants'
 import { cn } from '@/lib/utils'
+import Button from '@/components/ui/Button'
+import { useTranslation } from 'react-i18next'
 
 import '@react-sigma/core/lib/style.css'
 import '@react-sigma/graph-search/lib/style.css'
@@ -103,15 +107,18 @@ const GraphEvents = () => {
 
 const GraphViewer = () => {
   useLightragGraph()
+  const { t } = useTranslation()
 
   const [isFilterWorkbenchCollapsed, setIsFilterWorkbenchCollapsed] = useState(false)
+  const [isActionInspectorCollapsed, setIsActionInspectorCollapsed] = useState(false)
   const sigmaRef = useRef<any>(null)
   const prevTheme = useRef<string>('')
 
   const selectedNode = useGraphStore.use.selectedNode()
   const focusedNode = useGraphStore.use.focusedNode()
   const moveToSelectedNode = useGraphStore.use.moveToSelectedNode()
-  const isFetching = useGraphStore.use.isFetching()
+  const viewState = useGraphStore.use.viewState()
+  const requestError = useGraphStore.use.requestError()
 
   const showPropertyPanel = useSettingsStore.use.showPropertyPanel()
   const showNodeSearchBar = useSettingsStore.use.showNodeSearchBar()
@@ -188,6 +195,13 @@ const GraphViewer = () => {
     (): OptionItem | null => (selectedNode ? { type: 'nodes', id: selectedNode } : null),
     [selectedNode]
   )
+  const actionInspectorToggleLabel = useMemo(
+    () =>
+      isActionInspectorCollapsed
+        ? t('graphPanel.workbench.actionInspector.actions.expand')
+        : t('graphPanel.workbench.actionInspector.actions.collapse'),
+    [isActionInspectorCollapsed, t]
+  )
 
   return (
     <div className="relative h-full w-full overflow-hidden p-2">
@@ -197,7 +211,7 @@ const GraphViewer = () => {
             'overflow-hidden transition-all duration-200 ease-out lg:shrink-0',
             isFilterWorkbenchCollapsed
               ? 'min-h-[60px] max-h-[60px] lg:max-h-none lg:min-h-0 lg:w-[56px]'
-              : 'min-h-[240px] max-h-[42%] lg:max-h-none lg:min-h-0 lg:w-[340px]'
+              : 'min-h-[240px] max-h-[42%] lg:max-h-none lg:min-h-0 lg:w-[300px] xl:w-[340px]'
           )}
         >
           <FilterWorkbench
@@ -249,25 +263,56 @@ const GraphViewer = () => {
             </div> */}
 
             <SettingsDisplay />
+            <GraphCanvasOverlay
+              viewState={viewState}
+              message={requestError}
+              themeSwitching={isThemeSwitching}
+            />
           </SigmaContainer>
         </div>
 
         {showPropertyPanel && (
-          <aside className="min-h-[240px] max-h-[42%] lg:max-h-none lg:min-h-0 lg:w-[380px] lg:shrink-0">
-            <ActionInspector />
+          <aside
+            className={cn(
+              'overflow-hidden transition-all duration-200 ease-out lg:shrink-0',
+              isActionInspectorCollapsed
+                ? 'min-h-[60px] max-h-[60px] lg:max-h-none lg:min-h-0 lg:w-[56px]'
+                : 'min-h-[240px] max-h-[42%] lg:max-h-none lg:min-h-0 lg:w-[320px] xl:w-[360px]'
+            )}
+          >
+            {isActionInspectorCollapsed ? (
+              <div className="bg-background/80 flex h-full items-start justify-center rounded-xl border p-2 backdrop-blur-sm">
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => setIsActionInspectorCollapsed(false)}
+                  aria-label={actionInspectorToggleLabel}
+                  tooltip={actionInspectorToggleLabel}
+                >
+                  <ChevronLeft />
+                </Button>
+              </div>
+            ) : (
+              <div className="relative h-full">
+                <div className="absolute top-3 right-3 z-10">
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={() => setIsActionInspectorCollapsed(true)}
+                    aria-label={actionInspectorToggleLabel}
+                    tooltip={actionInspectorToggleLabel}
+                  >
+                    <ChevronRight />
+                  </Button>
+                </div>
+                <ActionInspector />
+              </div>
+            )}
           </aside>
         )}
       </div>
-
-      {/* Loading overlay - shown when data is loading or theme is switching */}
-      {(isFetching || isThemeSwitching) && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
-          <div className="text-center">
-            <div className="mb-2 h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto"></div>
-            <p>{isThemeSwitching ? 'Switching Theme...' : 'Loading Graph Data...'}</p>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

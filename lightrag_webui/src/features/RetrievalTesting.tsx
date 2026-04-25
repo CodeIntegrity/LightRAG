@@ -3,30 +3,68 @@ import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { throttle } from '@/lib/utils'
-import { getPromptConfigVersion, queryData, queryText, queryTextStream } from '@/api/lightrag'
+import { queryData, queryText, queryTextStream } from '@/api/lightrag'
 import { errorMessage } from '@/lib/utils'
 import { useSettingsStore } from '@/stores/settings'
 import { useBackendState } from '@/stores/state'
 import { useDebounce } from '@/hooks/useDebounce'
 import QuerySettings from '@/components/retrieval/QuerySettings'
 import { ChatMessage, MessageWithError } from '@/components/retrieval/ChatMessage'
-import { EraserIcon, SendIcon, CopyIcon, SquareIcon, ChevronDown, ChevronRight, FileText } from 'lucide-react'
+import {
+  EraserIcon,
+  SendIcon,
+  CopyIcon,
+  SquareIcon,
+  ChevronDown,
+  ChevronRight,
+  FileText
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { copyToClipboard } from '@/utils/clipboard'
-import type { QueryDataResponse, QueryMode, ReferenceItem } from '@/api/lightrag'
+import type { QueryDataResponse, QueryMode, QueryRequest, ReferenceItem } from '@/api/lightrag'
 import { pruneEmptyPromptOverrides } from '@/utils/promptOverrides'
 import { projectRetrievalVersionToOverrides } from '@/utils/promptVersioning'
+import { getCachedRetrievalPromptVersion } from '@/utils/retrievalPromptCache'
+
+const RETRIEVAL_DATA_PAGE_SIZE = 20
+const retrievalDataTabs = ['entities', 'relationships', 'chunks', 'references'] as const
+
+type RetrievalDataTab = (typeof retrievalDataTabs)[number]
+type QueryDataStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+type RetrievalArtifactsRequest = {
+  requestId: number
+  queryParams: QueryRequest
+}
+
+const createInitialVisibleCounts = (): Record<RetrievalDataTab, number> => ({
+  entities: RETRIEVAL_DATA_PAGE_SIZE,
+  relationships: RETRIEVAL_DATA_PAGE_SIZE,
+  chunks: RETRIEVAL_DATA_PAGE_SIZE,
+  references: RETRIEVAL_DATA_PAGE_SIZE
+})
+
+export const getQueryDataTabItems = (
+  queryDataResult: QueryDataResponse | null,
+  tab: RetrievalDataTab
+): unknown[] => {
+  if (!queryDataResult?.data) {
+    return []
+  }
+
+  return Array.isArray(queryDataResult.data[tab]) ? queryDataResult.data[tab] : []
+}
 
 // Helper function to generate unique IDs with browser compatibility
 const generateUniqueId = () => {
   // Use crypto.randomUUID() if available
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
+    return crypto.randomUUID()
   }
   // Fallback to timestamp + random string for browsers without crypto.randomUUID
-  return `id-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-};
+  return `id-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+}
 
 // LaTeX completeness detection function
 const detectLatexCompleteness = (content: string): boolean => {
@@ -68,7 +106,7 @@ const parseCOTContent = (content: string) => {
   // Analyze COT state
   const hasThinkStart = startMatches.length > 0
   const hasThinkEnd = endMatches.length > 0
-  const isThinking = hasThinkStart && (startMatches.length > endMatches.length)
+  const isThinking = hasThinkStart && startMatches.length > endMatches.length
 
   let thinkingContent = ''
   let displayContent = content
@@ -80,10 +118,9 @@ const parseCOTContent = (content: string) => {
       const lastEndIndex = endMatches[endMatches.length - 1]
 
       if (lastEndIndex > lastStartIndex) {
-        thinkingContent = content.substring(
-          lastStartIndex + thinkStartTag.length,
-          lastEndIndex
-        ).trim()
+        thinkingContent = content
+          .substring(lastStartIndex + thinkStartTag.length, lastEndIndex)
+          .trim()
 
         // Remove all thinking blocks, keep only the final display content
         displayContent = content.substring(lastEndIndex + thinkEndTag.length).trim()
@@ -113,8 +150,13 @@ export default function RetrievalTesting() {
   const [references, setReferences] = useState<ReferenceItem[]>([])
   const [referencesExpanded, setReferencesExpanded] = useState(false)
   const [queryDataResult, setQueryDataResult] = useState<QueryDataResponse | null>(null)
+  const [queryDataStatus, setQueryDataStatus] = useState<QueryDataStatus>('idle')
+  const [queryDataError, setQueryDataError] = useState('')
   const [queryDataExpanded, setQueryDataExpanded] = useState(false)
-  const [dataTab, setDataTab] = useState<'entities' | 'relationships' | 'chunks' | 'references'>('entities')
+  const [dataTab, setDataTab] = useState<RetrievalDataTab>('entities')
+  const [queryDataVisibleCounts, setQueryDataVisibleCounts] = useState<
+    Record<RetrievalDataTab, number>
+  >(createInitialVisibleCounts)
 
   const [messages, setMessages] = useState<MessageWithError[]>(() => {
     try {
@@ -151,15 +193,20 @@ export default function RetrievalTesting() {
   const [inputError, setInputError] = useState('') // Error message for input
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const queryDataAbortControllerRef = useRef<AbortController | null>(null)
+  const latestArtifactsRequestRef = useRef<RetrievalArtifactsRequest | null>(null)
 
   // Smart switching logic: use Input for single line, Textarea for multi-line
   const hasMultipleLines = inputValue.includes('\n')
 
   // Enhanced event handlers for smart switching
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setInputValue(e.target.value)
-    if (inputError) setInputError('')
-  }, [inputError])
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      setInputValue(e.target.value)
+      if (inputError) setInputError('')
+    },
+    [inputError]
+  )
 
   // Unified height adjustment function for textarea
   const adjustTextareaHeight = useCallback((element: HTMLTextAreaElement) => {
@@ -210,7 +257,7 @@ export default function RetrievalTesting() {
         if (!allowedModes.includes(mode)) {
           setInputError(
             t('retrievePanel.retrieval.queryModeError', {
-              modes: 'naive, local, global, hybrid, mix, bypass',
+              modes: 'naive, local, global, hybrid, mix, bypass'
             })
           )
           return
@@ -229,8 +276,13 @@ export default function RetrievalTesting() {
       setReferences([])
       setReferencesExpanded(false)
       setQueryDataResult(null)
+      setQueryDataStatus('idle')
+      setQueryDataError('')
       setDataTab('entities')
       setQueryDataExpanded(false)
+      setQueryDataVisibleCounts(createInitialVisibleCounts())
+      queryDataAbortControllerRef.current?.abort()
+      latestArtifactsRequestRef.current = null
 
       // Create messages
       // Save the original input (with prefix if any) in userMessage.content for display
@@ -245,11 +297,11 @@ export default function RetrievalTesting() {
         content: '',
         role: 'assistant',
         mermaidRendered: false,
-        latexRendered: false,      // Explicitly initialize to false
-        thinkingTime: null,        // Explicitly initialize to null
+        latexRendered: false, // Explicitly initialize to false
+        thinkingTime: null, // Explicitly initialize to null
         thinkingContent: undefined, // Explicitly initialize to undefined
-        displayContent: undefined,  // Explicitly initialize to undefined
-        isThinking: false          // Explicitly initialize to false
+        displayContent: undefined, // Explicitly initialize to undefined
+        isThinking: false // Explicitly initialize to false
       }
 
       const prevMessages = [...messages]
@@ -378,12 +430,13 @@ export default function RetrievalTesting() {
         ...state.querySettings,
         query: actualQuery,
         response_type: 'Multiple Paragraphs',
-        conversation_history: effectiveHistoryTurns > 0
-          ? prevMessages
-            .filter((m) => m.isError !== true)
-            .slice(-effectiveHistoryTurns * 2)
-            .map((m) => ({ role: m.role, content: m.content }))
-          : [],
+        conversation_history:
+          effectiveHistoryTurns > 0
+            ? prevMessages
+                .filter((m) => m.isError !== true)
+                .slice(-effectiveHistoryTurns * 2)
+                .map((m) => ({ role: m.role, content: m.content }))
+            : [],
         ...(modeOverride ? { mode: modeOverride } : {})
       }
 
@@ -392,16 +445,22 @@ export default function RetrievalTesting() {
           if (state.retrievalPromptVersionSelection === 'custom') {
             queryParams.prompt_overrides = pruneEmptyPromptOverrides(state.retrievalPromptDraft)
           } else if (state.retrievalPromptVersionSelection !== 'active') {
-            const selectedVersion = await getPromptConfigVersion(
-              'retrieval',
+            const selectedVersion = await getCachedRetrievalPromptVersion(
               state.retrievalPromptVersionSelection
             )
-            queryParams.prompt_overrides = projectRetrievalVersionToOverrides(selectedVersion.payload)
+            queryParams.prompt_overrides = projectRetrievalVersionToOverrides(
+              selectedVersion.payload
+            )
           } else {
             delete queryParams.prompt_overrides
           }
         } else {
           delete queryParams.prompt_overrides
+        }
+
+        latestArtifactsRequestRef.current = {
+          requestId,
+          queryParams
         }
 
         // Run query
@@ -410,7 +469,9 @@ export default function RetrievalTesting() {
           await queryTextStream(
             queryParams,
             updateAssistantMessage,
-            (error) => { errorMessage += error },
+            (error) => {
+              errorMessage += error
+            },
             controller.signal,
             (refs) => {
               if (requestId === retrievalArtifactsRequestIdRef.current) {
@@ -437,25 +498,15 @@ export default function RetrievalTesting() {
           // no-op
         } else {
           // Handle error
-          updateAssistantMessage(`${t('retrievePanel.retrieval.error')}\n${errorMessage(err)}`, true)
+          updateAssistantMessage(
+            `${t('retrievePanel.retrieval.error')}\n${errorMessage(err)}`,
+            true
+          )
         }
       } finally {
-        // Fetch retrieval data for inspection (fire-and-forget)
-        queryData(queryParams, controller.signal)
-          .then((dataResult) => {
-            if (requestId !== retrievalArtifactsRequestIdRef.current) {
-              return
-            }
-            setQueryDataResult(dataResult)
-            setReferences((dataResult.data?.references as ReferenceItem[]) ?? [])
-          })
-          .catch(() => { /* ignore data fetch errors */ })
-          .finally(() => {
-            if (abortControllerRef.current === controller) {
-              abortControllerRef.current = null
-            }
-          })
-
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null
+        }
         // Clear loading and add messages to state
         setIsLoading(false)
         isReceivingResponseRef.current = false
@@ -469,7 +520,11 @@ export default function RetrievalTesting() {
           assistantMessage.isThinking = false
 
           // If we have a complete thinking block but time wasn't calculated, do final calculation
-          if (finalCotResult.hasValidThinkBlock && thinkingStartTime.current && !assistantMessage.thinkingTime) {
+          if (
+            finalCotResult.hasValidThinkBlock &&
+            thinkingStartTime.current &&
+            !assistantMessage.thinkingTime
+          ) {
             const duration = (Date.now() - thinkingStartTime.current) / 1000
             assistantMessage.thinkingTime = parseFloat(duration.toFixed(2))
           }
@@ -478,7 +533,6 @@ export default function RetrievalTesting() {
           if (finalCotResult.displayContent !== undefined) {
             assistantMessage.displayContent = finalCotResult.displayContent
           }
-
         } catch (error) {
           console.error('Error in final COT state validation:', error)
           // Force reset state on error
@@ -501,63 +555,69 @@ export default function RetrievalTesting() {
     [allowPromptOverridesViaApi, inputValue, isLoading, messages, setMessages, t, scrollToBottom]
   )
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && e.shiftKey) {
-      // Shift+Enter: Insert newline
-      e.preventDefault()
-      const target = e.target as HTMLInputElement | HTMLTextAreaElement
-      const start = target.selectionStart || 0
-      const end = target.selectionEnd || 0
-      const newValue = inputValue.slice(0, start) + '\n' + inputValue.slice(end)
-      setInputValue(newValue)
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (e.key === 'Enter' && e.shiftKey) {
+        // Shift+Enter: Insert newline
+        e.preventDefault()
+        const target = e.target as HTMLInputElement | HTMLTextAreaElement
+        const start = target.selectionStart || 0
+        const end = target.selectionEnd || 0
+        const newValue = inputValue.slice(0, start) + '\n' + inputValue.slice(end)
+        setInputValue(newValue)
 
-      // Set cursor position after the newline and adjust height if needed
-      setTimeout(() => {
-        if (target.setSelectionRange) {
-          target.setSelectionRange(start + 1, start + 1)
-        }
+        // Set cursor position after the newline and adjust height if needed
+        setTimeout(() => {
+          if (target.setSelectionRange) {
+            target.setSelectionRange(start + 1, start + 1)
+          }
 
-        // Manually trigger height adjustment for textarea after component switch
-        if (inputRef.current && inputRef.current.tagName === 'TEXTAREA') {
-          adjustTextareaHeight(inputRef.current as HTMLTextAreaElement)
-        }
-      }, 0)
-    } else if (e.key === 'Enter' && !e.shiftKey) {
-      // Enter: Submit form
-      e.preventDefault()
-      handleSubmit(e as any)
-    }
-  }, [inputValue, handleSubmit, adjustTextareaHeight])
+          // Manually trigger height adjustment for textarea after component switch
+          if (inputRef.current && inputRef.current.tagName === 'TEXTAREA') {
+            adjustTextareaHeight(inputRef.current as HTMLTextAreaElement)
+          }
+        }, 0)
+      } else if (e.key === 'Enter' && !e.shiftKey) {
+        // Enter: Submit form
+        e.preventDefault()
+        handleSubmit(e as any)
+      }
+    },
+    [inputValue, handleSubmit, adjustTextareaHeight]
+  )
 
-  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    // Get pasted text content
-    const pastedText = e.clipboardData.getData('text')
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      // Get pasted text content
+      const pastedText = e.clipboardData.getData('text')
 
-    // Check if it contains newlines
-    if (pastedText.includes('\n')) {
-      e.preventDefault() // Prevent default paste behavior
+      // Check if it contains newlines
+      if (pastedText.includes('\n')) {
+        e.preventDefault() // Prevent default paste behavior
 
-      // Get current cursor position
-      const target = e.target as HTMLInputElement | HTMLTextAreaElement
-      const start = target.selectionStart || 0
-      const end = target.selectionEnd || 0
+        // Get current cursor position
+        const target = e.target as HTMLInputElement | HTMLTextAreaElement
+        const start = target.selectionStart || 0
+        const end = target.selectionEnd || 0
 
-      // Build new value
-      const newValue = inputValue.slice(0, start) + pastedText + inputValue.slice(end)
+        // Build new value
+        const newValue = inputValue.slice(0, start) + pastedText + inputValue.slice(end)
 
-      // Update state (this will trigger component switch to Textarea)
-      setInputValue(newValue)
+        // Update state (this will trigger component switch to Textarea)
+        setInputValue(newValue)
 
-      // Set cursor position to end of pasted content
-      setTimeout(() => {
-        if (inputRef.current && inputRef.current.setSelectionRange) {
-          const newCursorPosition = start + pastedText.length
-          inputRef.current.setSelectionRange(newCursorPosition, newCursorPosition)
-        }
-      }, 0)
-    }
-    // If no newlines, let default paste behavior continue
-  }, [inputValue])
+        // Set cursor position to end of pasted content
+        setTimeout(() => {
+          if (inputRef.current && inputRef.current.setSelectionRange) {
+            const newCursorPosition = start + pastedText.length
+            inputRef.current.setSelectionRange(newCursorPosition, newCursorPosition)
+          }
+        }, 0)
+      }
+      // If no newlines, let default paste behavior continue
+    },
+    [inputValue]
+  )
 
   // Effect to handle component switching and maintain focus
   useEffect(() => {
@@ -602,78 +662,80 @@ export default function RetrievalTesting() {
     // Component cleanup - reset timer state to prevent memory leaks
     return () => {
       if (thinkingStartTime.current) {
-        thinkingStartTime.current = null;
+        thinkingStartTime.current = null
       }
-    };
-  }, []);
+      queryDataAbortControllerRef.current?.abort()
+    }
+  }, [])
 
   // Add event listeners to detect when user manually interacts with the container
   useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
+    const container = messagesContainerRef.current
+    if (!container) return
 
     // Handle significant mouse wheel events - only disable auto-scroll for deliberate scrolling
     const handleWheel = (e: WheelEvent) => {
       // Only consider significant wheel movements (more than 10px)
       if (Math.abs(e.deltaY) > 10 && !isFormInteractionRef.current) {
-        shouldFollowScrollRef.current = false;
+        shouldFollowScrollRef.current = false
       }
-    };
+    }
 
     // Handle scroll events - only disable auto-scroll if not programmatically triggered
     // and if it's a significant scroll
     const handleScroll = throttle(() => {
       // If this is a programmatic scroll, don't disable auto-scroll
       if (programmaticScrollRef.current) {
-        programmaticScrollRef.current = false;
-        return;
+        programmaticScrollRef.current = false
+        return
       }
 
       // Check if scrolled to bottom or very close to bottom
-      const container = messagesContainerRef.current;
+      const container = messagesContainerRef.current
       if (container) {
-        const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 20;
+        const isAtBottom =
+          container.scrollHeight - container.scrollTop - container.clientHeight < 20
 
         // If at bottom, enable auto-scroll, otherwise disable it
         if (isAtBottom) {
-          shouldFollowScrollRef.current = true;
+          shouldFollowScrollRef.current = true
         } else if (!isFormInteractionRef.current && !isReceivingResponseRef.current) {
-          shouldFollowScrollRef.current = false;
+          shouldFollowScrollRef.current = false
         }
       }
-    }, 30);
+    }, 30)
 
     // Add event listeners - only listen for wheel and scroll events
-    container.addEventListener('wheel', handleWheel as EventListener);
-    container.addEventListener('scroll', handleScroll as EventListener);
+    container.addEventListener('wheel', handleWheel as EventListener)
+    container.addEventListener('scroll', handleScroll as EventListener)
 
     return () => {
-      container.removeEventListener('wheel', handleWheel as EventListener);
-      container.removeEventListener('scroll', handleScroll as EventListener);
-    };
-  }, []);
+      container.removeEventListener('wheel', handleWheel as EventListener)
+      container.removeEventListener('scroll', handleScroll as EventListener)
+    }
+  }, [])
 
   // Add event listeners to the form area to prevent disabling auto-scroll when interacting with form
   useEffect(() => {
-    const form = document.querySelector('form');
-    if (!form) return;
+    const form = document.querySelector('form')
+    if (!form) return
 
     const handleFormMouseDown = () => {
       // Set flag to indicate form interaction
-      isFormInteractionRef.current = true;
+      isFormInteractionRef.current = true
 
       // Reset the flag after a short delay
       setTimeout(() => {
-        isFormInteractionRef.current = false;
-      }, 500); // Give enough time for the form interaction to complete
-    };
+        isFormInteractionRef.current = false
+      }, 500) // Give enough time for the form interaction to complete
+    }
 
-    form.addEventListener('mousedown', handleFormMouseDown);
+    form.addEventListener('mousedown', handleFormMouseDown)
 
     return () => {
-      form.removeEventListener('mousedown', handleFormMouseDown);
-    };
-  }, []);
+      form.removeEventListener('mousedown', handleFormMouseDown)
+    }
+  }, [])
 
   // Use a longer debounce time for better performance with large message updates
   const debouncedMessages = useDebounce(messages, 150)
@@ -685,75 +747,129 @@ export default function RetrievalTesting() {
     }
   }, [debouncedMessages, scrollToBottom])
 
+  const loadQueryData = useCallback(async () => {
+    const pendingRequest = latestArtifactsRequestRef.current
+    if (!pendingRequest || queryDataStatus === 'loading') {
+      return
+    }
+
+    queryDataAbortControllerRef.current?.abort()
+    const controller = new AbortController()
+    queryDataAbortControllerRef.current = controller
+    setQueryDataStatus('loading')
+    setQueryDataError('')
+
+    try {
+      const dataResult = await queryData(pendingRequest.queryParams, controller.signal)
+      if (latestArtifactsRequestRef.current?.requestId !== pendingRequest.requestId) {
+        return
+      }
+      setQueryDataResult(dataResult)
+      setQueryDataStatus('ready')
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return
+      }
+      if (latestArtifactsRequestRef.current?.requestId !== pendingRequest.requestId) {
+        return
+      }
+      setQueryDataStatus('error')
+      setQueryDataError(errorMessage(err))
+    } finally {
+      if (queryDataAbortControllerRef.current === controller) {
+        queryDataAbortControllerRef.current = null
+      }
+    }
+  }, [queryDataStatus])
 
   const clearMessages = useCallback(() => {
     retrievalArtifactsRequestIdRef.current += 1
     abortControllerRef.current?.abort()
+    queryDataAbortControllerRef.current?.abort()
+    latestArtifactsRequestRef.current = null
     setMessages([])
     useSettingsStore.getState().setRetrievalHistory([])
     // Clear retrieval data and references
     setReferences([])
     setQueryDataResult(null)
+    setQueryDataStatus('idle')
+    setQueryDataError('')
     setReferencesExpanded(false)
     setQueryDataExpanded(false)
     setDataTab('entities')
+    setQueryDataVisibleCounts(createInitialVisibleCounts())
   }, [setMessages])
 
   // Handle copying message content with robust clipboard support
-  const handleCopyMessage = useCallback(async (message: MessageWithError) => {
-    const contentToCopy = message.role === 'user'
-      ? (message.content || '')
-      : (message.displayContent !== undefined ? message.displayContent : (message.content || ''));
+  const handleCopyMessage = useCallback(
+    async (message: MessageWithError) => {
+      const contentToCopy =
+        message.role === 'user'
+          ? message.content || ''
+          : message.displayContent !== undefined
+            ? message.displayContent
+            : message.content || ''
 
-    if (!contentToCopy.trim()) {
-      toast.error(t('retrievePanel.chatMessage.copyEmpty', 'No content to copy'));
-      return;
-    }
-
-    try {
-      const result = await copyToClipboard(contentToCopy);
-
-      if (result.success) {
-        // Show success message with method used
-        const methodMessages: Record<string, string> = {
-          'clipboard-api': t('retrievePanel.chatMessage.copySuccess', 'Content copied to clipboard'),
-          'execCommand': t('retrievePanel.chatMessage.copySuccessLegacy', 'Content copied (legacy method)'),
-          'manual-select': t('retrievePanel.chatMessage.copySuccessManual', 'Content copied (manual method)'),
-          'fallback': t('retrievePanel.chatMessage.copySuccess', 'Content copied to clipboard')
-        };
-
-        toast.success(methodMessages[result.method] || t('retrievePanel.chatMessage.copySuccess', 'Content copied to clipboard'));
-      } else {
-        // Show error with fallback instructions
-        if (result.method === 'fallback') {
-          toast.error(
-            result.error || t('retrievePanel.chatMessage.copyFailed', 'Failed to copy content'),
-            {
-              description: t('retrievePanel.chatMessage.copyManualInstruction', 'Please select and copy the text manually')
-            }
-          );
-        } else {
-          toast.error(
-            t('retrievePanel.chatMessage.copyFailed', 'Failed to copy content'),
-            {
-              description: result.error
-            }
-          );
-        }
+      if (!contentToCopy.trim()) {
+        toast.error(t('retrievePanel.chatMessage.copyEmpty', 'No content to copy'))
+        return
       }
-    } catch (err) {
-      console.error('Clipboard operation failed:', err);
-      toast.error(
-        t('retrievePanel.chatMessage.copyError', 'Copy operation failed'),
-        {
-          description: err instanceof Error ? err.message : 'Unknown error occurred'
+
+      try {
+        const result = await copyToClipboard(contentToCopy)
+
+        if (result.success) {
+          // Show success message with method used
+          const methodMessages: Record<string, string> = {
+            'clipboard-api': t(
+              'retrievePanel.chatMessage.copySuccess',
+              'Content copied to clipboard'
+            ),
+            execCommand: t(
+              'retrievePanel.chatMessage.copySuccessLegacy',
+              'Content copied (legacy method)'
+            ),
+            'manual-select': t(
+              'retrievePanel.chatMessage.copySuccessManual',
+              'Content copied (manual method)'
+            ),
+            fallback: t('retrievePanel.chatMessage.copySuccess', 'Content copied to clipboard')
+          }
+
+          toast.success(
+            methodMessages[result.method] ||
+              t('retrievePanel.chatMessage.copySuccess', 'Content copied to clipboard')
+          )
+        } else {
+          // Show error with fallback instructions
+          if (result.method === 'fallback') {
+            toast.error(
+              result.error || t('retrievePanel.chatMessage.copyFailed', 'Failed to copy content'),
+              {
+                description: t(
+                  'retrievePanel.chatMessage.copyManualInstruction',
+                  'Please select and copy the text manually'
+                )
+              }
+            )
+          } else {
+            toast.error(t('retrievePanel.chatMessage.copyFailed', 'Failed to copy content'), {
+              description: result.error
+            })
+          }
         }
-      );
-    }
-  }, [t])
+      } catch (err) {
+        console.error('Clipboard operation failed:', err)
+        toast.error(t('retrievePanel.chatMessage.copyError', 'Copy operation failed'), {
+          description: err instanceof Error ? err.message : 'Unknown error occurred'
+        })
+      }
+    },
+    [t]
+  )
 
   return (
-    <div className="flex size-full gap-2 px-2 pb-12 overflow-hidden">
+    <div className="flex size-full gap-2 overflow-hidden px-2 pb-12">
       <div className="flex grow flex-col gap-4">
         <div className="relative grow">
           <div
@@ -761,7 +877,7 @@ export default function RetrievalTesting() {
             className="bg-primary-foreground/60 absolute inset-0 flex flex-col overflow-auto rounded-lg border p-2"
             onClick={() => {
               if (shouldFollowScrollRef.current) {
-                shouldFollowScrollRef.current = false;
+                shouldFollowScrollRef.current = false
               }
             }}
           >
@@ -771,7 +887,8 @@ export default function RetrievalTesting() {
                   {t('retrievePanel.retrieval.startPrompt')}
                 </div>
               ) : (
-                messages.map((message) => { // Remove unused idx
+                messages.map((message) => {
+                  // Remove unused idx
                   // isComplete logic is now handled internally based on message.mermaidRendered
                   return (
                     <div
@@ -781,7 +898,7 @@ export default function RetrievalTesting() {
                       {message.role === 'user' && (
                         <Button
                           onClick={() => handleCopyMessage(message)}
-                          className="mb-2 size-6 rounded-md opacity-60 transition-opacity hover:opacity-100 shrink-0"
+                          className="mb-2 size-6 shrink-0 rounded-md opacity-60 transition-opacity hover:opacity-100"
                           tooltip={t('retrievePanel.chatMessage.copyTooltip')}
                           variant="ghost"
                           size="icon"
@@ -793,7 +910,7 @@ export default function RetrievalTesting() {
                       {message.role === 'assistant' && (
                         <Button
                           onClick={() => handleCopyMessage(message)}
-                          className="mb-2 size-6 rounded-md opacity-60 transition-opacity hover:opacity-100 shrink-0"
+                          className="mb-2 size-6 shrink-0 rounded-md opacity-60 transition-opacity hover:opacity-100"
                           tooltip={t('retrievePanel.chatMessage.copyTooltip')}
                           variant="ghost"
                           size="icon"
@@ -802,112 +919,237 @@ export default function RetrievalTesting() {
                         </Button>
                       )}
                     </div>
-                  );
+                  )
                 })
               )}
               {references.length > 0 && (
                 <div className="mt-2 border-t pt-2">
                   <button
                     type="button"
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-xs transition-colors"
                     onClick={() => setReferencesExpanded(!referencesExpanded)}
                   >
-                    {referencesExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                    {referencesExpanded ? (
+                      <ChevronDown className="size-3" />
+                    ) : (
+                      <ChevronRight className="size-3" />
+                    )}
                     <FileText className="size-3" />
-                    {t('retrievePanel.retrieval.references', '{{count}} references', { count: references.length })}
+                    {t('retrievePanel.retrieval.references', '{{count}} references', {
+                      count: references.length
+                    })}
                   </button>
                   {referencesExpanded && (
                     <ul className="mt-1 space-y-1 text-xs">
                       {references.map((ref, i) => (
-                        <li key={ref.reference_id || i} className="text-muted-foreground flex items-start gap-1.5">
-                          <span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-primary/30" />
-                          <span className="break-all">
-                            {ref.file_path || ref.reference_id}
+                        <li
+                          key={ref.reference_id || i}
+                          className="text-muted-foreground flex items-start gap-1.5"
+                        >
+                          <span className="bg-primary/30 mt-0.5 size-1.5 shrink-0 rounded-full" />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-foreground/80 font-medium break-all">
+                              {ref.file_path || ref.reference_id}
+                            </div>
                             {ref.content && ref.content.length > 0 && (
                               <details className="mt-1">
-                                <summary className="cursor-pointer text-[11px] text-muted-foreground/70 hover:text-muted-foreground">
-                                  {t('retrievePanel.retrieval.showSnippet', 'Show snippet')}
+                                <summary className="text-muted-foreground/70 hover:text-muted-foreground cursor-pointer text-[11px]">
+                                  {t(
+                                    'retrievePanel.retrieval.showSnippets',
+                                    'Show {{count}} snippets',
+                                    {
+                                      count: ref.content.length
+                                    }
+                                  )}
                                 </summary>
-                                <pre className="mt-1 max-h-24 overflow-auto rounded bg-muted/50 p-1.5 text-[11px] whitespace-pre-wrap">
-                                  {ref.content[0]}
-                                </pre>
+                                <div className="mt-1 space-y-1">
+                                  {ref.content.map((snippet, snippetIndex) => (
+                                    <pre
+                                      key={`${ref.reference_id || i}-${snippetIndex}`}
+                                      className="bg-muted/50 max-h-24 overflow-auto rounded p-1.5 text-[11px] whitespace-pre-wrap"
+                                    >
+                                      {snippet}
+                                    </pre>
+                                  ))}
+                                </div>
                               </details>
                             )}
-                          </span>
+                          </div>
                         </li>
                       ))}
                     </ul>
                   )}
                 </div>
               )}
-              {queryDataResult && (
+              {latestArtifactsRequestRef.current && (
                 <div className="mt-2 border-t pt-2">
                   <button
                     type="button"
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => setQueryDataExpanded(!queryDataExpanded)}
+                    className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-xs transition-colors"
+                    onClick={() => {
+                      const nextExpanded = !queryDataExpanded
+                      setQueryDataExpanded(nextExpanded)
+                      if (nextExpanded && queryDataStatus === 'idle') {
+                        loadQueryData()
+                      }
+                    }}
                   >
-                    {queryDataExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-                    <span className="font-medium">{t('retrievePanel.retrieval.retrievalData', 'Retrieval Data')}</span>
+                    {queryDataExpanded ? (
+                      <ChevronDown className="size-3" />
+                    ) : (
+                      <ChevronRight className="size-3" />
+                    )}
+                    <span className="font-medium">
+                      {t('retrievePanel.retrieval.retrievalData', 'Retrieval Data')}
+                    </span>
                   </button>
                   {queryDataExpanded && (
                     <div className="mt-2">
-                      <div className="flex gap-1 mb-2 text-[11px] border-b">
-                        {(['entities', 'relationships', 'chunks', 'references'] as const).map((tab) => (
-                          <button
-                            key={tab}
-                            type="button"
-                            className={`px-2 py-1 rounded-t transition-colors capitalize ${
-                              dataTab === tab
-                                ? 'bg-muted/80 font-medium text-foreground'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                            onClick={() => setDataTab(tab)}
-                          >
-                            {tab}
-                            <span className="ml-1 text-[10px] opacity-60">
-                              ({(queryDataResult.data[tab] as any[])?.length || 0})
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                      <div className="max-h-64 overflow-auto text-[11px] space-y-1">
-                        {dataTab === 'entities' && (queryDataResult.data.entities || []).map((e: any, i: number) => (
-                          <div key={i} className="flex gap-2 p-1.5 rounded bg-muted/30">
-                            <span className="font-mono font-medium shrink-0">{e.entity_name || e.name || '?'}</span>
-                            <span className="text-muted-foreground truncate">{e.description || ''}</span>
+                      {queryDataStatus === 'loading' ? (
+                        <div className="text-muted-foreground py-4 text-center text-xs">
+                          {t(
+                            'retrievePanel.retrieval.loadingRetrievalData',
+                            'Loading retrieval data...'
+                          )}
+                        </div>
+                      ) : null}
+                      {queryDataStatus === 'error' ? (
+                        <div className="border-destructive/20 bg-destructive/5 space-y-2 rounded border p-3 text-xs">
+                          <div className="text-destructive">
+                            {t(
+                              'retrievePanel.retrieval.retrievalDataError',
+                              'Failed to load retrieval data'
+                            )}
                           </div>
-                        ))}
-                        {dataTab === 'relationships' && (queryDataResult.data.relationships || []).map((r: any, i: number) => (
-                          <div key={i} className="flex gap-2 p-1.5 rounded bg-muted/30">
-                            <span className="font-mono shrink-0">{r.source || '?'}</span>
-                            <span className="text-muted-foreground">→</span>
-                            <span className="font-mono shrink-0">{r.target || '?'}</span>
-                            <span className="text-muted-foreground truncate">{r.description || r.keywords || ''}</span>
+                          <div className="text-muted-foreground break-all">{queryDataError}</div>
+                          <Button size="sm" variant="ghost" onClick={() => loadQueryData()}>
+                            {t('retrievePanel.retrieval.retryLoadData', 'Retry')}
+                          </Button>
+                        </div>
+                      ) : null}
+                      {queryDataStatus === 'ready' && queryDataResult ? (
+                        <>
+                          <div className="mb-2 flex gap-1 border-b text-[11px]">
+                            {retrievalDataTabs.map((tab) => {
+                              const tabItems = getQueryDataTabItems(queryDataResult, tab)
+                              return (
+                                <button
+                                  key={tab}
+                                  type="button"
+                                  className={`rounded-t px-2 py-1 capitalize transition-colors ${
+                                    dataTab === tab
+                                      ? 'bg-muted/80 text-foreground font-medium'
+                                      : 'text-muted-foreground hover:text-foreground'
+                                  }`}
+                                  onClick={() => setDataTab(tab)}
+                                >
+                                  {tab}
+                                  <span className="ml-1 text-[10px] opacity-60">
+                                    ({tabItems.length})
+                                  </span>
+                                </button>
+                              )
+                            })}
                           </div>
-                        ))}
-                        {dataTab === 'chunks' && (queryDataResult.data.chunks || []).map((c: any, i: number) => (
-                          <details key={i} className="p-1.5 rounded bg-muted/30">
-                            <summary className="cursor-pointer text-muted-foreground">
-                              {c.source_id || c.file_path || `Chunk ${i + 1}`}
-                            </summary>
-                            <pre className="mt-1 max-h-20 overflow-auto text-[10px] whitespace-pre-wrap opacity-80">
-                              {c.content || ''}
-                            </pre>
-                          </details>
-                        ))}
-                        {dataTab === 'references' && (queryDataResult.data.references || []).map((ref: any, i: number) => (
-                          <div key={i} className="flex gap-1.5 p-1.5 rounded bg-muted/30">
-                            <span className="font-mono text-[10px] shrink-0 opacity-60">{ref.reference_id || i}</span>
-                            <span className="break-all">{ref.file_path || ''}</span>
-                          </div>
-                        ))}
-                        {!(queryDataResult.data[dataTab] as any[])?.length && (
-                          <div className="text-muted-foreground text-center py-4">
-                            {t('retrievePanel.retrieval.noData', 'No {{tab}} data', { tab: dataTab })}
-                          </div>
-                        )}
-                      </div>
+                          {(() => {
+                            const tabItems = getQueryDataTabItems(queryDataResult, dataTab)
+                            const visibleItems = tabItems.slice(
+                              0,
+                              queryDataVisibleCounts[dataTab]
+                            ) as Record<string, any>[]
+
+                            return (
+                              <div className="space-y-1 text-[11px]">
+                                <div className="text-muted-foreground text-[10px]">
+                                  {t(
+                                    'retrievePanel.retrieval.resultCount',
+                                    'Showing {{shown}} / {{total}}',
+                                    {
+                                      shown: visibleItems.length,
+                                      total: tabItems.length
+                                    }
+                                  )}
+                                </div>
+                                <div className="max-h-64 space-y-1 overflow-auto">
+                                  {dataTab === 'entities' &&
+                                    visibleItems.map((e, i) => (
+                                      <div key={i} className="bg-muted/30 flex gap-2 rounded p-1.5">
+                                        <span className="shrink-0 font-mono font-medium">
+                                          {e.entity_name || e.name || '?'}
+                                        </span>
+                                        <span className="text-muted-foreground truncate">
+                                          {e.description || ''}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  {dataTab === 'relationships' &&
+                                    visibleItems.map((r, i) => (
+                                      <div key={i} className="bg-muted/30 flex gap-2 rounded p-1.5">
+                                        <span className="shrink-0 font-mono">
+                                          {r.source || '?'}
+                                        </span>
+                                        <span className="text-muted-foreground">→</span>
+                                        <span className="shrink-0 font-mono">
+                                          {r.target || '?'}
+                                        </span>
+                                        <span className="text-muted-foreground truncate">
+                                          {r.description || r.keywords || ''}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  {dataTab === 'chunks' &&
+                                    visibleItems.map((c, i) => (
+                                      <details key={i} className="bg-muted/30 rounded p-1.5">
+                                        <summary className="text-muted-foreground cursor-pointer">
+                                          {c.source_id || c.file_path || `Chunk ${i + 1}`}
+                                        </summary>
+                                        <pre className="mt-1 max-h-20 overflow-auto text-[10px] whitespace-pre-wrap opacity-80">
+                                          {c.content || ''}
+                                        </pre>
+                                      </details>
+                                    ))}
+                                  {dataTab === 'references' &&
+                                    visibleItems.map((ref, i) => (
+                                      <div
+                                        key={i}
+                                        className="bg-muted/30 flex gap-1.5 rounded p-1.5"
+                                      >
+                                        <span className="shrink-0 font-mono text-[10px] opacity-60">
+                                          {ref.reference_id || i}
+                                        </span>
+                                        <span className="break-all">{ref.file_path || ''}</span>
+                                      </div>
+                                    ))}
+                                  {!tabItems.length && (
+                                    <div className="text-muted-foreground py-4 text-center">
+                                      {t('retrievePanel.retrieval.noData', 'No {{tab}} data', {
+                                        tab: dataTab
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                                {tabItems.length > visibleItems.length ? (
+                                  <div className="pt-1">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() =>
+                                        setQueryDataVisibleCounts((currentCounts) => ({
+                                          ...currentCounts,
+                                          [dataTab]:
+                                            currentCounts[dataTab] + RETRIEVAL_DATA_PAGE_SIZE
+                                        }))
+                                      }
+                                    >
+                                      {t('retrievePanel.retrieval.loadMore', 'Load more')}
+                                    </Button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            )
+                          })()}
+                        </>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -937,7 +1179,7 @@ export default function RetrievalTesting() {
             <EraserIcon />
             {t('retrievePanel.retrieval.clear')}
           </Button>
-          <div className="flex-1 relative">
+          <div className="relative flex-1">
             <label htmlFor="query-input" className="sr-only">
               {t('retrievePanel.retrieval.placeholder')}
             </label>
@@ -946,7 +1188,7 @@ export default function RetrievalTesting() {
                 ref={inputRef as React.RefObject<HTMLTextAreaElement>}
                 id="query-input"
                 autoComplete="on"
-                className="w-full min-h-[40px] max-h-[120px] overflow-y-auto"
+                className="max-h-[120px] min-h-[40px] w-full overflow-y-auto"
                 value={inputValue}
                 onChange={handleChange}
                 onKeyDown={handleKeyDown}
@@ -984,7 +1226,7 @@ export default function RetrievalTesting() {
             )}
             {/* Error message below input */}
             {inputError && (
-              <div className="absolute left-0 top-full mt-1 text-xs text-red-500">{inputError}</div>
+              <div className="absolute top-full left-0 mt-1 text-xs text-red-500">{inputError}</div>
             )}
           </div>
           {isLoading ? (
