@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from lightrag.api.auth import auth_handler
 from lightrag.api.utils_api import get_combined_auth_dependency
+from lightrag.utils import logger
 from lightrag.api.workspace_registry import (
     WorkspaceAlreadyExistsError,
     WorkspaceNotFoundError,
@@ -40,10 +41,10 @@ def _normalize_workspace_response(record: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
-def _identity_from_request(request: Request) -> dict[str, str | None]:
+def _identity_from_request(request: Request) -> dict[str, str | bool | None]:
     authorization = request.headers.get("Authorization", "").strip()
     if not authorization:
-        return {"username": None, "role": "guest"}
+        return {"username": None, "role": "guest", "authenticated": False}
     if not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -54,6 +55,7 @@ def _identity_from_request(request: Request) -> dict[str, str | None]:
     return {
         "username": token_info.get("username"),
         "role": token_info.get("role", "user"),
+        "authenticated": True,
     }
 
 
@@ -65,12 +67,13 @@ def _active_workspace_from_request(request: Request) -> str | None:
 
 
 def workspace_create_allowed(
-    identity: dict[str, str | None], allow_guest_create: bool
+    identity: dict[str, str | bool | None], allow_guest_create: bool
 ) -> bool:
     if identity["role"] in {"user", "admin"} and identity["username"]:
         return True
     if (
         identity["role"] == "guest"
+        and bool(identity.get("authenticated"))
         and allow_guest_create
         and not bool(auth_handler.accounts)
     ):
@@ -79,7 +82,7 @@ def workspace_create_allowed(
 
 
 def _can_view_workspace(
-    identity: dict[str, str | None], record: dict[str, Any]
+    identity: dict[str, str | bool | None], record: dict[str, Any]
 ) -> bool:
     if identity["role"] == "admin":
         return True
@@ -89,20 +92,20 @@ def _can_view_workspace(
     return bool(username and username in record.get("owners", []))
 
 
-def _require_user(identity: dict[str, str | None]) -> str:
+def _require_user(identity: dict[str, str | bool | None]) -> str:
     if identity["role"] not in {"user", "admin"} or not identity["username"]:
         raise HTTPException(status_code=403, detail="Workspace mutation requires login")
     return identity["username"]
 
 
-def _require_admin(identity: dict[str, str | None]) -> str:
+def _require_admin(identity: dict[str, str | bool | None]) -> str:
     if identity["role"] != "admin" or not identity["username"]:
         raise HTTPException(status_code=403, detail="Admin role required")
     return identity["username"]
 
 
 def _require_owner_or_admin(
-    identity: dict[str, str | None], record: dict[str, Any]
+    identity: dict[str, str | bool | None], record: dict[str, Any]
 ) -> str:
     username = _require_user(identity)
     if identity["role"] == "admin" or username in record.get("owners", []):
@@ -125,14 +128,14 @@ def create_workspace_routes(
     registry_store: WorkspaceRegistryStore,
     delete_scheduler: Callable[[str, str], Awaitable[None]] | None = None,
     workspace_initializer: Callable[[str], Awaitable[None]] | None = None,
-    stats_provider: Callable[[str], Any] | None = None,
+    stats_provider: Callable[[str, bool], Any] | None = None,
     api_key: str | None = None,
     allow_guest_create: bool = False,
 ) -> APIRouter:
     router = APIRouter(prefix="/workspaces", tags=["workspaces"])
     combined_auth = get_combined_auth_dependency(api_key)
 
-    def _require_workspace_creator(identity: dict[str, str | None]) -> str:
+    def _require_workspace_creator(identity: dict[str, str | bool | None]) -> str:
         if not workspace_create_allowed(identity, allow_guest_create):
             raise HTTPException(
                 status_code=403,
@@ -159,7 +162,7 @@ def create_workspace_routes(
         identity = _identity_from_request(request)
         created_by = _require_workspace_creator(identity)
         try:
-            created = await registry_store.create_workspace(
+            await registry_store.create_workspace(
                 workspace=payload.workspace,
                 display_name=payload.display_name,
                 description=payload.description,
@@ -168,9 +171,29 @@ def create_workspace_routes(
             )
         except WorkspaceRegistryError as exc:
             raise _map_registry_error(exc) from exc
-        if workspace_initializer is not None:
-            await workspace_initializer(payload.workspace)
-        return _normalize_workspace_response(created)
+        try:
+            if workspace_initializer is not None:
+                await workspace_initializer(payload.workspace)
+            created = await registry_store.complete_workspace_creation(payload.workspace)
+            return _normalize_workspace_response(created)
+        except Exception as exc:
+            logger.error(
+                "Workspace initialization failed: "
+                f"workspace={payload.workspace} actor={created_by} error={exc}"
+            )
+            try:
+                await registry_store.fail_workspace_creation(payload.workspace, str(exc))
+            except WorkspaceRegistryError as registry_exc:
+                logger.error(
+                    "Workspace initialization failure could not be persisted: "
+                    f"workspace={payload.workspace} error={registry_exc}"
+                )
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Workspace initialization failed for '{payload.workspace}': {exc}"
+                ),
+            ) from exc
 
     @router.get("/{workspace}", dependencies=[Depends(combined_auth)])
     async def get_workspace(workspace: str, request: Request):
@@ -184,7 +207,9 @@ def create_workspace_routes(
         return _normalize_workspace_response(record)
 
     @router.get("/{workspace}/stats", dependencies=[Depends(combined_auth)])
-    async def get_workspace_stats(workspace: str, request: Request):
+    async def get_workspace_stats(
+        workspace: str, request: Request, include_runtime: bool = False
+    ):
         identity = _identity_from_request(request)
         try:
             record = await registry_store.get_workspace(workspace)
@@ -197,7 +222,7 @@ def create_workspace_routes(
                 status_code=501, detail="Workspace stats are not configured"
             )
 
-        stats = stats_provider(workspace)
+        stats = stats_provider(workspace, include_runtime)
         if inspect.isawaitable(stats):
             stats = await stats
         return stats

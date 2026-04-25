@@ -911,8 +911,14 @@ export const softDeleteWorkspace = async (workspace: string): Promise<WorkspaceR
   return response.data
 }
 
-export const getWorkspaceStats = async (workspace: string): Promise<WorkspaceStatsResponse> => {
-  const response = await axiosInstance.get(`/workspaces/${encodeURIComponent(workspace)}/stats`)
+export const getWorkspaceStats = async (
+  workspace: string,
+  options?: { include_runtime?: boolean }
+): Promise<WorkspaceStatsResponse> => {
+  const suffix = options?.include_runtime ? '?include_runtime=true' : ''
+  const response = await axiosInstance.get(
+    `/workspaces/${encodeURIComponent(workspace)}/stats${suffix}`
+  )
   return response.data
 }
 

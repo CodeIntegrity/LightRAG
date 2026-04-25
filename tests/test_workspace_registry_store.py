@@ -39,11 +39,15 @@ async def test_create_workspace_persists_sqlite_record(tmp_path: Path):
     fetched = await store.get_workspace("books")
 
     assert record["workspace"] == "books"
+    assert record["status"] == "creating"
     assert record["created_by"] == "alice"
     assert record["owners"] == ["alice"]
     assert record["visibility"] == "private"
     assert fetched["workspace"] == "books"
     assert fetched["display_name"] == "Books"
+
+    completed = await store.complete_workspace_creation("books")
+    assert completed["status"] == "ready"
 
 
 @pytest.mark.asyncio
@@ -82,6 +86,7 @@ async def test_begin_hard_delete_records_running_operation(tmp_path: Path):
         created_by="alice",
         visibility="private",
     )
+    await store.complete_workspace_creation("books")
 
     operation = await store.begin_hard_delete("books", requested_by="admin")
 
@@ -109,6 +114,7 @@ async def test_complete_and_fail_hard_delete_update_workspace_state(tmp_path: Pa
         created_by="alice",
         visibility="private",
     )
+    await store.complete_workspace_creation("books")
 
     await store.begin_hard_delete("books", requested_by="admin")
     await store.fail_hard_delete("books", "boom")
@@ -148,6 +154,7 @@ async def test_initialize_purges_legacy_hard_deleted_workspaces(tmp_path: Path):
         created_by="alice",
         visibility="private",
     )
+    await store.complete_workspace_creation("legacy_deleted")
 
     with store._connect() as conn:
         conn.execute(
@@ -208,6 +215,7 @@ async def test_initialize_prefers_explicit_default_workspace_and_demotes_others(
         created_by="alice",
         visibility="private",
     )
+    await store.complete_workspace_creation("legacy_default")
     await store.create_workspace(
         workspace="env_primary",
         display_name="Env Primary",
@@ -215,6 +223,7 @@ async def test_initialize_prefers_explicit_default_workspace_and_demotes_others(
         created_by="alice",
         visibility="private",
     )
+    await store.complete_workspace_creation("env_primary")
 
     with store._connect() as conn:
         conn.execute(
@@ -242,3 +251,67 @@ async def test_initialize_prefers_explicit_default_workspace_and_demotes_others(
 
     updated = await store.soft_delete_workspace("legacy_default", deleted_by="alice")
     assert updated["status"] == "soft_deleted"
+
+
+@pytest.mark.asyncio
+async def test_fail_workspace_creation_marks_workspace_failed_and_allows_retry(
+    tmp_path: Path,
+):
+    from lightrag.api.workspace_registry import WorkspaceRegistryStore
+
+    store = WorkspaceRegistryStore(tmp_path / "registry.sqlite3")
+    await store.initialize(default_workspace="")
+
+    await store.create_workspace(
+        workspace="books",
+        display_name="Books",
+        description="Long-form corpus",
+        created_by="alice",
+        visibility="private",
+    )
+    failed = await store.fail_workspace_creation("books", "seed init failed")
+
+    assert failed["status"] == "create_failed"
+    assert failed["delete_error"] == "seed init failed"
+
+    operation = await store.get_workspace_operation("books")
+    assert operation["kind"] == "create"
+    assert operation["state"] == "failed"
+    assert operation["error"] == "seed init failed"
+
+    retried = await store.create_workspace(
+        workspace="books",
+        display_name="Books v2",
+        description="retry",
+        created_by="alice",
+        visibility="public",
+    )
+    assert retried["status"] == "creating"
+    assert retried["display_name"] == "Books v2"
+    assert retried["visibility"] == "public"
+
+
+@pytest.mark.asyncio
+async def test_initialize_recovers_stuck_creating_workspace(tmp_path: Path):
+    from lightrag.api.workspace_registry import WorkspaceRegistryStore
+
+    db_path = tmp_path / "registry.sqlite3"
+    store = WorkspaceRegistryStore(db_path)
+    await store.initialize(default_workspace="")
+    await store.create_workspace(
+        workspace="stuck_ws",
+        display_name="Stuck",
+        description="stuck",
+        created_by="alice",
+        visibility="private",
+    )
+
+    reloaded = WorkspaceRegistryStore(db_path)
+    await reloaded.initialize(default_workspace="")
+    record = await reloaded.get_workspace("stuck_ws")
+    operation = await reloaded.get_workspace_operation("stuck_ws")
+
+    assert record["status"] == "create_failed"
+    assert record["delete_error"] == "SERVER_RESTART_DURING_CREATE"
+    assert operation["state"] == "failed"
+    assert operation["error"] == "SERVER_RESTART_DURING_CREATE"

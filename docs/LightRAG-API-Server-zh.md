@@ -440,10 +440,13 @@ WebUI 仅支持查询时（query-time）的 `prompt_overrides`，不支持修改
 - 未注册的 workspace 默认会被拒绝，而不是随请求流量自动创建。
 - guest/免登录会话创建 workspace 采用显式开关控制，由 `ALLOW_GUEST_WORKSPACE_CREATE=true` 启用。
 - 仅当 `ALLOW_GUEST_WORKSPACE_CREATE=true` 时，`POST /workspaces` 才允许 guest 会话创建；guest 创建记录会写入 `created_by='guest'` 和 `owners=['guest']`。
+- `POST /workspaces` 现在是两阶段流程：先把 registry 记录写成 `creating`，只有文档目录和 prompt seed 初始化成功后才切到 `ready`。
+- 如果初始化失败，workspace 会停留在 `create_failed`；客户端可通过 `/workspaces/{workspace}/operation` 查看最近一次失败原因，并对同一 workspace 再次调用 `POST /workspaces` 触发重试。
 - 该开关只影响 workspace 创建能力，不会放大 `hard-delete` 等高风险 admin-only 操作权限。
 - `soft-delete` 只会把 workspace 从常规选择器中隐藏，底层数据仍然保留。
 - `hard-delete` 是异步操作，接口返回 `202 Accepted`；客户端应轮询 `/workspaces/{workspace}/operation` 查看进度。
-- `GET /workspaces/{workspace}/stats` 采用 best-effort 返回，并通过 `capabilities` 字段解释为什么某些统计值可能为 `null`。
+- 新 workspace 的 prompt seed 默认跟随实例 `SUMMARY_LANGUAGE`（`English -> en`，`Chinese/中文 -> zh`）；手动 `POST /prompt-config/initialize?locale=...` 仍是显式覆盖入口。
+- `GET /workspaces/{workspace}/stats` 采用 best-effort 返回，并通过 `capabilities` 字段解释为什么某些统计值可能为 `null`。默认只返回轻量元数据；只有显式传 `include_runtime=true` 时，才会计算 `document_count`、`chunk_count` 这类 runtime 统计。
 
 ### Workspace 迁移 CLI
 

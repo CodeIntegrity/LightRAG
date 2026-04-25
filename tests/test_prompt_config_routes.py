@@ -70,6 +70,7 @@ def _build_test_client(
     allow_guest_workspace_create: bool = False,
     enable_guest_login_entry: bool = False,
     guest_visible_tabs: list[str] | None = None,
+    summary_language: str | None = None,
 ):
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
 
@@ -114,6 +115,8 @@ def _build_test_client(
     monkeypatch.setattr(lightrag_server, "get_namespace_data", _fake_get_namespace_data)
 
     args = api_config.parse_args()
+    args.working_dir = str(tmp_path)
+    args.input_dir = str(tmp_path / "inputs")
     args.workspace_registry_path = str(tmp_path / "workspaces" / "registry.sqlite3")
     args.allow_guest_workspace_create = allow_guest_workspace_create
     args.enable_guest_login_entry = enable_guest_login_entry
@@ -124,6 +127,8 @@ def _build_test_client(
         "retrieval",
         "api",
     ]
+    if summary_language is not None:
+        args.summary_language = summary_language
     app = lightrag_server.create_app(args)
     return TestClient(app)
 
@@ -235,17 +240,30 @@ def test_workspace_routes_are_mounted_on_application(test_client):
     assert "workspaces" in response.json()
 
 
-def test_workspace_stats_route_is_mounted_on_application(test_client):
-    workspaces = test_client.get("/workspaces").json()["workspaces"]
-    workspace = workspaces[0]["workspace"]
-    workspace_path = workspace if workspace else "default"
-    response = test_client.get(f"/workspaces/{workspace_path}/stats")
+def test_workspace_stats_route_is_mounted_on_application(monkeypatch, tmp_path):
+    with _build_test_client(
+        monkeypatch, tmp_path, allow_guest_workspace_create=True
+    ) as client:
+        create_response = client.post(
+            "/workspaces",
+            json={
+                "workspace": "stats_ws",
+                "display_name": "Stats Workspace",
+                "description": "stats",
+                "visibility": "public",
+            },
+            headers={"Authorization": f"Bearer {_build_token('guest', 'guest')}"},
+        )
+        assert create_response.status_code == 201
 
-    assert response.status_code == 200
-    body = response.json()
-    assert "document_count" in body
-    assert "prompt_version_count" in body
-    assert "capabilities" in body
+        response = client.get("/workspaces/stats_ws/stats")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert "document_count" in body
+        assert "prompt_version_count" in body
+        assert "capabilities" in body
+        assert body["capabilities"]["document_count"] == "not_loaded"
 
 
 def test_workspace_stats_expose_chunk_count_capability(monkeypatch, tmp_path):
@@ -264,7 +282,7 @@ def test_workspace_stats_expose_chunk_count_capability(monkeypatch, tmp_path):
         )
         assert create_response.status_code == 201
 
-        response = client.get("/workspaces/ws1/stats")
+        response = client.get("/workspaces/ws1/stats?include_runtime=true")
 
         assert response.status_code == 200
         body = response.json()
@@ -275,6 +293,54 @@ def test_workspace_stats_expose_chunk_count_capability(monkeypatch, tmp_path):
         assert body["entity_count"] is None
         assert body["relation_count"] is None
         assert body["storage_size_bytes"] is None
+
+
+def test_workspace_creation_initializes_english_prompt_seed(monkeypatch, tmp_path):
+    with _build_test_client(
+        monkeypatch,
+        tmp_path,
+        summary_language="English",
+        allow_guest_workspace_create=True,
+    ) as client:
+        create_response = client.post(
+            "/workspaces",
+            json={
+                "workspace": "english_ws",
+                "display_name": "English Workspace",
+                "description": "english seed",
+                "visibility": "public",
+            },
+            headers={"Authorization": f"Bearer {_build_token('guest', 'guest')}"},
+        )
+
+    assert create_response.status_code == 201
+    store = PromptVersionStore(str(tmp_path), workspace="english_ws")
+    groups = store.list_versions("indexing")
+    assert groups["versions"][0]["comment"] == "English initial version"
+
+
+def test_workspace_creation_initializes_chinese_prompt_seed(monkeypatch, tmp_path):
+    with _build_test_client(
+        monkeypatch,
+        tmp_path,
+        summary_language="Chinese",
+        allow_guest_workspace_create=True,
+    ) as client:
+        create_response = client.post(
+            "/workspaces",
+            json={
+                "workspace": "chinese_ws",
+                "display_name": "Chinese Workspace",
+                "description": "chinese seed",
+                "visibility": "public",
+            },
+            headers={"Authorization": f"Bearer {_build_token('guest', 'guest')}"},
+        )
+
+    assert create_response.status_code == 201
+    store = PromptVersionStore(str(tmp_path), workspace="chinese_ws")
+    groups = store.list_versions("indexing")
+    assert groups["versions"][0]["comment"] == "中文初始版本"
 
 
 def test_health_exposes_workspace_create_capability_for_guest_when_enabled(
@@ -293,16 +359,23 @@ def test_health_exposes_workspace_create_capability_for_guest_when_enabled(
 
 
 def test_health_exposes_guest_login_capability_when_enabled(monkeypatch, tmp_path):
-    with _build_test_client(
-        monkeypatch,
-        tmp_path,
-        allow_guest_workspace_create=False,
-        enable_guest_login_entry=True,
-    ) as client:
-        response = client.get("/health")
+    from lightrag.api.auth import auth_handler
 
-    assert response.status_code == 200
-    assert response.json()["capabilities"]["guest_login"] is True
+    original_accounts = auth_handler.accounts.copy()
+    auth_handler.accounts = {"alice": "secret"}
+    try:
+        with _build_test_client(
+            monkeypatch,
+            tmp_path,
+            allow_guest_workspace_create=False,
+            enable_guest_login_entry=True,
+        ) as client:
+            response = client.get("/health")
+
+        assert response.status_code == 200
+        assert response.json()["capabilities"]["guest_login"] is True
+    finally:
+        auth_handler.accounts = original_accounts
 
 
 def test_health_exposes_guest_login_capability_when_disabled(monkeypatch, tmp_path):
