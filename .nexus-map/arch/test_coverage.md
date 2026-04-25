@@ -1,13 +1,13 @@
 > generated_by: nexus-mapper v2
-> verified_at: 2026-03-31
-> provenance: AST-backed for Python/JavaScript/TypeScript/TSX/Bash; Bash files have module-only coverage, and WebUI internal import relations under `@/...` are supplemented by manual reading because current raw import edges treat those aliases as external.
+> verified_at: 2026-04-25
+> provenance: Refreshed from the current file tree, fresh 30-day git history, and the regenerated AST graph from 2026-04-25. Bash still remains module-only coverage.
 
 # 测试面
 
 ## 总览
 
-- `tests/` 目录当前静态可见 60 个模块。
-- `lightrag_webui/src/` 当前静态可见 18 个前端 `test` 文件，前端测试面已明显扩张。
+- `tests/` 与 `lightrag_webui/src/*.test.*` 仍构成主要静态测试面。
+- 前端测试面仍集中在 API client、workspace、graph workbench、login 和 prompt 管理。
 - 默认测试策略仍偏离线执行，`tests/pytest.ini` 通过 `-m "not integration"` 排除集成测试；集成测试可经 `tests/conftest.py` 的 `--run-integration` 或环境变量开启。
 - 自动化运行时，仓库规范仍优先推荐 `./scripts/test.sh`，而不是直接裸跑 `pytest`。
 - 可见标记：
@@ -68,7 +68,7 @@
 - `tests/test_faiss_meta_inconsistency.py`
 - `tests/test_dimension_mismatch.py`
 
-这块覆盖面仍然很广，而且 `tests/test_nebula_graph_storage.py` 继续处于 Git 热点榜前列；同时 PostgreSQL 已出现性能 / 重试 / 分页相关的专门测试簇。
+这块覆盖面仍然很广；最近热点已经更偏向 PostgreSQL、API client 和本地化改动，但 Nebula、OpenSearch、Qdrant、Milvus 等存储测试簇依旧在场。
 
 ### 4. 配置向导与部署契约
 
@@ -102,6 +102,7 @@
 - 本次未执行 `./scripts/test.sh`、`pytest` 或 `bun test` 作为知识库生成步骤，因此这里只能证明“存在测试面”，不能证明当前工作树全部通过。
 - 前端测试虽然已扩展，但仍未看到完整的端到端 UI 流程测试证据。
 - Bash 脚本没有 AST 级结构覆盖，所以 `scripts/setup/` 的测试映射仍主要依赖文件名、Git 耦合和人工阅读。
+- 当前 `ast_nodes.json` 已恢复有效节点，但本页仍主要表达静态测试面，不等同于真实运行覆盖率。
 - 集成测试依赖外部数据库或 API 环境；静态分析无法替代这些端到端检查。
 
 ## 改动时优先关注

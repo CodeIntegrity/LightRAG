@@ -1,6 +1,6 @@
 > generated_by: nexus-mapper v2
-> verified_at: 2026-03-31
-> provenance: AST-backed for Python/JavaScript/TypeScript/TSX/Bash; Bash files have module-only coverage, and WebUI internal import relations under `@/...` are supplemented by manual reading because current raw import edges treat those aliases as external.
+> verified_at: 2026-04-25
+> provenance: High-level dependency views are backed by the refreshed AST graph from 2026-04-25. WebUI internal `@/...` alias edges still need人工补证。
 
 # 系统依赖
 
@@ -76,10 +76,11 @@ sequenceDiagram
 
 ## 关键证据
 
-- `query_graph --impact lightrag/api/lightrag_server.py` 当前给出 28 个上游内部依赖、1 个下游依赖；其中直接包含 `document_routes`、`graph_routes`、`query_routes`、`workspace_routes`、`prompt_config_routes`、`workspace_registry`、`workspace_runtime` 和 `prompt_version_store`。
-- `query_graph --impact lightrag/prompt_version_store.py` 显示其当前下游依赖为 `lightrag.lightrag`、`lightrag.api.lightrag_server`、`lightrag.api.routers.prompt_config_routes` 以及多个测试模块，说明它仍是核心运行时的直接依赖，而不是纯 API 辅助脚本。
+- `create_app()` 仍显式挂载 `document_routes`、`graph_routes`、`query_routes`、`workspace_routes` 与 `prompt_config_routes`，说明 API 服务仍是多工作流聚合入口。
+- `PromptVersionStore` 仍同时被运行时、API 路由与 WebUI 工作流消费，说明它仍是核心运行时的直接依赖，而不是纯 API 辅助脚本。
 - `lightrag/operate.py` 会先合并激活 retrieval 版本，再合并单次请求 `prompt_overrides`；因此“激活版本 > 默认模板，但 < request override”仍是当前真实生效顺序。
 - `App.tsx`、`SiteHeader.tsx`、`PromptManagement.tsx`、`RetrievalTesting.tsx` 与 workspace 相关测试共同证明 prompt versioning 与 workspace 管理已是 WebUI 一级工作流，而不只是隐藏 API。
+- Git 耦合中 `lightrag/api/lightrag_server.py` ↔ `lightrag/api/routers/workspace_routes.py` 的 `coupling_score=0.7`，进一步支持 workspace 仍是服务层关键依赖面。
 
 ## 层次判断
 

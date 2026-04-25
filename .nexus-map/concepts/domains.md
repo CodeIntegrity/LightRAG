@@ -1,6 +1,6 @@
 > generated_by: nexus-mapper v2
-> verified_at: 2026-03-31
-> provenance: AST-backed for Python/JavaScript/TypeScript/TSX/Bash; Bash files have module-only coverage, and WebUI internal import relations under `@/...` are supplemented by manual reading because current raw import edges treat those aliases as external.
+> verified_at: 2026-04-25
+> provenance: Domain concepts were re-checked against the current file tree and existing system map. This run did not regenerate import-level AST edges because of a local parser compatibility break.
 
 # 核心领域概念
 

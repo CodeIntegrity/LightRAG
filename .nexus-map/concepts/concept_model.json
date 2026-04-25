@@ -1,6 +1,6 @@
 {
   "$schema": "nexus-mapper/concept-model/v1",
-  "generated_at": "2026-03-31T00:13:52Z",
+  "generated_at": "2026-04-25T16:05:00Z",
   "repo_path": "/root/project/LightRAG",
   "generator": "nexus-mapper v2",
   "nodes": [
@@ -354,8 +354,8 @@
     }
   ],
   "metadata": {
-    "total_files": 389,
-    "total_lines": 145944,
+    "total_files": 549,
+    "total_lines": 182911,
     "languages": [
       "bash",
       "javascript",
@@ -363,7 +363,7 @@
       "tsx",
       "typescript"
     ],
-    "git_commits_analyzed": 566,
+    "git_commits_analyzed": 300,
     "analysis_days": 30
   }
 }
