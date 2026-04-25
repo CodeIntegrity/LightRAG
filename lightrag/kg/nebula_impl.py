@@ -62,15 +62,16 @@ class NebulaIndexJobError(RuntimeError):
     """Raised when Nebula explicitly reports an index job failure."""
 
 
-def _load_nebula_client_types() -> tuple[Any, Any]:
+def _load_nebula_client_types() -> tuple[Any, Any, Any]:
     try:
         from nebula3.Config import Config  # type: ignore
+        from nebula3.Config import SSL_config  # type: ignore
         from nebula3.gclient.net import ConnectionPool  # type: ignore
     except Exception as exc:  # pragma: no cover - depends on optional package
         raise ImportError(
             "nebula3-python is required for NebulaGraphStorage. Install with `uv add nebula3-python`."
         ) from exc
-    return Config, ConnectionPool
+    return Config, ConnectionPool, SSL_config
 
 
 def _canonical_edge_pair(src: str, tgt: str) -> tuple[str, str]:
@@ -451,6 +452,9 @@ class NebulaGraphStorage(BaseGraphStorage):
         self._timeout_ms = _env_int("NEBULA_TIMEOUT_MS", 60_000)
         self._ssl_enabled = _env_bool("NEBULA_SSL", default=False)
         self._use_http2 = _env_bool("NEBULA_USE_HTTP2", default=False)
+        self._allow_listener_discovery = _env_bool(
+            "NEBULA_LISTENER_DISCOVERY", default=False
+        )
         self._listener_hosts = [
             _normalize_listener_endpoint(item)
             for item in (_env_str("NEBULA_LISTENER_HOSTS", "") or "").split(",")
@@ -511,15 +515,18 @@ class NebulaGraphStorage(BaseGraphStorage):
         if self._connection_pool is not None:
             return
 
-        Config, ConnectionPool = _load_nebula_client_types()
+        Config, ConnectionPool, SSLConfig = _load_nebula_client_types()
         config = Config()
         config.timeout = self._timeout_ms
         config.max_connection_pool_size = _env_int("NEBULA_MAX_CONNECTION_POOL_SIZE", 10)
         config.min_connection_pool_size = _env_int("NEBULA_MIN_CONNECTION_POOL_SIZE", 1)
         config.use_http2 = self._use_http2
+        ssl_config = SSLConfig() if self._ssl_enabled else None
 
         connection_pool = ConnectionPool()
-        ok = await asyncio.to_thread(connection_pool.init, self._hosts, config)
+        ok = await asyncio.to_thread(
+            connection_pool.init, self._hosts, config, ssl_config
+        )
         if not ok:
             raise RuntimeError("Failed to initialize Nebula connection pool.")
 
@@ -570,13 +577,12 @@ class NebulaGraphStorage(BaseGraphStorage):
         finally:
             await self._release_session(session)
 
-    async def _ensure_space_ready(self) -> None:
+    async def _ensure_space_ready(self, *, rebuild_indexes: bool = False) -> None:
         await self._create_space_if_needed()
         await self._wait_for_space_ready()
         await self._create_schema_if_needed()
         await self._wait_for_schema_ready()
-        await self._create_indexes_if_needed()
-        await self._wait_for_index_ready()
+        await self._create_indexes_if_needed(rebuild=rebuild_indexes)
 
     async def _create_space_if_needed(self) -> None:
         sql = (
@@ -660,7 +666,7 @@ class NebulaGraphStorage(BaseGraphStorage):
                     continue
                 raise
 
-    async def _create_indexes_if_needed(self) -> None:
+    async def _create_indexes_if_needed(self, *, rebuild: bool) -> None:
         await self._execute_in_space(
             "CREATE TAG INDEX IF NOT EXISTS entity_entity_id_idx ON entity(entity_id(256));"
         )
@@ -668,19 +674,21 @@ class NebulaGraphStorage(BaseGraphStorage):
             "CREATE EDGE INDEX IF NOT EXISTS relation_pair_idx "
             "ON relation(source_id(256), target_id(256));"
         )
-        for stmt in (
-            "REBUILD TAG INDEX entity_entity_id_idx;",
-            "REBUILD EDGE INDEX relation_pair_idx;",
-        ):
-            try:
-                await self._execute_in_space(stmt)
-            except RuntimeError as exc:
-                if "index" in str(exc).lower() and "not found" in str(exc).lower():
-                    logger.warning(
-                        f"[{self.workspace}] Nebula rebuild skipped for missing index metadata: {exc}"
-                    )
-                    continue
-                raise
+        if rebuild:
+            for stmt in (
+                "REBUILD TAG INDEX entity_entity_id_idx;",
+                "REBUILD EDGE INDEX relation_pair_idx;",
+            ):
+                try:
+                    await self._execute_in_space(stmt)
+                except RuntimeError as exc:
+                    if "index" in str(exc).lower() and "not found" in str(exc).lower():
+                        logger.warning(
+                            f"[{self.workspace}] Nebula rebuild skipped for missing index metadata: {exc}"
+                        )
+                        continue
+                    raise
+            await self._wait_for_index_ready()
         self._fulltext_init_error = None
         try:
             await self._ensure_fulltext_ready()
@@ -694,15 +702,17 @@ class NebulaGraphStorage(BaseGraphStorage):
                 "ON relation(relationship);",
                 f"CREATE FULLTEXT EDGE INDEX {self._fulltext_edge_index_name} ON relation(relationship);",
             )
-            try:
-                await self._execute_in_space("REBUILD FULLTEXT INDEX;")
-            except RuntimeError as exc:
-                logger.warning(
-                    f"[{self.workspace}] Nebula full-text rebuild skipped: {exc}"
-                )
+            if rebuild:
+                try:
+                    await self._execute_in_space("REBUILD FULLTEXT INDEX;")
+                except RuntimeError as exc:
+                    logger.warning(
+                        f"[{self.workspace}] Nebula full-text rebuild skipped: {exc}"
+                    )
             await self._wait_for_fulltext_query_ready(self._fulltext_tag_index_name)
         except RuntimeError as exc:
             self._fulltext_init_error = str(exc)
+            logger.warning(f"[{self.workspace}] Nebula full-text init degraded: {exc}")
             return
 
     async def _ensure_fulltext_ready(self) -> None:
@@ -716,12 +726,10 @@ class NebulaGraphStorage(BaseGraphStorage):
         listener_rows_result = await self._execute_in_space("SHOW LISTENER;")
         listener_rows = _result_to_rows(listener_rows_result)
         if not listener_rows:
-            listener_hosts = (
-                self._listener_hosts or await self._discover_listener_hosts()
-            )
+            listener_hosts = self._listener_hosts or await self._resolve_listener_hosts()
             if not listener_hosts:
                 raise RuntimeError(
-                    "Nebula listener is not configured for this space. Set NEBULA_LISTENER_HOSTS or configure listener manually."
+                    "Nebula listener is not configured for this space. Set NEBULA_LISTENER_HOSTS, enable NEBULA_LISTENER_DISCOVERY, or configure listener manually."
                 )
             await self._execute_in_space(
                 "ADD LISTENER ELASTICSEARCH " + ",".join(listener_hosts) + ";"
@@ -747,6 +755,13 @@ class NebulaGraphStorage(BaseGraphStorage):
                     "Nebula listener did not become ONLINE for the current space."
                 )
             await asyncio.sleep(self._schema_retry_delay_ms / 1000)
+
+    async def _resolve_listener_hosts(self) -> list[str]:
+        if self._listener_hosts:
+            return self._listener_hosts
+        if not self._allow_listener_discovery:
+            return []
+        return await self._discover_listener_hosts()
 
     async def _discover_listener_hosts(self) -> list[str]:
         spaces_result = await self._execute("SHOW SPACES;")
@@ -870,6 +885,9 @@ class NebulaGraphStorage(BaseGraphStorage):
         )
 
     async def index_done_callback(self) -> None:
+        if not self._initialized:
+            return None
+        await self._create_indexes_if_needed(rebuild=True)
         return None
 
     async def drop(self) -> dict[str, str]:

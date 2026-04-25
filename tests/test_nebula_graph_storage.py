@@ -7,8 +7,10 @@ import pytest
 
 from lightrag.kg import (
     STORAGE_IMPLEMENTATIONS,
+    STORAGE_ENV_ALLOW_EMPTY,
     STORAGE_ENV_REQUIREMENTS,
     STORAGES,
+    get_missing_storage_env_vars,
     verify_storage_implementation,
 )
 from lightrag.kg.nebula_impl import (
@@ -83,6 +85,7 @@ def test_nebula_graph_storage_env_requirements():
         "NEBULA_USER",
         "NEBULA_PASSWORD",
     ]
+    assert STORAGE_ENV_ALLOW_EMPTY["NebulaGraphStorage"] == {"NEBULA_PASSWORD"}
 
 
 def test_nebula_graph_storage_verify_compatibility():
@@ -97,6 +100,8 @@ def test_nebula_env_example_documents_required_keys():
     assert "NEBULA_USER" in content
     assert "NEBULA_PASSWORD" in content
     assert "NEBULA_LISTENER_HOSTS" in content
+    assert "NEBULA_LISTENER_DISCOVERY" in content
+    assert "NEBULA_SSL" in content
 
 
 def test_nebula_readme_documents_manual_configuration_flow():
@@ -115,15 +120,31 @@ def test_nebula_readme_documents_manual_configuration_flow():
         assert "NEBULA_USER" in content
         assert "NEBULA_PASSWORD" in content
         assert "NEBULA_LISTENER_HOSTS" in content
+        assert "NEBULA_LISTENER_DISCOVERY" in content
+        assert "NEBULA_SSL" in content
         assert "search_labels" in content
         assert "Elasticsearch" in content
         assert "Listener" in content
         assert "empty string" in content or "空字符串" in content
+        assert (
+            "examples/unofficial-sample/lightrag_openai_nebula_demo.py" in content
+        )
         assert re.search(
             r"workspace.{0,160}space|space.{0,160}workspace",
             content,
             re.IGNORECASE | re.DOTALL,
         )
+
+
+def test_nebula_env_contract_allows_empty_password_when_present():
+    assert get_missing_storage_env_vars(
+        "NebulaGraphStorage",
+        {
+            "NEBULA_HOSTS": "127.0.0.1:9669",
+            "NEBULA_USER": "root",
+            "NEBULA_PASSWORD": "",
+        },
+    ) == []
 
 
 def test_normalize_space_name_uses_prefix_and_workspace():
@@ -255,7 +276,7 @@ async def test_initialize_creates_space_and_schema():
         patch.object(storage, "_use_space", use_space_mock),
         patch.object(storage, "_ensure_fulltext_ready", AsyncMock()),
     ):
-        await storage._ensure_space_ready()
+        await storage._ensure_space_ready(rebuild_indexes=True)
 
     sql_calls = [call.args[0] for call in exec_mock.await_args_list]
     assert any("CREATE SPACE IF NOT EXISTS" in sql for sql in sql_calls)
@@ -380,14 +401,14 @@ async def test_bootstrap_client_initializes_connection_pool_only():
     with (
         patch(
             "lightrag.kg.nebula_impl._load_nebula_client_types",
-            return_value=(Mock(return_value=config), connection_pool_cls),
+            return_value=(Mock(return_value=config), connection_pool_cls, Mock()),
         ),
         patch.object(storage, "_ensure_space_ready", AsyncMock()),
     ):
         await storage.initialize()
 
     connection_pool_cls.assert_called_once()
-    connection_pool.init.assert_called_once()
+    connection_pool.init.assert_called_once_with(storage._hosts, config, None)
     assert storage._connection_pool is connection_pool
 
 
@@ -403,11 +424,40 @@ async def test_bootstrap_client_uses_http2_env_flag_independently_from_ssl():
     connection_pool.init.return_value = True
     with patch(
         "lightrag.kg.nebula_impl._load_nebula_client_types",
-        return_value=(Mock(return_value=config), Mock(return_value=connection_pool)),
+        return_value=(
+            Mock(return_value=config),
+            Mock(return_value=connection_pool),
+            Mock(),
+        ),
     ):
         await storage._bootstrap_client()
 
     assert config.use_http2 is False
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_client_passes_ssl_config_when_enabled():
+    with patch.dict("os.environ", {"NEBULA_SSL": "1"}):
+        storage = build_storage()
+    storage._hosts = [("127.0.0.1", 9669)]
+    storage._user = "root"
+    storage._password = "nebula"
+    config = Mock()
+    connection_pool = Mock()
+    connection_pool.init.return_value = True
+    ssl_config = Mock()
+
+    with patch(
+        "lightrag.kg.nebula_impl._load_nebula_client_types",
+        return_value=(
+            Mock(return_value=config),
+            Mock(return_value=connection_pool),
+            Mock(return_value=ssl_config),
+        ),
+    ):
+        await storage._bootstrap_client()
+
+    connection_pool.init.assert_called_once_with(storage._hosts, config, ssl_config)
 
 
 @pytest.mark.asyncio
@@ -686,6 +736,8 @@ async def test_create_indexes_falls_back_when_fulltext_if_not_exists_is_unsuppor
             object(),  # create edge index
             object(),  # rebuild tag index
             object(),  # rebuild edge index
+            [["job", "entity_entity_id_idx", "FINISHED"]],
+            [["job", "relation_pair_idx", "FINISHED"]],
             RuntimeError("SyntaxError: syntax error near `IF'"),
             object(),  # create fulltext tag index without IF
             RuntimeError("SyntaxError: syntax error near `IF'"),
@@ -698,7 +750,7 @@ async def test_create_indexes_falls_back_when_fulltext_if_not_exists_is_unsuppor
         patch.object(storage, "_execute_in_space", execute_in_space),
         patch.object(storage, "_ensure_fulltext_ready", AsyncMock()),
     ):
-        await storage._create_indexes_if_needed()
+        await storage._create_indexes_if_needed(rebuild=True)
 
     sql_calls = [call.args[0] for call in execute_in_space.await_args_list]
     assert any(
@@ -723,6 +775,8 @@ async def test_create_indexes_records_service_not_found_for_fulltext():
             object(),  # create edge index
             object(),  # rebuild tag index
             object(),  # rebuild edge index
+            [["job", "entity_entity_id_idx", "FINISHED"]],
+            [["job", "relation_pair_idx", "FINISHED"]],
             RuntimeError("SyntaxError: syntax error near `IF'"),
             RuntimeError("Service not found!"),
         ]
@@ -731,10 +785,84 @@ async def test_create_indexes_records_service_not_found_for_fulltext():
         patch.object(storage, "_execute_in_space", execute_in_space),
         patch.object(storage, "_ensure_fulltext_ready", AsyncMock()),
     ):
-        await storage._create_indexes_if_needed()
+        await storage._create_indexes_if_needed(rebuild=True)
 
     assert storage._fulltext_init_error is not None
     assert "Service not found" in storage._fulltext_init_error
+
+
+@pytest.mark.asyncio
+async def test_initialize_skips_rebuild_paths_during_normal_startup():
+    storage = build_storage(workspace="finance")
+    execute_in_space = AsyncMock(side_effect=[object(), object(), object(), object(), []])
+    with (
+        patch.object(storage, "_execute_in_space", execute_in_space),
+        patch.object(storage, "_ensure_fulltext_ready", AsyncMock()),
+        patch.object(storage, "_create_space_if_needed", AsyncMock()),
+        patch.object(storage, "_wait_for_space_ready", AsyncMock()),
+        patch.object(storage, "_create_schema_if_needed", AsyncMock()),
+        patch.object(storage, "_wait_for_schema_ready", AsyncMock()),
+        patch.object(storage, "_bootstrap_client", AsyncMock()),
+    ):
+        await storage.initialize()
+
+    sql_calls = [call.args[0] for call in execute_in_space.await_args_list]
+    assert "REBUILD TAG INDEX entity_entity_id_idx;" not in sql_calls
+    assert "REBUILD EDGE INDEX relation_pair_idx;" not in sql_calls
+    assert "REBUILD FULLTEXT INDEX;" not in sql_calls
+
+
+@pytest.mark.asyncio
+async def test_index_done_callback_rebuilds_indexes_after_writes():
+    storage = build_storage(workspace="finance")
+    storage._initialized = True
+    create_indexes = AsyncMock()
+
+    with patch.object(storage, "_create_indexes_if_needed", create_indexes):
+        await storage.index_done_callback()
+
+    create_indexes.assert_awaited_once_with(rebuild=True)
+
+
+@pytest.mark.asyncio
+async def test_index_done_callback_is_noop_before_initialize():
+    storage = build_storage(workspace="finance")
+    create_indexes = AsyncMock()
+
+    with patch.object(storage, "_create_indexes_if_needed", create_indexes):
+        await storage.index_done_callback()
+
+    create_indexes.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resolve_listener_hosts_prefers_explicit_config():
+    with patch.dict(
+        "os.environ",
+        {
+            "NEBULA_LISTENER_HOSTS": "10.0.0.1:9789,10.0.0.2:9789",
+            "NEBULA_LISTENER_DISCOVERY": "1",
+        },
+    ):
+        storage = build_storage(workspace="finance")
+
+    with patch.object(storage, "_discover_listener_hosts", AsyncMock(return_value=["auto:9789"])):
+        assert await storage._resolve_listener_hosts() == [
+            "10.0.0.1:9789",
+            "10.0.0.2:9789",
+        ]
+
+
+@pytest.mark.asyncio
+async def test_resolve_listener_hosts_skips_cross_space_discovery_by_default():
+    with patch.dict("os.environ", {}, clear=True):
+        storage = build_storage(workspace="finance")
+
+    discover = AsyncMock(return_value=["auto:9789"])
+    with patch.object(storage, "_discover_listener_hosts", discover):
+        assert await storage._resolve_listener_hosts() == []
+
+    discover.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -72,14 +72,14 @@ Accept: application/json
   },
   "node_filters": {
     "entity_types": [
-      "ORGANIZATION"
+      ""
     ],
-    "name_query": "tes",
+    "name_query": "",
     "isolated_only": false
   },
   "edge_filters": {
     "relation_types": [
-      "related"
+      ""
     ],
     "keyword_query": ""
   },

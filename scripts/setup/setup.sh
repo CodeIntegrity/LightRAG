@@ -1628,7 +1628,7 @@ collect_memgraph_config() {
 
 collect_nebula_config() {
   local hosts user password
-  local space_prefix listener_hosts ssl
+  local space_prefix listener_hosts
 
   hosts="$(prompt_until_valid "Nebula hosts (host:port)" "${ENV_VALUES[NEBULA_HOSTS]:-127.0.0.1:9669}" validate_nebula_hosts_format)"
   ENV_VALUES["NEBULA_HOSTS"]="$hosts"
@@ -1650,7 +1650,7 @@ collect_nebula_config() {
       ENV_VALUES["NEBULA_LISTENER_HOSTS"]="$listener_hosts"
     fi
 
-    if confirm_default_no "Enable SSL for Nebula connections?"; then
+    if confirm_default_no "Enable TLS/SSL for Nebula connections?"; then
       ENV_VALUES["NEBULA_SSL"]="true"
     else
       ENV_VALUES["NEBULA_SSL"]="false"

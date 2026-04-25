@@ -47,6 +47,7 @@ declare -Ag STORAGE_ENV_REQUIREMENTS=(
   ["Neo4JStorage"]="NEO4J_URI NEO4J_USERNAME NEO4J_PASSWORD"
   ["MongoGraphStorage"]="MONGO_URI MONGO_DATABASE"
   ["MemgraphStorage"]="MEMGRAPH_URI"
+  # NEBULA_PASSWORD must be set separately but may be an empty string.
   ["NebulaGraphStorage"]="NEBULA_HOSTS NEBULA_USER"
   ["PGGraphStorage"]="POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DATABASE"
   ["OpenSearchGraphStorage"]="OPENSEARCH_HOSTS OPENSEARCH_USER OPENSEARCH_PASSWORD"

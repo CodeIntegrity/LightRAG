@@ -29,8 +29,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lightrag.types import KnowledgeGraph
 from lightrag.kg import (
     STORAGE_IMPLEMENTATIONS,
-    STORAGE_ENV_REQUIREMENTS,
     STORAGES,
+    get_missing_storage_env_vars,
     verify_storage_implementation,
 )
 from lightrag.kg.shared_storage import initialize_share_data
@@ -79,8 +79,7 @@ async def initialize_graph_storage():
         return None
 
     # Check for required environment variables
-    required_env_vars = STORAGE_ENV_REQUIREMENTS.get(graph_storage_type, [])
-    missing_env_vars = [var for var in required_env_vars if not os.getenv(var)]
+    missing_env_vars = get_missing_storage_env_vars(graph_storage_type, os.environ)
 
     if missing_env_vars:
         ASCIIColors.red(

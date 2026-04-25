@@ -1,3 +1,6 @@
+import os
+from collections.abc import Mapping
+
 STORAGE_IMPLEMENTATIONS = {
     "KV_STORAGE": {
         "implementations": [
@@ -116,6 +119,10 @@ STORAGE_ENV_REQUIREMENTS: dict[str, list[str]] = {
     ],
 }
 
+STORAGE_ENV_ALLOW_EMPTY: dict[str, set[str]] = {
+    "NebulaGraphStorage": {"NEBULA_PASSWORD"},
+}
+
 # Storage implementation module mapping
 STORAGES = {
     "NetworkXStorage": ".kg.networkx_impl",
@@ -166,3 +173,23 @@ def verify_storage_implementation(storage_type: str, storage_name: str) -> None:
             f"Storage implementation '{storage_name}' is not compatible with {storage_type}. "
             f"Compatible implementations are: {', '.join(storage_info['implementations'])}"
         )
+
+
+def get_missing_storage_env_vars(
+    storage_name: str, environ: Mapping[str, str] | None = None
+) -> list[str]:
+    env = os.environ if environ is None else environ
+    allow_empty = STORAGE_ENV_ALLOW_EMPTY.get(storage_name, set())
+    missing: list[str] = []
+
+    for var in STORAGE_ENV_REQUIREMENTS.get(storage_name, []):
+        value = env.get(var)
+        if value is None:
+            missing.append(var)
+            continue
+        if var in allow_empty:
+            continue
+        if not str(value).strip():
+            missing.append(var)
+
+    return missing
