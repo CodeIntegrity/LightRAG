@@ -140,3 +140,57 @@ def test_update_version_reuses_version_identity_and_updates_payload(tmp_path: Pa
     assert updated["version_name"] == "retrieval-inline"
     assert updated["comment"] == "edited"
     assert updated["payload"]["query"]["rag_response"] == "UPDATED {context_data}"
+
+
+def test_delete_missing_version_is_rejected(tmp_path: Path):
+    store = PromptVersionStore(tmp_path, workspace="demo")
+    store.initialize(locale="en")
+
+    with pytest.raises(ValueError, match="not found"):
+        store.delete_version("retrieval", "missing-version")
+
+
+def test_create_version_rejects_blank_name_after_trim(tmp_path: Path):
+    store = PromptVersionStore(tmp_path, workspace="demo")
+    store.initialize(locale="en")
+
+    with pytest.raises(ValueError, match="must not be empty"):
+        store.create_version(
+            "retrieval",
+            {
+                "query": {"rag_response": "A {context_data}"},
+                "keywords": {"keywords_extraction": "Q={query};E={examples}"},
+            },
+            "   ",
+            "",
+            None,
+        )
+
+
+def test_diff_versions_returns_nested_prompt_paths(tmp_path: Path):
+    store = PromptVersionStore(tmp_path, workspace="demo")
+    registry = store.initialize(locale="en")
+    base_version = registry["retrieval"]["versions"][0]
+    updated_version = store.copy_version(
+        "retrieval", base_version["version_id"], "retrieval-copy", ""
+    )
+    store.update_version(
+        "retrieval",
+        updated_version["version_id"],
+        {
+            "query": {"rag_response": "UPDATED {context_data}"},
+            "keywords": {
+                "keywords_extraction": "UPDATED {query} {examples}",
+                "keywords_extraction_examples": ["example-a"],
+            },
+        },
+        "retrieval-copy",
+        "",
+    )
+
+    diff = store.diff_versions(
+        "retrieval", updated_version["version_id"], base_version["version_id"]
+    )
+
+    assert "query.rag_response" in diff["changes"]
+    assert "keywords.keywords_extraction_examples" in diff["changes"]

@@ -125,6 +125,12 @@ class PromptVersionStore:
             return 1
         return max(version["version_number"] for version in versions) + 1
 
+    def _normalize_version_name(self, version_name: str) -> str:
+        normalized_version_name = version_name.strip()
+        if not normalized_version_name:
+            raise ValueError("Prompt version name must not be empty")
+        return normalized_version_name
+
     def create_version(
         self,
         group_type: str,
@@ -138,11 +144,12 @@ class PromptVersionStore:
 
         normalized_payload = normalize_prompt_group_payload(group_type, payload)
         validate_prompt_group_payload(group_type, normalized_payload)
+        normalized_version_name = self._normalize_version_name(version_name)
         registry = self._read_or_default()
         record = {
             "version_id": str(uuid4()),
             "group_type": group_type,
-            "version_name": version_name,
+            "version_name": normalized_version_name,
             "version_number": self._next_version_number(group_type, registry),
             "comment": comment,
             "source_version_id": source_version_id,
@@ -182,10 +189,11 @@ class PromptVersionStore:
 
         normalized_payload = normalize_prompt_group_payload(group_type, payload)
         validate_prompt_group_payload(group_type, normalized_payload)
+        normalized_version_name = self._normalize_version_name(version_name)
         registry = self._read_or_default()
         for version in registry[group_type]["versions"]:
             if version["version_id"] == version_id:
-                version["version_name"] = version_name
+                version["version_name"] = normalized_version_name
                 version["comment"] = comment
                 version["payload"] = deepcopy(normalized_payload)
                 self._atomic_write(registry)
@@ -207,11 +215,16 @@ class PromptVersionStore:
         if registry[group_type]["active_version_id"] == version_id:
             raise ValueError("Cannot delete the active prompt version")
 
+        original_count = len(registry[group_type]["versions"])
         registry[group_type]["versions"] = [
             item
             for item in registry[group_type]["versions"]
             if item["version_id"] != version_id
         ]
+        if len(registry[group_type]["versions"]) == original_count:
+            raise ValueError(
+                f"Prompt version '{version_id}' not found in group '{group_type}'"
+            )
         self._atomic_write(registry)
 
     def diff_versions(
@@ -223,14 +236,27 @@ class PromptVersionStore:
             if base_version_id
             else {}
         )
-        changed_keys = sorted(set(base) | set(target))
+
+        def _flatten(value: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+            flattened: dict[str, Any] = {}
+            for key, item in value.items():
+                next_key = f"{prefix}.{key}" if prefix else key
+                if isinstance(item, dict):
+                    flattened.update(_flatten(item, next_key))
+                else:
+                    flattened[next_key] = item
+            return flattened
+
+        flat_target = _flatten(target)
+        flat_base = _flatten(base)
+        changed_keys = sorted(set(flat_base) | set(flat_target))
         return {
             "group_type": group_type,
             "base_version_id": base_version_id,
             "version_id": version_id,
             "changes": {
-                key: {"before": base.get(key), "after": target.get(key)}
+                key: {"before": flat_base.get(key), "after": flat_target.get(key)}
                 for key in changed_keys
-                if base.get(key) != target.get(key)
+                if flat_base.get(key) != flat_target.get(key)
             },
         }

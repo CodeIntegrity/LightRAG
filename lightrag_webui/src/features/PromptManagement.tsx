@@ -207,6 +207,10 @@ export default function PromptManagement() {
         toast.error(t('promptManagement.importInvalidFormat'))
         return
       }
+      if (data.group_type !== groupType) {
+        toast.error(t('promptManagement.importInvalidFormat'))
+        return
+      }
 
       let imported = 0
       for (const version of data.versions) {

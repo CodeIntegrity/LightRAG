@@ -107,8 +107,8 @@ export default function PromptVersionEditor({
   }, [version])
 
   const isSectionModified = (key: string): boolean => {
-    const current = payload[key]
-    const original = originalPayloadRef.current[key]
+    const current = getValueAtPath(payload, key)
+    const original = getValueAtPath(originalPayloadRef.current, key)
     if (typeof current === 'string' && typeof original === 'string') return current !== original
     if (Array.isArray(current) && Array.isArray(original)) return JSON.stringify(current) !== JSON.stringify(original)
     return current !== original

@@ -129,4 +129,54 @@ describe('PromptVersionEditor', () => {
     expect(html).toContain('promptManagement.saveAsNewVersion')
     expect(html).toContain('promptManagement.rebuildFromSelectedVersion')
   })
+
+  test('marks nested prompt sections as modified when payload path changes', async () => {
+    const ReactModule = await import('react')
+    const noop = vi.fn()
+    vi.spyOn(ReactModule, 'useState')
+      .mockImplementationOnce((() => ['retrieval-seed', noop]) as never)
+      .mockImplementationOnce((() => ['', noop]) as never)
+      .mockImplementationOnce((() => [{ query: { rag_response: 'Changed {context_data}' } }, noop]) as never)
+      .mockImplementationOnce((() => [false, noop]) as never)
+      .mockImplementationOnce((() => [null, noop]) as never)
+    vi.spyOn(ReactModule, 'useRef').mockReturnValue({
+      current: {
+        query: {
+          rag_response: 'Original {context_data}'
+        }
+      }
+    })
+
+    const module = await import('./PromptVersionEditor')
+    const PromptVersionEditor = module.default
+
+    const html = renderToString(
+      <PromptVersionEditor
+        groupType="retrieval"
+        version={{
+          version_id: 'retrieval-seed',
+          group_type: 'retrieval',
+          version_name: 'retrieval-seed',
+          version_number: 1,
+          comment: '',
+          created_at: '2026-03-25T00:00:00Z',
+          payload: {
+            query: {
+              rag_response: 'Original {context_data}'
+            }
+          }
+        }}
+        versionsById={{}}
+        activeVersionId={null}
+        onSaveCurrentVersion={async () => {}}
+        onSaveAsNewVersion={async () => {}}
+        onActivateVersion={async () => {}}
+        onDeleteVersion={async () => {}}
+        onShowDiff={async () => {}}
+        onRebuildFromVersion={async () => {}}
+      />
+    )
+
+    expect(html).toContain('border-amber-300/60')
+  })
 })
