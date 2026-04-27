@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { GitBranchPlus, Scissors } from 'lucide-react'
 import EditablePropertyRow from './EditablePropertyRow'
 import { resolveNodeDisplayName } from '@/utils/graphLabel'
-import { getVisibleGraphPropertyKeys } from '@/utils/graphProperties'
+import { getVisibleGraphPropertyEntries } from '@/utils/graphProperties'
 
 /**
  * Component that view properties of elements in graph.
@@ -322,13 +322,13 @@ const NodePropertiesView = ({ node }: { node: NodeType }) => {
       </div>
       <h3 className="text-md pl-1 font-bold tracking-wide text-amber-700">{t('graphPanel.propertiesView.node.properties')}</h3>
       <div className="bg-primary/5 max-h-96 overflow-auto rounded p-1">
-        {getVisibleGraphPropertyKeys(node.properties, 'node')
-          .map((name) => {
+        {getVisibleGraphPropertyEntries(node.properties, 'node')
+          .map(({ name, value }) => {
             return (
               <PropertyRow
                 key={name}
                 name={name}
-                value={node.properties[name]}
+                value={value}
                 nodeId={String(node.id)}
                 entityId={node.properties['entity_id']}
                 entityType="node"
@@ -398,15 +398,15 @@ const EdgePropertiesView = ({ edge }: { edge: EdgeType }) => {
       </div>
       <h3 className="text-md pl-1 font-bold tracking-wide text-amber-700">{t('graphPanel.propertiesView.edge.properties')}</h3>
       <div className="bg-primary/5 max-h-96 overflow-auto rounded p-1">
-        {getVisibleGraphPropertyKeys(edge.properties, 'edge', {
+        {getVisibleGraphPropertyEntries(edge.properties, 'edge', {
           hideKeywords: !edge.type && typeof relationshipName === 'string'
         })
-          .map((name) => {
+          .map(({ name, value }) => {
             return (
               <PropertyRow
                 key={name}
                 name={name}
-                value={edge.properties[name]}
+                value={value}
                 edgeId={String(edge.id)}
                 dynamicId={String(edge.dynamicId)}
                 entityType="edge"

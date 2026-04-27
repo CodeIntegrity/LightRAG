@@ -850,12 +850,16 @@ LightRAG采用异步文档索引机制，便于前端监控和查询文档处理
 
 * `POST /graph/import/custom-kg`
   * 通过 `ainsert_custom_kg` 直接导入结构化自定义知识图谱 payload
+  * 关系端点使用 `src_id` 和 `tgt_id`；实体可额外传可选展示名 `name`
+  * 实体和关系上的未知字段会统一归一化到 `custom_properties`
 * `GET /graph/entity/detail`
   * 查询实体详情
   * 支持可选参数 `include_vector_data=true`
+  * 返回的 `graph_data` 中包含归一化后的 `custom_properties`
 * `GET /graph/relation/detail`
   * 查询关系详情
   * 支持可选参数 `include_vector_data=true`
+  * 返回的 `graph_data` 中包含归一化后的 `custom_properties`
 * `POST /graph/export`
   * 将图数据导出为 `csv`、`excel`、`md` 或 `txt`
   * 以文件下载形式返回导出结果
@@ -1219,10 +1223,10 @@ curl -X POST "http://localhost:9621/query/raw" \
 | `/graph/label/search`      | GET    | 按关键字搜索标签     | `q`、`limit`                                                              |
 | `/graphs`                  | GET    | 获取 legacy 连通子图 | `label`、`max_depth`、`max_nodes`                                         |
 | `/graph/query`             | POST   | 结构化图查询         | `scope`、`node_filters`、`edge_filters`、`source_filters`、`view_options` |
-| `/graph/entity/detail`     | GET    | 获取实体详情         | `entity_name`、`include_vector_data`                                      |
-| `/graph/relation/detail`   | GET    | 获取关系详情         | `source_entity`、`target_entity`、`include_vector_data`                   |
+| `/graph/entity/detail`     | GET    | 获取实体详情         | `entity_name`、`include_vector_data`；响应 `graph_data` 包含 `custom_properties` |
+| `/graph/relation/detail`   | GET    | 获取关系详情         | `source_entity`、`target_entity`、`include_vector_data`；响应 `graph_data` 包含 `custom_properties` |
 | `/graph/export`            | POST   | 导出图数据文件       | `file_format`、`include_vector_data`                                      |
-| `/graph/import/custom-kg`  | POST   | 导入结构化自定义 KG  | custom KG JSON payload                                                    |
+| `/graph/import/custom-kg`  | POST   | 导入结构化自定义 KG  | custom KG JSON payload；关系使用 `src_id`/`tgt_id`，实体可传可选 `name`，未知字段会进入 `custom_properties` |
 | `/graph/entity`            | DELETE | 删除实体             | `entity_name`                                                             |
 | `/graph/relation`          | DELETE | 删除关系             | `source_entity`、`target_entity`                                          |
 | `/graph/merge/suggestions` | POST   | 生成实体合并建议     | merge suggestion payload                                                  |

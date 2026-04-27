@@ -2446,6 +2446,11 @@ class LightRAG:
         custom_kg: dict[str, Any],
         full_doc_id: str = None,
     ) -> None:
+        from lightrag.utils_graph import (
+            normalize_graph_edge_data,
+            normalize_graph_node_data,
+        )
+
         update_storage = False
         try:
             # Insert chunks into vector storage
@@ -2493,28 +2498,40 @@ class LightRAG:
                 deduped_entities[entity_name] = entity_data
 
             # Insert entities into knowledge graph (batch for performance)
-            all_entities_data: list[dict[str, str]] = []
-            entity_nodes: list[tuple[str, dict[str, str]]] = []
+            all_entities_data: list[dict[str, Any]] = []
+            entity_nodes: list[tuple[str, dict[str, Any]]] = []
             for entity_data in deduped_entities.values():
                 entity_name = entity_data["entity_name"]
-                entity_type = entity_data.get("entity_type", "UNKNOWN")
-                description = entity_data.get("description", "No description provided")
-                source_chunk_id = entity_data.get("source_id", "UNKNOWN")
+                normalized_entity = normalize_graph_node_data(
+                    {
+                        **entity_data,
+                        "entity_id": entity_name,
+                    }
+                )
+                source_chunk_id = normalized_entity.get("source_id", "UNKNOWN")
                 source_id = chunk_to_source_map.get(source_chunk_id, "UNKNOWN")
-                file_path = entity_data.get("file_path", "custom_kg")
+                file_path = normalized_entity.get("file_path", "custom_kg")
 
                 if source_id == "UNKNOWN":
                     logger.warning(
                         f"Entity '{entity_name}' has an UNKNOWN source_id. Please check the source mapping."
                     )
 
-                node_data: dict[str, str] = {
+                node_data: dict[str, Any] = {
                     "entity_id": entity_name,
-                    "entity_type": entity_type,
-                    "description": description,
+                    "name": str(normalized_entity.get("name", "") or ""),
+                    "entity_type": normalized_entity.get("entity_type", "UNKNOWN")
+                    or "UNKNOWN",
+                    "description": normalized_entity.get(
+                        "description", "No description provided"
+                    )
+                    or "No description provided",
                     "source_id": source_id,
                     "file_path": file_path,
                     "created_at": int(time.time()),
+                    "custom_properties": dict(
+                        normalized_entity.get("custom_properties", {})
+                    ),
                 }
                 entity_nodes.append((entity_name, node_data))
                 node_data_copy = dict(node_data)
@@ -2537,8 +2554,8 @@ class LightRAG:
                 deduped_relationships[relation_key] = relationship_data
 
             # Insert relationships into knowledge graph (batch for performance)
-            all_relationships_data: list[dict[str, str]] = []
-            edge_list: list[tuple[str, str, dict[str, str]]] = []
+            all_relationships_data: list[dict[str, Any]] = []
+            edge_list: list[tuple[str, str, dict[str, Any]]] = []
 
             # Batch check which relationship endpoints exist (1 await instead of 2M)
             needed_node_ids: set[str] = set()
@@ -2551,13 +2568,14 @@ class LightRAG:
             )
 
             # Create missing nodes in batch
-            missing_nodes: list[tuple[str, dict[str, str]]] = []
+            missing_nodes: list[tuple[str, dict[str, Any]]] = []
             for relationship_data in deduped_relationships.values():
-                src_id = relationship_data["src_id"]
-                tgt_id = relationship_data["tgt_id"]
-                source_chunk_id = relationship_data.get("source_id", "UNKNOWN")
+                normalized_relationship = normalize_graph_edge_data(relationship_data)
+                src_id = str(normalized_relationship["src_id"])
+                tgt_id = str(normalized_relationship["tgt_id"])
+                source_chunk_id = normalized_relationship.get("source_id", "UNKNOWN")
                 source_id = chunk_to_source_map.get(source_chunk_id, "UNKNOWN")
-                file_path = relationship_data.get("file_path", "custom_kg")
+                file_path = normalized_relationship.get("file_path", "custom_kg")
 
                 if source_id == "UNKNOWN":
                     logger.warning(
@@ -2571,11 +2589,13 @@ class LightRAG:
                                 need_insert_id,
                                 {
                                     "entity_id": need_insert_id,
+                                    "name": "",
                                     "source_id": source_id,
                                     "description": "UNKNOWN",
                                     "entity_type": "UNKNOWN",
                                     "file_path": file_path,
                                     "created_at": int(time.time()),
+                                    "custom_properties": {},
                                 },
                             )
                         )
@@ -2584,12 +2604,15 @@ class LightRAG:
                 normalized_src_id, normalized_tgt_id = sorted((src_id, tgt_id))
 
                 edge_data = {
-                    "weight": relationship_data.get("weight", 1.0),
-                    "description": relationship_data["description"],
-                    "keywords": relationship_data["keywords"],
+                    "weight": normalized_relationship.get("weight", 1.0),
+                    "description": normalized_relationship.get("description", ""),
+                    "keywords": normalized_relationship.get("keywords", ""),
                     "source_id": source_id,
                     "file_path": file_path,
                     "created_at": int(time.time()),
+                    "custom_properties": dict(
+                        normalized_relationship.get("custom_properties", {})
+                    ),
                 }
                 edge_list.append((src_id, tgt_id, edge_data))
 
@@ -2597,12 +2620,15 @@ class LightRAG:
                     {
                         "src_id": normalized_src_id,
                         "tgt_id": normalized_tgt_id,
-                        "description": relationship_data["description"],
-                        "keywords": relationship_data["keywords"],
+                        "description": normalized_relationship.get("description", ""),
+                        "keywords": normalized_relationship.get("keywords", ""),
                         "source_id": source_id,
-                        "weight": relationship_data.get("weight", 1.0),
+                        "weight": normalized_relationship.get("weight", 1.0),
                         "file_path": file_path,
                         "created_at": int(time.time()),
+                        "custom_properties": dict(
+                            normalized_relationship.get("custom_properties", {})
+                        ),
                     }
                 )
                 update_storage = True

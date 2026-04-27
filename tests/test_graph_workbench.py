@@ -168,6 +168,54 @@ async def test_query_v1_and_or_semantics_for_group_and_field_and_array_or():
 
 
 @pytest.mark.asyncio
+async def test_query_normalizes_unknown_graph_fields_into_custom_properties():
+    rag = _DummyRAG(
+        graph_payload={
+            "nodes": [
+                {
+                    "id": "n1",
+                    "labels": ["PERSON"],
+                    "properties": {
+                        "entity_id": "n1",
+                        "entity_type": "PERSON",
+                        "description": "founder",
+                        "department": "research",
+                    },
+                }
+            ],
+            "edges": [
+                {
+                    "id": "e1",
+                    "source": "n1",
+                    "target": "n1",
+                    "type": "works_on",
+                    "properties": {
+                        "src_id": "n1",
+                        "tgt_id": "n1",
+                        "description": "works on",
+                        "keywords": "ai",
+                        "confidence": 0.9,
+                    },
+                }
+            ],
+            "is_truncated": False,
+        }
+    )
+
+    result = await query_graph_workbench(
+        rag,
+        {"scope": {"label": "*", "max_depth": 1, "max_nodes": 10}},
+    )
+
+    node = result["data"]["nodes"][0]
+    edge = result["data"]["edges"][0]
+    assert node["properties"]["custom_properties"] == {"department": "research"}
+    assert node["graph_data"]["custom_properties"] == {"department": "research"}
+    assert edge["properties"]["custom_properties"] == {"confidence": 0.9}
+    assert edge["graph_data"]["custom_properties"] == {"confidence": 0.9}
+
+
+@pytest.mark.asyncio
 async def test_truncation_flags_when_base_graph_already_truncated():
     rag = _DummyRAG(
         graph_payload={

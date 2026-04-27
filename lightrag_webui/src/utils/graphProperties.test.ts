@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  getVisibleGraphPropertyEntries,
   getVisibleGraphPropertyKeys,
   isEmptyGraphPropertyValue
 } from './graphProperties'
@@ -59,5 +60,28 @@ describe('graphProperties', () => {
         { hideKeywords: true }
       )
     ).toEqual(['description', 'weight'])
+  })
+
+  test('展开 custom_properties 为独立属性项', () => {
+    expect(
+      getVisibleGraphPropertyEntries(
+        {
+          entity_id: 'node-1',
+          entity_type: 'concept',
+          custom_properties: {
+            aliases: ['A', 'B'],
+            metadata: {
+              rank: 1
+            }
+          }
+        },
+        'node'
+      )
+    ).toEqual([
+      { name: 'entity_id', value: 'node-1' },
+      { name: 'entity_type', value: 'concept' },
+      { name: 'aliases', value: ['A', 'B'] },
+      { name: 'metadata', value: { rank: 1 } }
+    ])
   })
 })

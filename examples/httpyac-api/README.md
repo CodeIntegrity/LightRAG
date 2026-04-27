@@ -40,6 +40,7 @@ httpyac send 02-documents.http --all -o body
 - `02-documents.http`、`03-query.http`、`04-graph.http`、`05-prompt-config.http`、`06-workspaces.http`、`07-ollama.http` 都已通过 `# @import ./01-auth.http` 自动复用登录令牌，执行前请先确保 `.env.local` 里的用户名和密码可用。
 - 多工作区接口默认带 `LIGHTRAG-WORKSPACE` 头；未启用多工作区时可保留默认值。
 - 含删除、重建、导入、合并的请求都已单独标注，执行前先确认目标数据。
+- `04-graph.http` 中的 `/graph/import/custom-kg` 已按最新契约更新：关系使用 `src_id` / `tgt_id`，实体可选传 `name`，任意未知字段会进入 `custom_properties`。
 - `/documents/upload` 示例使用原始 `multipart/form-data` 体，直接可发，不依赖额外文件。
 - 如果你在 VS Code 外修改了 `.env.local`，执行一次 `httpyac.reset` 再重试。
 

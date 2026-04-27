@@ -65,6 +65,7 @@ class _DummyRAG:
                         "description": "Tesla company",
                         "entity_type": "ORGANIZATION",
                         "aliases": ["Tesla Motors"],
+                        "custom_properties": {"ticker": "TSLA"},
                     },
                 },
                 {
@@ -96,6 +97,7 @@ class _DummyRAG:
                         "weight": 1.0,
                         "source_id": "chunk-1",
                         "file_path": "docs/a.txt",
+                        "custom_properties": {"confidence": 0.9},
                     },
                 }
             ],
@@ -237,6 +239,7 @@ class _DummyRAG:
             "graph_data": {
                 "description": "Tesla company",
                 "entity_type": "ORGANIZATION",
+                "custom_properties": {"ticker": "TSLA"},
             },
             "vector_data": {"embedding_model": "demo"} if include_vector_data else None,
             "revision_token": "entity-rev-1",
@@ -260,6 +263,7 @@ class _DummyRAG:
             "graph_data": {
                 "description": "Tesla acquires SolarCity",
                 "keywords": "acquisition",
+                "custom_properties": {"confidence": 0.8},
             },
             "vector_data": {"embedding_model": "demo"} if include_vector_data else None,
             "revision_token": "relation-rev-1",
@@ -401,6 +405,12 @@ def test_graph_query_accepts_v1_filter_shape_and_returns_meta_truncation(graph_c
     assert "edges" in body["data"]
     assert body["data"]["nodes"][0]["revision_token"]
     assert body["data"]["edges"][0]["revision_token"]
+    assert body["data"]["nodes"][0]["properties"]["custom_properties"] == {
+        "ticker": "TSLA"
+    }
+    assert body["data"]["edges"][0]["properties"]["custom_properties"] == {
+        "confidence": 0.9
+    }
     assert rag.last_graph_call == {
         "node_label": "Tesla",
         "max_depth": 2,
@@ -713,6 +723,7 @@ def test_graph_entity_detail_route_returns_entity_payload(graph_client):
     assert body["status"] == "success"
     assert body["data"]["entity_name"] == "Tesla"
     assert body["data"]["aliases"] == ["Tesla Motors"]
+    assert body["data"]["graph_data"]["custom_properties"] == {"ticker": "TSLA"}
     assert body["data"]["vector_data"] == {"embedding_model": "demo"}
     assert rag.last_entity_detail_request == {
         "entity_name": "Tesla",
@@ -737,6 +748,7 @@ def test_graph_relation_detail_route_returns_relation_payload(graph_client):
     assert body["status"] == "success"
     assert body["data"]["src_entity"] == "Tesla"
     assert body["data"]["tgt_entity"] == "SolarCity"
+    assert body["data"]["graph_data"]["custom_properties"] == {"confidence": 0.8}
     assert body["data"]["vector_data"] == {"embedding_model": "demo"}
     assert rag.last_relation_detail_request == {
         "src_entity": "Tesla",

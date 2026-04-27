@@ -571,6 +571,88 @@ class TestAinsertCustomKgBatchPath:
 
     @pytest.mark.offline
     @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_collects_unknown_fields_into_custom_properties(self):
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            graph = rag.chunk_entity_relation_graph
+            graph.upsert_nodes_batch = AsyncMock()
+            graph.has_nodes_batch = AsyncMock(return_value={"EntityA", "EntityB"})
+            graph.upsert_edges_batch = AsyncMock()
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+            rag.text_chunks.upsert = AsyncMock()
+            rag.doc_status.upsert = AsyncMock()
+
+            custom_kg = {
+                "chunks": [
+                    {"content": "chunk content", "chunk_order_index": 0, "source_id": "src-1"}
+                ],
+                "entities": [
+                    {
+                        "entity_name": "EntityA",
+                        "name": "Entity A",
+                        "entity_type": "CONCEPT",
+                        "description": "entity",
+                        "source_id": "src-1",
+                        "file_path": "test.pdf",
+                        "department": "research",
+                        "custom_properties": {"region": "cn"},
+                    }
+                ],
+                "relationships": [
+                    {
+                        "src_id": "EntityA",
+                        "tgt_id": "EntityB",
+                        "description": "links",
+                        "keywords": "link",
+                        "weight": 1.0,
+                        "source_id": "src-1",
+                        "file_path": "test.pdf",
+                        "confidence": 0.7,
+                        "custom_properties": {"channel": "manual"},
+                    }
+                ],
+            }
+
+            await rag.ainsert_custom_kg(custom_kg)
+
+            entity_batch = graph.upsert_nodes_batch.await_args_list[0].args[0]
+            assert entity_batch[0][1]["name"] == "Entity A"
+            assert entity_batch[0][1]["custom_properties"] == {
+                "department": "research",
+                "region": "cn",
+            }
+
+            edge_batch = graph.upsert_edges_batch.await_args.args[0]
+            assert edge_batch[0][2]["custom_properties"] == {
+                "channel": "manual",
+                "confidence": 0.7,
+            }
+
+            entity_vdb_payload = rag.entities_vdb.upsert.await_args.args[0]
+            only_entity = next(iter(entity_vdb_payload.values()))
+            assert "department" not in only_entity["content"]
+            assert "region" not in only_entity["content"]
+
+            rel_vdb_payload = rag.relationships_vdb.upsert.await_args.args[0]
+            only_rel = next(iter(rel_vdb_payload.values()))
+            assert "confidence" not in only_rel["content"]
+            assert "channel" not in only_rel["content"]
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
     async def test_ainsert_custom_kg_keeps_legacy_relation_rows_if_upsert_fails(self):
         from lightrag import LightRAG
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 import re
 from collections import deque
@@ -46,6 +47,7 @@ _NODE_FIELDS = (
     "file_path",
     "created_at",
     "truncate",
+    "custom_properties_json",
 )
 _EDGE_FIELDS = (
     "source_id",
@@ -55,6 +57,7 @@ _EDGE_FIELDS = (
     "keywords",
     "weight",
     "file_path",
+    "custom_properties_json",
 )
 
 
@@ -626,13 +629,15 @@ class NebulaGraphStorage(BaseGraphStorage):
             "source_id string, "
             "file_path string, "
             "created_at int, "
-            "truncate string"
+            "truncate string, "
+            "custom_properties_json string"
             ");"
         )
         for field_name, field_type in (
             ("file_path", "string"),
             ("created_at", "int"),
             ("truncate", "string"),
+            ("custom_properties_json", "string"),
         ):
             try:
                 await self._execute_in_space(
@@ -650,12 +655,14 @@ class NebulaGraphStorage(BaseGraphStorage):
             "description string, "
             "keywords string, "
             "file_path string, "
-            "weight double"
+            "weight double, "
+            "custom_properties_json string"
             ");"
         )
         for field_name, field_type in (
             ("keywords", "string"),
             ("file_path", "string"),
+            ("custom_properties_json", "string"),
         ):
             try:
                 await self._execute_in_space(
@@ -968,15 +975,27 @@ class NebulaGraphStorage(BaseGraphStorage):
     @staticmethod
     def _extract_node_props(
         row: dict[str, Any], *, fallback_entity_id: str | None = None
-    ) -> dict[str, str]:
-        output: dict[str, str] = {}
+    ) -> dict[str, Any]:
+        output: dict[str, Any] = {}
         for field in _NODE_FIELDS:
             value = row.get(field)
             if value is None:
                 continue
+            if field == "custom_properties_json":
+                try:
+                    output["custom_properties"] = (
+                        json.loads(str(value)) if str(value).strip() else {}
+                    )
+                except json.JSONDecodeError:
+                    logger.warning(
+                        f"Failed to decode Nebula node custom_properties_json: {value}"
+                    )
+                    output["custom_properties"] = {}
+                continue
             output[field] = str(value)
         if "entity_id" not in output and fallback_entity_id is not None:
             output["entity_id"] = fallback_entity_id
+        output.setdefault("custom_properties", {})
         return output
 
     @staticmethod
@@ -986,7 +1005,19 @@ class NebulaGraphStorage(BaseGraphStorage):
             value = row.get(field)
             if value is None:
                 continue
+            if field == "custom_properties_json":
+                try:
+                    output["custom_properties"] = (
+                        json.loads(str(value)) if str(value).strip() else {}
+                    )
+                except json.JSONDecodeError:
+                    logger.warning(
+                        f"Failed to decode Nebula edge custom_properties_json: {value}"
+                    )
+                    output["custom_properties"] = {}
+                continue
             output[field] = value
+        output.setdefault("custom_properties", {})
         return output
 
     @staticmethod
@@ -1347,7 +1378,8 @@ class NebulaGraphStorage(BaseGraphStorage):
             "properties(vertex).source_id AS source_id, "
             "properties(vertex).file_path AS file_path, "
             "properties(vertex).created_at AS created_at, "
-            "properties(vertex).truncate AS truncate;"
+            "properties(vertex).truncate AS truncate, "
+            "properties(vertex).custom_properties_json AS custom_properties_json;"
         )
         row = _first_row(result)
         if row is None:
@@ -1370,7 +1402,8 @@ class NebulaGraphStorage(BaseGraphStorage):
             "e.description AS description, "
             "e.keywords AS keywords, "
             "e.weight AS weight, "
-            "e.file_path AS file_path "
+            "e.file_path AS file_path, "
+            "e.custom_properties_json AS custom_properties_json "
             "LIMIT 1;"
         )
         row = _first_row(result)
@@ -1408,7 +1441,8 @@ class NebulaGraphStorage(BaseGraphStorage):
                 "v.entity.source_id AS source_id, "
                 "v.entity.file_path AS file_path, "
                 "v.entity.created_at AS created_at, "
-                "v.entity.truncate AS truncate;"
+                "v.entity.truncate AS truncate, "
+                "v.entity.custom_properties_json AS custom_properties_json;"
             )
             rows.extend(_result_to_rows(result))
 
@@ -1493,7 +1527,8 @@ class NebulaGraphStorage(BaseGraphStorage):
                 "e.description AS description, "
                 "e.keywords AS keywords, "
                 "e.weight AS weight, "
-                "e.file_path AS file_path;"
+                "e.file_path AS file_path, "
+                "e.custom_properties_json AS custom_properties_json;"
             )
             rows = _result_to_rows(result)
             for row in rows:
@@ -1561,7 +1596,7 @@ class NebulaGraphStorage(BaseGraphStorage):
 
     async def upsert_node(self, node_id: str, node_data: dict[str, str]) -> None:
         entity_id = str(node_id)
-        name = str(node_data.get("name", entity_id))
+        name = str(node_data.get("name", ""))
         entity_type = str(node_data.get("entity_type", ""))
         description = str(node_data.get("description", ""))
         keywords = str(node_data.get("keywords", ""))
@@ -1576,9 +1611,14 @@ class NebulaGraphStorage(BaseGraphStorage):
                 except ValueError:
                     pass
         truncate = str(node_data.get("truncate", ""))
+        custom_properties_json = json.dumps(
+            node_data.get("custom_properties", {}),
+            ensure_ascii=True,
+            sort_keys=True,
+        )
 
         await self._execute_in_space(
-            "INSERT VERTEX entity(entity_id, name, entity_type, description, keywords, source_id, file_path, created_at, truncate) "
+            "INSERT VERTEX entity(entity_id, name, entity_type, description, keywords, source_id, file_path, created_at, truncate, custom_properties_json) "
             f"VALUES {_ngql_quote(entity_id)}:"
             "("
             f"{_ngql_literal(entity_id)}, "
@@ -1589,7 +1629,8 @@ class NebulaGraphStorage(BaseGraphStorage):
             f"{_ngql_literal(source_id)}, "
             f"{_ngql_literal(file_path)}, "
             f"{_ngql_literal(created_at)}, "
-            f"{_ngql_literal(truncate)}"
+            f"{_ngql_literal(truncate)}, "
+            f"{_ngql_literal(custom_properties_json)}"
             ");"
         )
 
@@ -1604,9 +1645,14 @@ class NebulaGraphStorage(BaseGraphStorage):
         keywords = str(edge_data.get("keywords", ""))
         weight = _coerce_edge_weight(edge_data.get("weight"))
         file_path = str(edge_data.get("file_path", ""))
+        custom_properties_json = json.dumps(
+            edge_data.get("custom_properties", {}),
+            ensure_ascii=True,
+            sort_keys=True,
+        )
 
         await self._execute_in_space(
-            "INSERT EDGE relation(source_id, target_id, relationship, description, keywords, weight, file_path) "
+            "INSERT EDGE relation(source_id, target_id, relationship, description, keywords, weight, file_path, custom_properties_json) "
             f"VALUES {_ngql_quote(src_id)}->{_ngql_quote(tgt_id)}:"
             "("
             f"{_ngql_literal(source_id)}, "
@@ -1615,7 +1661,8 @@ class NebulaGraphStorage(BaseGraphStorage):
             f"{_ngql_literal(description)}, "
             f"{_ngql_literal(keywords)}, "
             f"{_ngql_literal(weight)}, "
-            f"{_ngql_literal(file_path)}"
+            f"{_ngql_literal(file_path)}, "
+            f"{_ngql_literal(custom_properties_json)}"
             ");"
         )
 
@@ -1675,7 +1722,8 @@ class NebulaGraphStorage(BaseGraphStorage):
             "v.entity.source_id AS source_id, "
             "v.entity.file_path AS file_path, "
             "v.entity.created_at AS created_at, "
-            "v.entity.truncate AS truncate;"
+            "v.entity.truncate AS truncate, "
+            "v.entity.custom_properties_json AS custom_properties_json;"
         )
         rows = _result_to_rows(result)
         output: list[dict] = []
@@ -1701,7 +1749,8 @@ class NebulaGraphStorage(BaseGraphStorage):
             "e.description AS description, "
             "e.keywords AS keywords, "
             "e.weight AS weight, "
-            "e.file_path AS file_path;"
+            "e.file_path AS file_path, "
+            "e.custom_properties_json AS custom_properties_json;"
         )
         rows = _result_to_rows(result)
         output: list[dict] = []

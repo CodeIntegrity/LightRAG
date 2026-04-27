@@ -850,12 +850,16 @@ The server also exposes a small set of direct import and inspection endpoints fo
 
 * `POST /graph/import/custom-kg`
   * Import a structured custom knowledge graph payload through `ainsert_custom_kg`
+  * Relationship endpoints use `src_id` and `tgt_id`; entity records may include optional `name`
+  * Unknown entity and relation fields are normalized into `custom_properties`
 * `GET /graph/entity/detail`
   * Fetch detailed entity information
   * Supports optional `include_vector_data=true`
+  * Returns normalized `graph_data`, including `custom_properties`
 * `GET /graph/relation/detail`
   * Fetch detailed relation information
   * Supports optional `include_vector_data=true`
+  * Returns normalized `graph_data`, including `custom_properties`
 * `POST /graph/export`
   * Export graph data to `csv`, `excel`, `md`, or `txt`
   * Returns the exported file as a download response
@@ -1219,10 +1223,10 @@ curl -X POST "http://localhost:9621/query/raw" \
 | `/graph/label/search`      | GET    | Search labels by text               | `q`, `limit`                                                              |
 | `/graphs`                  | GET    | Fetch legacy connected subgraph     | `label`, `max_depth`, `max_nodes`                                         |
 | `/graph/query`             | POST   | Structured graph query              | `scope`, `node_filters`, `edge_filters`, `source_filters`, `view_options` |
-| `/graph/entity/detail`     | GET    | Fetch entity detail                 | `entity_name`, `include_vector_data`                                      |
-| `/graph/relation/detail`   | GET    | Fetch relation detail               | `source_entity`, `target_entity`, `include_vector_data`                   |
+| `/graph/entity/detail`     | GET    | Fetch entity detail                 | `entity_name`, `include_vector_data`; response `graph_data` includes `custom_properties` |
+| `/graph/relation/detail`   | GET    | Fetch relation detail               | `source_entity`, `target_entity`, `include_vector_data`; response `graph_data` includes `custom_properties` |
 | `/graph/export`            | POST   | Export graph data as file           | `file_format`, `include_vector_data`                                      |
-| `/graph/import/custom-kg`  | POST   | Import structured custom KG payload | custom KG JSON body                                                       |
+| `/graph/import/custom-kg`  | POST   | Import structured custom KG payload | custom KG JSON body; relations use `src_id`/`tgt_id`, entities may pass optional `name`, unknown fields go to `custom_properties` |
 | `/graph/entity`            | DELETE | Delete one entity                   | `entity_name`                                                             |
 | `/graph/relation`          | DELETE | Delete one relation                 | `source_entity`, `target_entity`                                          |
 | `/graph/merge/suggestions` | POST   | Generate merge suggestions          | merge suggestion payload                                                  |

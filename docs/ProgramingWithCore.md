@@ -901,10 +901,15 @@ custom_kg = {
     "entities": [
         {
             "entity_name": "Alice",
+            "name": "Alice Johnson",
             "entity_type": "person",
             "description": "Alice is a researcher specializing in quantum physics.",
             "source_id": "doc-1",
-            "file_path": "test_file"
+            "file_path": "test_file",
+            "department": "Physics",
+            "custom_properties": {
+                "country": "US"
+            }
         },
         {
             "entity_name": "Bob",
@@ -929,7 +934,11 @@ custom_kg = {
             "keywords": "collaboration research",
             "weight": 1.0,
             "source_id": "doc-1",
-            "file_path": "test_file"
+            "file_path": "test_file",
+            "confidence": 0.95,
+            "custom_properties": {
+                "evidence_type": "manual"
+            }
         },
         {
             "src_id": "Alice",
@@ -954,6 +963,8 @@ custom_kg = {
 
 rag.insert_custom_kg(custom_kg)
 ```
+
+Unknown entity and relation fields are normalized into `custom_properties`. Relationship endpoints use `src_id` and `tgt_id`, while `name` is an optional display name distinct from `entity_name`.
 
 * Other Entity and Relation Operations
   - **create_entity**: Creates a new entity with specified attributes

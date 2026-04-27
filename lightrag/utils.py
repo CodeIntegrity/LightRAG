@@ -1580,6 +1580,8 @@ async def aexport_data(
             - txt: Plain text formatted output
         include_vector_data: Whether to include data from the vector database.
     """
+    from lightrag.utils_graph import normalize_graph_edge_data, normalize_graph_node_data
+
     # Collect data
     entities_data = []
     relations_data = []
@@ -1589,7 +1591,9 @@ async def aexport_data(
     all_entities = await chunk_entity_relation_graph.get_all_labels()
     for entity_name in all_entities:
         # Get entity information from graph
-        node_data = await chunk_entity_relation_graph.get_node(entity_name)
+        node_data = normalize_graph_node_data(
+            await chunk_entity_relation_graph.get_node(entity_name)
+        )
         source_id = node_data.get("source_id") if node_data else None
 
         entity_info = {
@@ -1625,8 +1629,8 @@ async def aexport_data(
             )
             if edge_exists:
                 # Get edge information from graph
-                edge_data = await chunk_entity_relation_graph.get_edge(
-                    src_entity, tgt_entity
+                edge_data = normalize_graph_edge_data(
+                    await chunk_entity_relation_graph.get_edge(src_entity, tgt_entity)
                 )
                 source_id = edge_data.get("source_id") if edge_data else None
 

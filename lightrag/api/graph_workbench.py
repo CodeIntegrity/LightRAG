@@ -4,7 +4,11 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
-from lightrag.utils_graph import build_revision_token
+from lightrag.utils_graph import (
+    build_revision_token,
+    normalize_graph_edge_data,
+    normalize_graph_node_data,
+)
 
 
 GraphRequestPayload = Mapping[str, Any] | dict[str, Any]
@@ -105,9 +109,21 @@ def _normalize_graph_data(raw_graph: Any) -> tuple[list[dict[str, Any]], list[di
     edges: list[dict[str, Any]] = []
 
     if isinstance(raw_nodes, Sequence) and not isinstance(raw_nodes, (str, bytes)):
-        nodes = [_normalize_item(node) for node in raw_nodes]
+        for node in raw_nodes:
+            normalized_node = _normalize_item(node)
+            node_graph_data = normalize_graph_node_data(_record_graph_data(normalized_node))
+            if node_graph_data:
+                normalized_node["graph_data"] = node_graph_data
+                normalized_node["properties"] = dict(node_graph_data)
+            nodes.append(normalized_node)
     if isinstance(raw_edges, Sequence) and not isinstance(raw_edges, (str, bytes)):
-        edges = [_normalize_item(edge) for edge in raw_edges]
+        for edge in raw_edges:
+            normalized_edge = _normalize_item(edge)
+            edge_graph_data = normalize_graph_edge_data(_record_graph_data(normalized_edge))
+            if edge_graph_data:
+                normalized_edge["graph_data"] = edge_graph_data
+                normalized_edge["properties"] = dict(edge_graph_data)
+            edges.append(normalized_edge)
 
     return nodes, edges, bool(payload.get("is_truncated", False))
 

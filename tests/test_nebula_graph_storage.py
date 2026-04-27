@@ -283,16 +283,26 @@ async def test_initialize_creates_space_and_schema():
     assert use_space_mock.await_count >= 1
     assert any("CREATE TAG IF NOT EXISTS entity" in sql for sql in sql_calls)
     assert any("file_path string" in sql for sql in sql_calls)
+    assert any("custom_properties_json string" in sql for sql in sql_calls)
     assert any("created_at int" in sql for sql in sql_calls)
     assert any("truncate string" in sql for sql in sql_calls)
     assert any("ALTER TAG entity ADD (file_path string);" == sql for sql in sql_calls)
     assert any("ALTER TAG entity ADD (created_at int);" == sql for sql in sql_calls)
     assert any("ALTER TAG entity ADD (truncate string);" == sql for sql in sql_calls)
+    assert any(
+        "ALTER TAG entity ADD (custom_properties_json string);" == sql
+        for sql in sql_calls
+    )
     assert any("CREATE EDGE IF NOT EXISTS relation" in sql for sql in sql_calls)
     assert any("keywords string" in sql for sql in sql_calls)
     assert any("file_path string" in sql for sql in sql_calls)
+    assert any("custom_properties_json string" in sql for sql in sql_calls)
     assert any("ALTER EDGE relation ADD (keywords string);" == sql for sql in sql_calls)
     assert any("ALTER EDGE relation ADD (file_path string);" == sql for sql in sql_calls)
+    assert any(
+        "ALTER EDGE relation ADD (custom_properties_json string);" == sql
+        for sql in sql_calls
+    )
     assert any(
         f"CREATE FULLTEXT TAG INDEX IF NOT EXISTS {storage._fulltext_tag_index_name}"
         in sql
@@ -919,7 +929,7 @@ async def test_nebula_upsert_and_get_node_roundtrip():
             [
                 {
                     "entity_id": "A",
-                    "name": "A",
+                    "name": "Alpha",
                     "entity_type": "TypeX",
                     "description": "desc",
                     "keywords": "k1,k2",
@@ -927,6 +937,7 @@ async def test_nebula_upsert_and_get_node_roundtrip():
                     "file_path": "doc/a.md",
                     "created_at": 123,
                     "truncate": "FIFO 1/2",
+                    "custom_properties_json": '{"region":"cn"}',
                 }
             ],
         ]
@@ -936,7 +947,7 @@ async def test_nebula_upsert_and_get_node_roundtrip():
             "A",
             {
                 "entity_id": "A",
-                "name": "A",
+                "name": "Alpha",
                 "entity_type": "TypeX",
                 "description": "desc",
                 "keywords": "k1,k2",
@@ -944,13 +955,14 @@ async def test_nebula_upsert_and_get_node_roundtrip():
                 "file_path": "doc/a.md",
                 "created_at": 123,
                 "truncate": "FIFO 1/2",
+                "custom_properties": {"region": "cn"},
             },
         )
         node = await storage.get_node("A")
 
     assert node is not None
     assert node["entity_id"] == "A"
-    assert node["name"] == "A"
+    assert node["name"] == "Alpha"
     assert node["entity_type"] == "TypeX"
     assert node["description"] == "desc"
     assert node["keywords"] == "k1,k2"
@@ -958,15 +970,64 @@ async def test_nebula_upsert_and_get_node_roundtrip():
     assert node["file_path"] == "doc/a.md"
     assert node["created_at"] == "123"
     assert node["truncate"] == "FIFO 1/2"
+    assert node["custom_properties"] == {"region": "cn"}
     upsert_sql = execute_in_space.await_args_list[0].args[0]
     assert "file_path" in upsert_sql
     assert "created_at" in upsert_sql
     assert "truncate" in upsert_sql
+    assert "custom_properties_json" in upsert_sql
     assert "INSERT VERTEX entity" in upsert_sql
     assert 'VALUES "A"' in upsert_sql
     get_sql = execute_in_space.await_args_list[1].args[0]
     assert "FETCH PROP ON entity" in get_sql
     assert '"A"' in get_sql
+
+
+@pytest.mark.asyncio
+async def test_nebula_upsert_node_writes_empty_name_when_missing():
+    storage = build_storage(workspace="finance")
+    execute_in_space = AsyncMock(
+        side_effect=[
+            object(),
+            [
+                {
+                    "entity_id": "A",
+                    "name": "",
+                    "entity_type": "TypeX",
+                    "description": "desc",
+                    "keywords": "k1,k2",
+                    "source_id": "src-1",
+                    "file_path": "doc/a.md",
+                    "created_at": 123,
+                    "truncate": "",
+                }
+            ],
+        ]
+    )
+
+    with patch.object(storage, "_execute_in_space", execute_in_space):
+        await storage.upsert_node(
+            "A",
+            {
+                "entity_id": "A",
+                "entity_type": "TypeX",
+                "description": "desc",
+                "keywords": "k1,k2",
+                "source_id": "src-1",
+                "file_path": "doc/a.md",
+                "created_at": 123,
+                "truncate": "",
+            },
+        )
+        node = await storage.get_node("A")
+
+    assert node is not None
+    assert node["entity_id"] == "A"
+    assert node["name"] == ""
+    upsert_sql = execute_in_space.await_args_list[0].args[0]
+    assert 'VALUES "A"' in upsert_sql
+    assert ', "", "TypeX"' in upsert_sql
+    assert '"A", "A", "TypeX"' not in upsert_sql
 
 
 @pytest.mark.asyncio
@@ -1013,6 +1074,7 @@ async def test_nebula_edge_reads_are_undirected():
                     "keywords": "k1,k2",
                     "weight": 1.0,
                     "file_path": "doc/a.md",
+                    "custom_properties_json": '{"confidence":0.9}',
                 }
             ],
             [
@@ -1026,6 +1088,7 @@ async def test_nebula_edge_reads_are_undirected():
                     "keywords": "k1,k2",
                     "weight": 1.0,
                     "file_path": "doc/a.md",
+                    "custom_properties_json": '{"confidence":0.9}',
                 }
             ],
         ]
@@ -1040,6 +1103,7 @@ async def test_nebula_edge_reads_are_undirected():
                 "keywords": "k1,k2",
                 "weight": 1.0,
                 "file_path": "doc/a.md",
+                "custom_properties": {"confidence": 0.9},
             },
         )
         forward = await storage.get_edge("A", "B")
@@ -1048,9 +1112,11 @@ async def test_nebula_edge_reads_are_undirected():
     assert forward == reverse
     assert forward["keywords"] == "k1,k2"
     assert forward["file_path"] == "doc/a.md"
+    assert forward["custom_properties"] == {"confidence": 0.9}
     upsert_sql = execute_in_space.await_args_list[0].args[0]
     assert "keywords" in upsert_sql
     assert "file_path" in upsert_sql
+    assert "custom_properties_json" in upsert_sql
     assert 'VALUES "A"->"B"' in upsert_sql
     fetch_sql_1 = execute_in_space.await_args_list[1].args[0]
     fetch_sql_2 = execute_in_space.await_args_list[2].args[0]
@@ -1221,6 +1287,7 @@ async def test_nebula_get_nodes_batch_uses_single_lookup_query():
             "file_path": "doc/a.md",
             "created_at": "100",
             "truncate": "",
+            "custom_properties": {},
         },
         "B": {
             "entity_id": "B",
@@ -1232,6 +1299,7 @@ async def test_nebula_get_nodes_batch_uses_single_lookup_query():
             "file_path": "doc/b.md",
             "created_at": "200",
             "truncate": "KEEP 1/2",
+            "custom_properties": {},
         },
     }
     assert execute_in_space.await_count == 1
@@ -1395,6 +1463,7 @@ async def test_nebula_get_edges_batch_uses_canonical_pairs_and_preserves_keys():
             "keywords": "k1,k2",
             "weight": 2.5,
             "file_path": "doc/a.md",
+            "custom_properties": {},
         },
         ("A", "B"): {
             "source": "A",
@@ -1406,6 +1475,7 @@ async def test_nebula_get_edges_batch_uses_canonical_pairs_and_preserves_keys():
             "keywords": "k1,k2",
             "weight": 2.5,
             "file_path": "doc/a.md",
+            "custom_properties": {},
         },
     }
     assert execute_in_space.await_count == 1
@@ -1655,6 +1725,7 @@ async def test_nebula_get_all_nodes_returns_node_property_dicts():
             "file_path": "doc/a.md",
             "created_at": "100",
             "truncate": "",
+            "custom_properties": {},
             "id": "A",
         },
         {
@@ -1667,6 +1738,7 @@ async def test_nebula_get_all_nodes_returns_node_property_dicts():
             "file_path": "doc/b.md",
             "created_at": "200",
             "truncate": "KEEP 1/2",
+            "custom_properties": {},
             "id": "B",
         },
     ]
@@ -1708,6 +1780,7 @@ async def test_nebula_get_all_edges_returns_relation_properties():
             "keywords": "k1,k2",
             "weight": 3.0,
             "file_path": "doc/a.md",
+            "custom_properties": {},
             "source": "A",
             "target": "B",
         }

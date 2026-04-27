@@ -22,21 +22,25 @@ custom_kg = {
     "entities": [
         {
             "entity_name": "CompanyA",
+            "name": "Company A, Inc.",
             "entity_type": "Organization",
             "description": "A major technology company",
             "source_id": "Source1",
+            "ticker": "CMPA",
         },
         {
             "entity_name": "ProductX",
             "entity_type": "Product",
             "description": "A popular product developed by CompanyA",
             "source_id": "Source1",
+            "custom_properties": {"release_year": 2024},
         },
         {
             "entity_name": "PersonA",
             "entity_type": "Person",
             "description": "A renowned researcher in AI",
             "source_id": "Source2",
+            "custom_properties": {"country": "US"},
         },
         {
             "entity_name": "UniversityB",
@@ -65,6 +69,7 @@ custom_kg = {
             "keywords": "develop, produce",
             "weight": 1.0,
             "source_id": "Source1",
+            "confidence": 0.97,
         },
         {
             "src_id": "PersonA",
@@ -73,6 +78,7 @@ custom_kg = {
             "keywords": "employment, affiliation",
             "weight": 0.9,
             "source_id": "Source2",
+            "custom_properties": {"evidence_type": "manual"},
         },
         {
             "src_id": "CityC",

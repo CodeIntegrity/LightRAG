@@ -1574,10 +1574,15 @@ custom_kg = {
         "entities": [
             {
                 "entity_name": "Alice",
+                "name": "Alice Johnson",
                 "entity_type": "person",
                 "description": "Alice is a researcher specializing in quantum physics.",
                 "source_id": "doc-1",
-                "file_path": "test_file"
+                "file_path": "test_file",
+                "department": "Physics",
+                "custom_properties": {
+                    "country": "US"
+                }
             },
             {
                 "entity_name": "Bob",
@@ -1602,7 +1607,11 @@ custom_kg = {
                 "keywords": "collaboration research",
                 "weight": 1.0,
                 "source_id": "doc-1",
-                "file_path": "test_file"
+                "file_path": "test_file",
+                "confidence": 0.95,
+                "custom_properties": {
+                    "evidence_type": "manual"
+                }
             },
             {
                 "src_id": "Alice",
@@ -1627,6 +1636,8 @@ custom_kg = {
 
 rag.insert_custom_kg(custom_kg)
 ```
+
+Unknown entity or relation fields are collected into `custom_properties`. Use `src_id` and `tgt_id` for relationship endpoints, and pass `name` only when you want a display name separate from `entity_name`.
 
 </details>
 

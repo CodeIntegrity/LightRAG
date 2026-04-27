@@ -71,22 +71,32 @@ Accept: application/json
     "only_matched_neighborhood": false
   },
   "node_filters": {
-    "entity_types": [
-      ""
-    ],
+    "entity_types": [],
     "name_query": "",
+    "description_query": "",
+    "degree_min": null,
+    "degree_max": null,
     "isolated_only": false
   },
   "edge_filters": {
-    "relation_types": [
-      ""
-    ],
-    "keyword_query": ""
+    "relation_types": [],
+    "keyword_query": "",
+    "weight_min": null,
+    "weight_max": null,
+    "source_entity_types": [],
+    "target_entity_types": []
   },
   "source_filters": {
-    "source_id_query": ""
+    "source_id_query": "",
+    "file_paths": [],
+    "time_from": null,
+    "time_to": null
   },
   "view_options": {
+    "show_nodes_only": false,
+    "show_edges_only": false,
+    "hide_low_weight_edges": false,
+    "hide_empty_description": false,
     "highlight_matches": true
   }
 }
@@ -167,7 +177,11 @@ Accept: application/json
   "entity_name": "Tesla",
   "entity_data": {
     "description": "Electric vehicle manufacturer",
-    "entity_type": "ORGANIZATION"
+    "entity_type": "ORGANIZATION",
+    "custom_properties": {
+      "ticker": "TSLA",
+      "country": "US"
+    }
   }
 }
 
@@ -184,7 +198,12 @@ Accept: application/json
 {
   "entity_name": "Tesla",
   "updated_data": {
-    "description": "Electric vehicle and energy company"
+    "description": "Electric vehicle and energy company",
+    "custom_properties": {
+      "ticker": "TSLA",
+      "country": "US",
+      "founded": 2003
+    }
   },
   "allow_rename": false,
   "allow_merge": false
@@ -206,7 +225,10 @@ Accept: application/json
   "relation_data": {
     "description": "Elon Musk is associated with Tesla",
     "keywords": "CEO, founder",
-    "weight": 1.0
+    "weight": 1.0,
+    "custom_properties": {
+      "confidence": 0.92
+    }
   }
 }
 
@@ -224,7 +246,10 @@ Accept: application/json
   "source_id": "Elon Musk",
   "target_id": "Tesla",
   "updated_data": {
-    "description": "Updated relation from httpyac"
+    "description": "Updated relation from httpyac",
+    "custom_properties": {
+      "confidence": 0.95
+    }
   }
 }
 
@@ -247,7 +272,7 @@ Accept: application/json
 }
 
 ### Graph Import Custom KG
-# 用途：直接导入结构化知识图谱数据。
+# 用途：直接导入结构化知识图谱数据；未知字段会被收拢到 custom_properties。
 # @ref login
 POST {{BASE_URL}}/graph/import/custom-kg
 Authorization: Bearer {{login.access_token}}
@@ -268,22 +293,36 @@ Accept: application/json
     "entities": [
       {
         "entity_name": "Elon Musk",
+        "name": "Elon Reeve Musk",
         "entity_type": "PERSON",
-        "description": "Business leader"
+        "description": "Business leader",
+        "title": "CEO",
+        "custom_properties": {
+          "country": "US"
+        }
       },
       {
         "entity_name": "Tesla",
+        "name": "Tesla, Inc.",
         "entity_type": "ORGANIZATION",
-        "description": "Electric vehicle company"
+        "description": "Electric vehicle company",
+        "ticker": "TSLA",
+        "custom_properties": {
+          "market": "NASDAQ"
+        }
       }
     ],
     "relationships": [
       {
-        "source_entity": "Elon Musk",
-        "target_entity": "Tesla",
+        "src_id": "Elon Musk",
+        "tgt_id": "Tesla",
         "description": "Leads Tesla",
         "keywords": "CEO",
-        "weight": 1.0
+        "weight": 1.0,
+        "confidence": 0.97,
+        "custom_properties": {
+          "source_type": "manual"
+        }
       }
     ]
   }

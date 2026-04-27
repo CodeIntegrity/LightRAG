@@ -27,6 +27,44 @@ from .base import StorageNameSpace
 _REVISION_TOKEN_EXCLUDED_FIELDS = frozenset(
     {"operation_summary", "revision_token", "vector_data"}
 )
+_GRAPH_CUSTOM_PROPERTIES_KEY = "custom_properties"
+_GRAPH_NODE_SYSTEM_FIELDS = frozenset(
+    {
+        "entity_id",
+        "name",
+        "entity_type",
+        "description",
+        "keywords",
+        "aliases",
+        "source_id",
+        "file_path",
+        "file_paths",
+        "time",
+        "timestamp",
+        "created_at",
+        "updated_at",
+        "truncate",
+    }
+)
+_GRAPH_EDGE_SYSTEM_FIELDS = frozenset(
+    {
+        "src_id",
+        "tgt_id",
+        "source_id",
+        "target_id",
+        "relationship",
+        "relation_type",
+        "description",
+        "keywords",
+        "weight",
+        "file_path",
+        "file_paths",
+        "time",
+        "timestamp",
+        "created_at",
+        "updated_at",
+    }
+)
 
 
 class StaleRevisionTokenError(ValueError):
@@ -39,10 +77,13 @@ def _stable_json_dumps(value: Any) -> str:
 
 def _canonicalize_revision_value(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return {
-            str(key): _canonicalize_revision_value(value[key])
-            for key in sorted(value.keys(), key=str)
-        }
+        output: dict[str, Any] = {}
+        for key in sorted(value.keys(), key=str):
+            canonical_value = _canonicalize_revision_value(value[key])
+            if key == _GRAPH_CUSTOM_PROPERTIES_KEY and canonical_value == {}:
+                continue
+            output[str(key)] = canonical_value
+        return output
 
     if isinstance(value, set):
         value = list(value)
@@ -84,7 +125,10 @@ def build_revision_token(payload: Mapping[str, Any] | dict[str, Any]) -> str:
 def _build_entity_revision_payload(
     entity_name: str, node_data: Mapping[str, Any] | None
 ) -> dict[str, Any]:
-    return {"entity_name": entity_name, "graph_data": dict(node_data or {})}
+    return {
+        "entity_name": entity_name,
+        "graph_data": normalize_graph_node_data(node_data),
+    }
 
 
 def _build_relation_revision_payload(
@@ -98,8 +142,75 @@ def _build_relation_revision_payload(
     return {
         "src_entity": normalized_source,
         "tgt_entity": normalized_target,
-        "graph_data": dict(edge_data or {}),
+        "graph_data": normalize_graph_edge_data(edge_data),
     }
+
+
+def _normalize_custom_properties(
+    value: Any,
+    *,
+    disallowed_keys: set[str] | frozenset[str],
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+
+    output: dict[str, Any] = {}
+    for key, item in value.items():
+        normalized_key = str(key)
+        if not normalized_key or normalized_key in disallowed_keys:
+            continue
+        output[normalized_key] = item
+    return output
+
+
+def _normalize_graph_data(
+    payload: Mapping[str, Any] | dict[str, Any] | None,
+    *,
+    system_fields: set[str] | frozenset[str],
+    ignored_fields: set[str] | frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        return {}
+
+    disallowed_keys = set(system_fields) | set(ignored_fields) | {
+        _GRAPH_CUSTOM_PROPERTIES_KEY
+    }
+    custom_properties = _normalize_custom_properties(
+        payload.get(_GRAPH_CUSTOM_PROPERTIES_KEY),
+        disallowed_keys=disallowed_keys,
+    )
+    normalized: dict[str, Any] = {}
+
+    for key, value in payload.items():
+        normalized_key = str(key)
+        if (
+            normalized_key in ignored_fields
+            or normalized_key == _GRAPH_CUSTOM_PROPERTIES_KEY
+        ):
+            continue
+        if normalized_key in system_fields:
+            normalized[normalized_key] = value
+            continue
+        custom_properties[normalized_key] = value
+
+    normalized[_GRAPH_CUSTOM_PROPERTIES_KEY] = custom_properties
+    return normalized
+
+
+def normalize_graph_node_data(
+    payload: Mapping[str, Any] | dict[str, Any] | None,
+) -> dict[str, Any]:
+    return _normalize_graph_data(
+        payload,
+        system_fields=_GRAPH_NODE_SYSTEM_FIELDS,
+        ignored_fields=frozenset({"entity_name"}),
+    )
+
+
+def normalize_graph_edge_data(
+    payload: Mapping[str, Any] | dict[str, Any] | None,
+) -> dict[str, Any]:
+    return _normalize_graph_data(payload, system_fields=_GRAPH_EDGE_SYSTEM_FIELDS)
 
 
 def _validate_expected_revision_token(
@@ -2682,15 +2793,20 @@ async def get_entity_info(
     """Get detailed information of an entity"""
 
     # Get information from the graph
-    node_data = await chunk_entity_relation_graph.get_node(entity_name)
+    node_data = normalize_graph_node_data(
+        await chunk_entity_relation_graph.get_node(entity_name)
+    )
     source_id = node_data.get("source_id") if node_data else None
     aliases = _normalize_aliases(node_data.get("aliases") if node_data else None)
 
-    result: dict[str, str | None | dict[str, str]] = {
+    result: dict[str, Any] = {
         "entity_name": entity_name,
         "source_id": source_id,
         "aliases": aliases,
         "graph_data": node_data,
+        "custom_properties": dict(node_data.get("custom_properties", {}))
+        if node_data
+        else {},
     }
 
     # Optional: Get vector database information
@@ -2729,14 +2845,19 @@ async def get_relation_info(
     # Get information from the graph
     src_entity, tgt_entity = _normalize_relation_endpoints(src_entity, tgt_entity)
 
-    edge_data = await chunk_entity_relation_graph.get_edge(src_entity, tgt_entity)
+    edge_data = normalize_graph_edge_data(
+        await chunk_entity_relation_graph.get_edge(src_entity, tgt_entity)
+    )
     source_id = edge_data.get("source_id") if edge_data else None
 
-    result: dict[str, str | None | dict[str, str]] = {
+    result: dict[str, Any] = {
         "src_entity": src_entity,
         "tgt_entity": tgt_entity,
         "source_id": source_id,
         "graph_data": edge_data,
+        "custom_properties": dict(edge_data.get("custom_properties", {}))
+        if edge_data
+        else {},
     }
 
     # Optional: Get vector database information
