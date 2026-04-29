@@ -15,6 +15,7 @@ from lightrag.api.graph_workbench import (
     get_legacy_graph_payload,
     query_graph_workbench,
 )
+from lightrag.constants import DEFAULT_MAX_GRAPH_NODES
 from lightrag.utils import logger
 from ..utils_api import get_combined_auth_dependency
 
@@ -143,7 +144,7 @@ class GraphQueryScope(BaseModel):
 
     label: str = Field(default="*", min_length=1)
     max_depth: int = Field(default=3, ge=1)
-    max_nodes: int = Field(default=1000, ge=1)
+    max_nodes: int = Field(default=DEFAULT_MAX_GRAPH_NODES, ge=1)
     only_matched_neighborhood: bool = False
 
     @field_validator("label", mode="after")
@@ -464,7 +465,11 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
     async def get_knowledge_graph(
         label: str = Query(..., description="Label to get knowledge graph for"),
         max_depth: int = Query(3, description="Maximum depth of graph", ge=1),
-        max_nodes: int = Query(1000, description="Maximum nodes to return", ge=1),
+        max_nodes: int = Query(
+            DEFAULT_MAX_GRAPH_NODES,
+            description="Maximum nodes to return",
+            ge=1,
+        ),
     ):
         """
         Retrieve a connected subgraph of nodes where the label includes the specified label.

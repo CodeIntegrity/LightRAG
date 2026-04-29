@@ -151,6 +151,15 @@ def _normalize_custom_properties(
     *,
     disallowed_keys: set[str] | frozenset[str],
 ) -> dict[str, Any]:
+    if isinstance(value, str):
+        trimmed = value.strip()
+        if not trimmed:
+            return {}
+        try:
+            value = json.loads(trimmed)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+
     if not isinstance(value, Mapping):
         return {}
 

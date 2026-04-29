@@ -223,7 +223,7 @@ export default function Settings() {
   }, [])
 
   const setGraphMaxNodes = useCallback((nodes: number) => {
-    const maxLimit = backendMaxGraphNodes || 1000
+    const maxLimit = backendMaxGraphNodes || 10000
     if (nodes < 1 || nodes > maxLimit) return
     useSettingsStore.getState().setGraphMaxNodes(nodes, true)
   }, [backendMaxGraphNodes])
@@ -366,11 +366,11 @@ export default function Settings() {
               onEditFinished={setGraphQueryMaxDepth}
             />
             <LabeledNumberInput
-              label={`${t('graphPanel.sideBar.settings.maxNodes')} (≤ ${backendMaxGraphNodes || 1000})`}
+              label={`${t('graphPanel.sideBar.settings.maxNodes')} (≤ ${backendMaxGraphNodes || 10000})`}
               min={1}
-              max={backendMaxGraphNodes || 1000}
+              max={backendMaxGraphNodes || 10000}
               value={graphMaxNodes}
-              defaultValue={backendMaxGraphNodes || 1000}
+              defaultValue={backendMaxGraphNodes || 10000}
               onEditFinished={setGraphMaxNodes}
             />
             <LabeledNumberInput

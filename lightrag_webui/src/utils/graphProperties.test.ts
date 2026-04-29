@@ -40,6 +40,8 @@ describe('graphProperties', () => {
           keywords: '',
           description: 'edge-desc',
           created_at: 123,
+          revision_token: 'token-1',
+          graph_data: { description: 'edge-desc' },
           truncate: 'KEEP 1/2',
           weight: 1
         },
@@ -83,5 +85,39 @@ describe('graphProperties', () => {
       { name: 'aliases', value: ['A', 'B'] },
       { name: 'metadata', value: { rank: 1 } }
     ])
+  })
+
+  test('节点属性展开时隐藏 custom_properties 里的重复 name', () => {
+    expect(
+      getVisibleGraphPropertyEntries(
+        {
+          entity_id: 'node-1',
+          custom_properties: {
+            name: 'Display Name',
+            aliases: ['A', 'B']
+          }
+        },
+        'node'
+      )
+    ).toEqual([
+      { name: 'entity_id', value: 'node-1' },
+      { name: 'aliases', value: ['A', 'B'] }
+    ])
+  })
+
+  test('节点属性过滤内部包装字段', () => {
+    expect(
+      getVisibleGraphPropertyKeys(
+        {
+          entity_id: 'node-1',
+          revision_token: 'token-1',
+          graph_data: {
+            entity_id: 'node-1'
+          },
+          description: 'node-desc'
+        },
+        'node'
+      )
+    ).toEqual(['description', 'entity_id'])
   })
 })

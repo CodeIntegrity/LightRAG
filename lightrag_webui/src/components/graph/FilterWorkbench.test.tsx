@@ -185,7 +185,7 @@ describe('FilterWorkbench', () => {
 
     expect(normalizedHtml).toContain('Applied')
     expect(normalizedHtml).toContain('Version 3')
-    expect(normalizedHtml).toContain('Scope OpenAI · D4 · N1000')
+    expect(normalizedHtml).toContain('Scope OpenAI · D4 · N10000')
     expect(normalizedHtml).toContain('Result 12 nodes / 18 edges')
     expect(normalizedHtml).toContain('Active Groups 3')
   })

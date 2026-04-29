@@ -216,6 +216,52 @@ async def test_query_normalizes_unknown_graph_fields_into_custom_properties():
 
 
 @pytest.mark.asyncio
+async def test_query_parses_stringified_custom_properties():
+    rag = _DummyRAG(
+        graph_payload={
+            "nodes": [
+                {
+                    "id": "n1",
+                    "labels": ["PERSON"],
+                    "properties": {
+                        "entity_id": "n1",
+                        "entity_type": "PERSON",
+                        "custom_properties": '{"department":"research","level":2}',
+                    },
+                }
+            ],
+            "edges": [
+                {
+                    "id": "e1",
+                    "source": "n1",
+                    "target": "n1",
+                    "type": "works_on",
+                    "properties": {
+                        "src_id": "n1",
+                        "tgt_id": "n1",
+                        "custom_properties": '{"confidence":0.9}',
+                    },
+                }
+            ],
+            "is_truncated": False,
+        }
+    )
+
+    result = await query_graph_workbench(
+        rag,
+        {"scope": {"label": "*", "max_depth": 1, "max_nodes": 10}},
+    )
+
+    node = result["data"]["nodes"][0]
+    edge = result["data"]["edges"][0]
+    assert node["properties"]["custom_properties"] == {
+        "department": "research",
+        "level": 2,
+    }
+    assert edge["properties"]["custom_properties"] == {"confidence": 0.9}
+
+
+@pytest.mark.asyncio
 async def test_truncation_flags_when_base_graph_already_truncated():
     rag = _DummyRAG(
         graph_payload={

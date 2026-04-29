@@ -21,6 +21,7 @@ import { createGraphRequestState, isAbortError } from '@/utils/graphRequestState
 import seedrandom from 'seedrandom'
 import { resolveNodeColor, DEFAULT_NODE_COLOR } from '@/utils/graphColor'
 import { resolveNodeDisplayName } from '@/utils/graphLabel'
+import { normalizeGraphEdgePayload, normalizeGraphNodePayload } from '@/utils/graphPayload'
 
 // Select color based on node type
 const getNodeColorByType = (nodeType: string | undefined): string => {
@@ -125,22 +126,18 @@ const fetchGraph = async (
   // If label is empty, use default label '*'
   const queryLabel = label || '*';
 
-  try {
-    if (appliedStructuredQuery) {
-      console.log('Fetching graph with structured query payload')
-      const structuredResponse = await queryGraphWorkbench(appliedStructuredQuery, signal)
-      rawData = structuredResponse.data
-      isTruncated =
-        !!structuredResponse.data?.is_truncated ||
-        structuredResponse.truncation.was_truncated_before_filtering ||
-        structuredResponse.truncation.was_truncated_after_filtering
-    } else {
-      console.log(`Fetching graph label: ${queryLabel}, depth: ${maxDepth}, nodes: ${maxNodes}`);
-      rawData = await queryGraphs(queryLabel, maxDepth, maxNodes, signal);
-      isTruncated = !!rawData?.is_truncated
-    }
-  } catch (e) {
-    throw e
+  if (appliedStructuredQuery) {
+    console.log('Fetching graph with structured query payload')
+    const structuredResponse = await queryGraphWorkbench(appliedStructuredQuery, signal)
+    rawData = structuredResponse.data
+    isTruncated =
+      !!structuredResponse.data?.is_truncated ||
+      structuredResponse.truncation.was_truncated_before_filtering ||
+      structuredResponse.truncation.was_truncated_after_filtering
+  } else {
+    console.log(`Fetching graph label: ${queryLabel}, depth: ${maxDepth}, nodes: ${maxNodes}`);
+    rawData = await queryGraphs(queryLabel, maxDepth, maxNodes, signal);
+    isTruncated = !!rawData?.is_truncated
   }
 
   let rawGraph = null;
@@ -150,7 +147,8 @@ const fetchGraph = async (
     const edgeIdMap: Record<string, number> = {}
 
     for (let i = 0; i < rawData.nodes.length; i++) {
-      const node = rawData.nodes[i]
+      const node = normalizeGraphNodePayload(rawData.nodes[i])
+      rawData.nodes[i] = node
       nodeIdMap[node.id] = i
 
       node.x = Math.random()
@@ -160,7 +158,8 @@ const fetchGraph = async (
     }
 
     for (let i = 0; i < rawData.edges.length; i++) {
-      const edge = rawData.edges[i]
+      const edge = normalizeGraphEdgePayload(rawData.edges[i])
+      rawData.edges[i] = edge
       edgeIdMap[edge.id] = i
 
       const source = nodeIdMap[edge.source]
@@ -530,12 +529,13 @@ const useLightrangeGraph = () => {
         }
 
         const processedNodes: RawNodeType[] = extendedGraph.nodes.map((node) => {
+          const normalizedNode = normalizeGraphNodePayload(node)
           const rng = seedrandom(node.id)
-          const nodeEntityType = node.properties?.entity_type as string | undefined
+          const nodeEntityType = normalizedNode.properties?.entity_type as string | undefined
           return {
-            id: node.id,
-            labels: node.labels,
-            properties: node.properties,
+            id: normalizedNode.id,
+            labels: normalizedNode.labels,
+            properties: normalizedNode.properties,
             size: 10,
             x: rng(),
             y: rng(),
@@ -544,14 +544,17 @@ const useLightrangeGraph = () => {
           }
         })
 
-        const processedEdges: RawEdgeType[] = extendedGraph.edges.map((edge) => ({
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          type: edge.type,
-          properties: edge.properties,
-          dynamicId: ''
-        }))
+        const processedEdges: RawEdgeType[] = extendedGraph.edges.map((edge) => {
+          const normalizedEdge = normalizeGraphEdgePayload(edge)
+          return {
+            id: normalizedEdge.id,
+            source: normalizedEdge.source,
+            target: normalizedEdge.target,
+            type: normalizedEdge.type,
+            properties: normalizedEdge.properties,
+            dynamicId: ''
+          }
+        })
 
         const layoutResult = await runLayout({
           expandedNodeId: nodeId,

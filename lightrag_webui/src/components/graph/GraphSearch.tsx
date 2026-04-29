@@ -1,24 +1,25 @@
-import { FC, useCallback, useEffect } from 'react'
-import {
-  EdgeById,
-  GraphSearchInputProps,
-  GraphSearchContextProviderProps
-} from '@react-sigma/graph-search'
+import { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { GraphSearchInputProps, GraphSearchContextProviderProps } from '@react-sigma/graph-search'
 import { AsyncSearch } from '@/components/ui/AsyncSearch'
-import { searchResultLimit } from '@/lib/constants'
+import { searchLabels } from '@/api/lightrag'
+import { searchLabelsDefaultLimit, searchResultLimit } from '@/lib/constants'
 import { useGraphStore } from '@/stores/graph'
+import { useGraphWorkbenchStore } from '@/stores/graphWorkbench'
+import { useSettingsStore } from '@/stores/settings'
 import MiniSearch from 'minisearch'
 import { useTranslation } from 'react-i18next'
+import { createMergeEntityNavigationPlan } from '@/utils/mergeEntity'
+import {
+  type GraphSearchOptionItem,
+  graphSearchMessageId,
+  limitGraphSearchOptions,
+  mapRemoteLabelsToOptions,
+  mergeGraphSearchOptions,
+  resolveGraphSearchSelection,
+  searchLocalGraphNodes
+} from '@/utils/graphSearch'
 
-// Message item identifier for search results
-export const messageId = '__message_item'
-
-// Search result option item interface
-export interface OptionItem {
-  id: string
-  type: 'nodes' | 'edges' | 'message'
-  message?: string
-}
+export type OptionItem = GraphSearchOptionItem
 
 const NodeOption = ({ id }: { id: string }) => {
   const graph = useGraphStore.use.sigmaGraph()
@@ -53,7 +54,7 @@ function OptionComponent(item: OptionItem) {
   return (
     <div>
       {item.type === 'nodes' && <NodeOption id={item.id} />}
-      {item.type === 'edges' && <EdgeById id={item.id} />}
+      {item.type === 'labels' && <div className="p-2 text-sm">{item.label ?? item.id}</div>}
       {item.type === 'message' && <div>{item.message}</div>}
     </div>
   )
@@ -74,7 +75,35 @@ export const GraphSearchInput = ({
 }) => {
   const { t } = useTranslation()
   const graph = useGraphStore.use.sigmaGraph()
+  const rawGraph = useGraphStore.use.rawGraph()
   const searchEngine = useGraphStore.use.searchEngine()
+  const appliedWorkbenchQuery = useGraphWorkbenchStore.use.appliedQuery()
+  const queryLabel = useSettingsStore.use.queryLabel()
+  const applyScopeLabel = useGraphWorkbenchStore.use.applyScopeLabel()
+  const setQueryLabel = useSettingsStore.use.setQueryLabel()
+  const [pendingNavigationEntity, setPendingNavigationEntity] = useState<string | null>(null)
+  const latestOptionsRef = useRef<Map<string, OptionItem>>(new Map())
+
+  const currentQueryLabel = useMemo(
+    () => appliedWorkbenchQuery?.scope.label ?? queryLabel,
+    [appliedWorkbenchQuery, queryLabel]
+  )
+
+  useEffect(() => {
+    if (!pendingNavigationEntity) {
+      return
+    }
+
+    const plan = createMergeEntityNavigationPlan(rawGraph, pendingNavigationEntity)
+    if (!plan?.nodeId) {
+      return
+    }
+
+    const graphStore = useGraphStore.getState()
+    graphStore.setFocusedNode(plan.nodeId)
+    graphStore.setSelectedNode(plan.nodeId, true)
+    setPendingNavigationEntity(null)
+  }, [rawGraph, pendingNavigationEntity])
 
   useEffect(() => {
     if (!graph || graph.nodes().length === 0) {
@@ -115,82 +144,38 @@ export const GraphSearchInput = ({
    */
   const loadOptions = useCallback(
     async (query?: string): Promise<OptionItem[]> => {
-      if (onFocus) onFocus(null)
-
-      // Safety checks to prevent crashes
-      if (!graph || !searchEngine) {
-        return []
+      if (onFocus) {
+        onFocus(null)
       }
 
-      // Verify graph has nodes before proceeding
-      if (graph.nodes().length === 0) {
-        return []
+      const normalizedQuery = query?.trim() ?? ''
+      const localOptions = searchLocalGraphNodes(
+        graph,
+        searchEngine,
+        normalizedQuery,
+        searchResultLimit
+      )
+
+      let options = localOptions
+      if (normalizedQuery) {
+        try {
+          const remoteLabels = await searchLabels(normalizedQuery, searchLabelsDefaultLimit)
+          const remoteOptions = mapRemoteLabelsToOptions(remoteLabels, rawGraph)
+          options = mergeGraphSearchOptions(localOptions, remoteOptions)
+        } catch {
+          options = localOptions
+        }
       }
 
-      // If no query, return some nodes for user to select
-      if (!query) {
-        const nodeIds = graph.nodes()
-          .filter(id => graph.hasNode(id))
-          .slice(0, searchResultLimit)
-        return nodeIds.map(id => ({
-          id,
-          type: 'nodes'
-        }))
-      }
-
-      // If has query, search nodes and verify they still exist
-      let result: OptionItem[] = searchEngine.search(query)
-        .filter((r: { id: string }) => graph.hasNode(r.id))
-        .map((r: { id: string }) => ({
-          id: r.id,
-          type: 'nodes'
-        }))
-
-      // Add middle-content matching if results are few
-      // This enables matching content in the middle of text, not just from the beginning
-      if (result.length < 5) {
-        // Get already matched IDs to avoid duplicates
-        const matchedIds = new Set(result.map(item => item.id))
-
-        // Perform middle-content matching on all nodes with safety checks
-        const middleMatchResults = graph.nodes()
-          .filter(id => {
-            // Skip already matched nodes
-            if (matchedIds.has(id)) return false
-
-            // Ensure node exists before accessing attributes
-            if (!graph.hasNode(id)) return false
-
-            // Get node label safely
-            const label = graph.getNodeAttribute(id, 'label')
-            // Match if label contains query string but doesn't start with it
-            return label &&
-                   typeof label === 'string' &&
-                   !label.toLowerCase().startsWith(query.toLowerCase()) &&
-                   label.toLowerCase().includes(query.toLowerCase())
-          })
-          .map(id => ({
-            id,
-            type: 'nodes' as const
-          }))
-
-        // Merge results
-        result = [...result, ...middleMatchResults]
-      }
-
-      // prettier-ignore
-      return result.length <= searchResultLimit
-        ? result
-        : [
-          ...result.slice(0, searchResultLimit),
-          {
-            type: 'message',
-            id: messageId,
-            message: t('graphPanel.search.message', { count: result.length - searchResultLimit })
-          }
-        ]
+      const limitedOptions = limitGraphSearchOptions(
+        options,
+        searchResultLimit,
+        t('graphPanel.search.message', { count: options.length - searchResultLimit })
+      )
+      latestOptionsRef.current = new Map(limitedOptions.map((item) => [item.value, item]))
+      return limitedOptions
     },
-    [graph, searchEngine, onFocus, t]
+    [graph, onFocus, rawGraph, searchEngine, t]
   )
 
   return (
@@ -198,13 +183,54 @@ export const GraphSearchInput = ({
       className="bg-background/60 min-w-[11rem] max-w-full rounded-xl border-1 opacity-60 backdrop-blur-lg transition-opacity hover:opacity-100 sm:w-[14rem] lg:w-[16rem]"
       fetcher={loadOptions}
       renderOption={OptionComponent}
-      getOptionValue={(item) => item.id}
-      value={value && value.type !== 'message' ? value.id : null}
-      onChange={(id) => {
-        if (id !== messageId) onChange(id ? { id, type: 'nodes' } : null)
+      getOptionValue={(item) => item.value}
+      value={value && value.type !== 'message' ? `node:${value.id}` : null}
+      onChange={(selectedValue) => {
+        if (selectedValue === graphSearchMessageId) {
+          return
+        }
+
+        const selectedItem = latestOptionsRef.current.get(selectedValue)
+        const action = resolveGraphSearchSelection(selectedItem, currentQueryLabel)
+        if (action.kind === 'select-node') {
+          onChange({ id: action.nodeId, type: 'nodes' })
+          return
+        }
+
+        if (action.kind !== 'query-label') {
+          onChange(null)
+          return
+        }
+
+        const graphStore = useGraphStore.getState()
+        graphStore.setFocusedNode(null)
+        graphStore.setSelectedNode(null)
+        graphStore.setGraphDataFetchAttempted(false)
+        graphStore.setLastSuccessfulQueryLabel('')
+        setPendingNavigationEntity(action.label)
+        if (appliedWorkbenchQuery) {
+          applyScopeLabel(action.label)
+        } else {
+          setQueryLabel(action.label)
+        }
+        if (action.forceRefresh) {
+          graphStore.incrementGraphDataVersion()
+        }
+        onChange(null)
       }}
-      onFocus={(id) => {
-        if (id !== messageId && onFocus) onFocus(id ? { id, type: 'nodes' } : null)
+      onFocus={(focusedValue) => {
+        if (!onFocus || focusedValue === graphSearchMessageId) {
+          return
+        }
+
+        const focusedItem = latestOptionsRef.current.get(focusedValue)
+        const action = resolveGraphSearchSelection(focusedItem, currentQueryLabel)
+        if (action.kind === 'select-node') {
+          onFocus({ id: action.nodeId, type: 'nodes' })
+          return
+        }
+
+        onFocus(null)
       }}
       ariaLabel={t('graphPanel.search.placeholder')}
       placeholder={t('graphPanel.search.placeholder')}

@@ -3,6 +3,20 @@ import { describe, expect, test } from 'bun:test'
 import { resolveNodeDisplayName } from './graphLabel'
 
 describe('resolveNodeDisplayName', () => {
+  test('优先使用顶层 name', () => {
+    expect(
+      resolveNodeDisplayName({
+        id: 'node-1',
+        name: 'Top Level Name',
+        labels: ['entity-id'],
+        properties: {
+          name: 'Nested Name',
+          entity_id: 'entity-id'
+        }
+      })
+    ).toBe('Top Level Name')
+  })
+
   test('优先使用 properties.name', () => {
     expect(
       resolveNodeDisplayName({
@@ -14,6 +28,21 @@ describe('resolveNodeDisplayName', () => {
         }
       })
     ).toBe('Display Name')
+  })
+
+  test('缺少显式 name 时回退到 custom_properties.name', () => {
+    expect(
+      resolveNodeDisplayName({
+        id: 'node-1',
+        labels: ['entity-id'],
+        properties: {
+          entity_id: 'entity-id',
+          custom_properties: {
+            name: 'Custom Name'
+          }
+        }
+      })
+    ).toBe('Custom Name')
   })
 
   test('缺少 name 时回退到 entity_id', () => {

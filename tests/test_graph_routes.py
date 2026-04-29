@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lightrag.base import DeletionResult
+from lightrag.constants import DEFAULT_MAX_GRAPH_NODES
 
 pytestmark = pytest.mark.offline
 
@@ -22,6 +23,7 @@ class _DummyRAG:
         stale_entity_edit: bool = False,
         stale_relation_edit: bool = False,
         stale_merge: bool = False,
+        graph_result: dict[str, Any] | None = None,
     ):
         self.entity_delete_status = entity_delete_status
         self.relation_delete_status = relation_delete_status
@@ -43,6 +45,7 @@ class _DummyRAG:
         self.last_relation_detail_request: dict[str, Any] | None = None
         self.last_export_request: dict[str, Any] | None = None
         self.graph_entity_types = ["ORGANIZATION", "PERSON", "PRODUCT"]
+        self.graph_result = graph_result
 
     async def get_knowledge_graph(
         self, node_label: str, max_depth: int, max_nodes: int
@@ -52,6 +55,8 @@ class _DummyRAG:
             "max_depth": max_depth,
             "max_nodes": max_nodes,
         }
+        if self.graph_result is not None:
+            return self.graph_result
         return {
             "nodes": [
                 {
@@ -333,6 +338,22 @@ def test_get_graphs_route_remains_backward_compatible(graph_client):
     }
 
 
+def test_get_graphs_route_uses_10000_default_limit(graph_client):
+    client, rag = graph_client
+
+    response = client.get(
+        "/graphs",
+        params={"label": "Tesla", "max_depth": 2},
+    )
+
+    assert response.status_code == 200
+    assert rag.last_graph_call == {
+        "node_label": "Tesla",
+        "max_depth": 2,
+        "max_nodes": DEFAULT_MAX_GRAPH_NODES,
+    }
+
+
 def test_get_graphs_route_rejects_blank_label(graph_client):
     client, rag = graph_client
 
@@ -416,6 +437,63 @@ def test_graph_query_accepts_v1_filter_shape_and_returns_meta_truncation(graph_c
         "max_depth": 2,
         "max_nodes": 128,
     }
+
+
+def test_graph_query_uses_10000_default_limit(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/query",
+        json={
+            "scope": {
+                "label": "Tesla",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["truncation"]["requested_max_nodes"] == DEFAULT_MAX_GRAPH_NODES
+    assert body["truncation"]["effective_max_nodes"] == DEFAULT_MAX_GRAPH_NODES
+    assert rag.last_graph_call == {
+        "node_label": "Tesla",
+        "max_depth": 3,
+        "max_nodes": DEFAULT_MAX_GRAPH_NODES,
+    }
+
+
+def test_graph_query_caps_edges_to_max_nodes(monkeypatch):
+    graph_result = {
+        "nodes": [
+            {"id": "Tesla", "labels": ["ORGANIZATION"], "properties": {}},
+            {"id": "Elon Musk", "labels": ["PERSON"], "properties": {}},
+        ],
+        "edges": [
+            {
+                "id": f"rel-{index}",
+                "source": "Elon Musk",
+                "target": "Tesla",
+                "type": "owns",
+                "properties": {"weight": 1.0},
+            }
+            for index in range(5)
+        ],
+        "is_truncated": False,
+    }
+    rag = _DummyRAG(graph_result=graph_result)
+
+    with _build_graph_client(monkeypatch, rag) as client:
+        response = client.post(
+            "/graph/query",
+            json={"scope": {"label": "Tesla", "max_nodes": 3}},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["data"]["nodes"]) == 2
+    assert len(body["data"]["edges"]) == 3
+    assert body["data"]["is_truncated"] is True
+    assert body["truncation"]["effective_max_nodes"] == 3
 
 
 def test_delete_entity_route_exists_and_returns_expected_structure(graph_client):

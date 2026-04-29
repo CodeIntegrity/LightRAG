@@ -2,6 +2,8 @@ type NodeDisplayCandidate = {
   id?: string
   labels?: string[]
   properties?: Record<string, unknown>
+  name?: unknown
+  custom_properties?: Record<string, unknown>
 }
 
 const asNonEmptyString = (value: unknown): string | undefined => {
@@ -16,9 +18,25 @@ const asNonEmptyString = (value: unknown): string | undefined => {
 export const resolveNodeDisplayName = (
   node: NodeDisplayCandidate | null | undefined
 ): string => {
+  const topLevelName = asNonEmptyString(node?.name)
+  if (topLevelName) {
+    return topLevelName
+  }
+
   const name = asNonEmptyString(node?.properties?.name)
   if (name) {
     return name
+  }
+
+  const customName = asNonEmptyString(
+    node?.properties?.custom_properties &&
+      typeof node.properties.custom_properties === 'object' &&
+      !Array.isArray(node.properties.custom_properties)
+      ? (node.properties.custom_properties as Record<string, unknown>).name
+      : node?.custom_properties?.name
+  )
+  if (customName) {
+    return customName
   }
 
   const entityId = asNonEmptyString(node?.properties?.entity_id)

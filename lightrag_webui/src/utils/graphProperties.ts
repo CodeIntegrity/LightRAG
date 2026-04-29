@@ -1,4 +1,4 @@
-const HIDDEN_PROPERTY_KEYS = new Set(['created_at', 'truncate'])
+const HIDDEN_PROPERTY_KEYS = new Set(['created_at', 'truncate', 'revision_token', 'graph_data'])
 const HIDDEN_NODE_PROPERTY_KEYS = new Set(['name'])
 const CUSTOM_PROPERTIES_KEY = 'custom_properties'
 
@@ -65,6 +65,9 @@ export const getVisibleGraphPropertyEntries = (
 
   const seenNames = new Set(entries.map(({ name }) => name))
   for (const name of Object.keys(customProperties as Record<string, unknown>).sort()) {
+    if (type === 'node' && HIDDEN_NODE_PROPERTY_KEYS.has(name)) {
+      continue
+    }
     if (seenNames.has(name)) {
       continue
     }

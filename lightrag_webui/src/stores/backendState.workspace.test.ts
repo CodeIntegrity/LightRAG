@@ -32,7 +32,7 @@ describe('backend workspace create capability', () => {
       graph_storage: 'NetworkXStorage',
       vector_storage: 'NanoVectorDBStorage',
       workspace: '',
-      max_graph_nodes: '1000',
+      max_graph_nodes: '10000',
       enable_rerank: false,
       rerank_binding: null,
       rerank_model: null,
@@ -72,12 +72,14 @@ describe('backend workspace create capability', () => {
     const api = await import('@/api/lightrag')
     const checkHealthMock = api.checkHealth as unknown as ReturnType<typeof vi.fn>
     const { useBackendState } = await import('./state')
+    const { useSettingsStore } = await import('./settings')
 
     checkHealthMock.mockResolvedValue(healthyStatus)
 
     const ok = await useBackendState.getState().check()
     expect(ok).toBe(true)
     expect(useBackendState.getState().workspaceCreateAllowed).toBe(true)
+    expect(useSettingsStore.getState().backendMaxGraphNodes).toBe(10000)
     expect(useBackendState.getState().guestVisibleTabs).toEqual(['documents', 'retrieval'])
   })
 

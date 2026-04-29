@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
+from lightrag.constants import DEFAULT_MAX_GRAPH_NODES
 from lightrag.utils_graph import (
     build_revision_token,
     normalize_graph_edge_data,
@@ -489,18 +490,26 @@ def _apply_post_filter_guardrail(
     edges: list[dict[str, Any]],
     effective_max_nodes: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
-    if len(nodes) <= effective_max_nodes:
-        return nodes, edges, False
+    was_truncated = False
+    limited_nodes = nodes
+    limited_edges = edges
 
-    limited_nodes = nodes[:effective_max_nodes]
-    allowed_ids = {str(node.get("id", "")).strip() for node in limited_nodes}
-    limited_edges = [
-        edge
-        for edge in edges
-        if str(edge.get("source", "")).strip() in allowed_ids
-        and str(edge.get("target", "")).strip() in allowed_ids
-    ]
-    return limited_nodes, limited_edges, True
+    if len(nodes) > effective_max_nodes:
+        was_truncated = True
+        limited_nodes = nodes[:effective_max_nodes]
+        allowed_ids = {str(node.get("id", "")).strip() for node in limited_nodes}
+        limited_edges = [
+            edge
+            for edge in edges
+            if str(edge.get("source", "")).strip() in allowed_ids
+            and str(edge.get("target", "")).strip() in allowed_ids
+        ]
+
+    if len(limited_edges) > effective_max_nodes:
+        was_truncated = True
+        limited_edges = limited_edges[:effective_max_nodes]
+
+    return limited_nodes, limited_edges, was_truncated
 
 
 async def _fetch_base_graph(
@@ -536,7 +545,9 @@ async def query_graph_workbench(
     source_filters = _model_dump_or_dict(request_payload.get("source_filters"))
     view_options = _model_dump_or_dict(request_payload.get("view_options"))
 
-    requested_max_nodes = _to_int(scope.get("max_nodes"), 1000, 1)
+    requested_max_nodes = _to_int(
+        scope.get("max_nodes"), DEFAULT_MAX_GRAPH_NODES, 1
+    )
     runtime_limit = _extract_runtime_max_nodes(rag)
     effective_max_nodes = (
         min(requested_max_nodes, runtime_limit)

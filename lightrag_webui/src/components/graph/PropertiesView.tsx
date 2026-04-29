@@ -275,6 +275,9 @@ const PropertyRow = ({
 
 const NodePropertiesView = ({ node }: { node: NodeType }) => {
   const { t } = useTranslation()
+  const visibleLabels = node.labels.filter(
+    (label) => typeof label === 'string' && label.trim()
+  )
 
   const handleExpandNode = () => {
     useGraphStore.getState().triggerNodeExpand(node.id)
@@ -312,12 +315,18 @@ const NodePropertiesView = ({ node }: { node: NodeType }) => {
       <div className="bg-primary/5 max-h-96 overflow-auto rounded p-1">
         <PropertyRow name={t('graphPanel.propertiesView.node.id')} value={String(node.id)} />
         <PropertyRow
-          name={t('graphPanel.propertiesView.node.labels')}
+          name={t('graphPanel.propertiesView.node.name', '名称')}
           value={resolveNodeDisplayName(node)}
           onClick={() => {
             useGraphStore.getState().setSelectedNode(node.id, true)
           }}
         />
+        {visibleLabels.length > 0 && (
+          <PropertyRow
+            name={t('graphPanel.propertiesView.node.labels')}
+            value={visibleLabels.join(', ')}
+          />
+        )}
         <PropertyRow name={t('graphPanel.propertiesView.node.degree')} value={node.degree} />
       </div>
       <h3 className="text-md pl-1 font-bold tracking-wide text-amber-700">{t('graphPanel.propertiesView.node.properties')}</h3>

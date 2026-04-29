@@ -118,7 +118,7 @@ const useSettingsStoreBase = create<SettingsState>()(
       maxEdgeSize: 1,
 
       graphQueryMaxDepth: 3,
-      graphMaxNodes: 1000,
+      graphMaxNodes: 10000,
       backendMaxGraphNodes: null,
       graphLayoutMaxIterations: 15,
 
@@ -334,7 +334,7 @@ const useSettingsStoreBase = create<SettingsState>()(
         }
         if (version < 10) {
           delete state.graphMinDegree // 删除废弃参数
-          state.graphMaxNodes = 1000 // 添加新参数
+          state.graphMaxNodes = 10000 // 添加新参数
         }
         if (version < 11) {
           state.minEdgeSize = 1

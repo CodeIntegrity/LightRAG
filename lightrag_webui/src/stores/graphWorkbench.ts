@@ -108,7 +108,7 @@ export const getDefaultGraphWorkbenchFilterDraft = (): GraphWorkbenchQueryReques
   scope: {
     label: '*',
     max_depth: 3,
-    max_nodes: 1000,
+    max_nodes: 10000,
     only_matched_neighborhood: false
   },
   node_filters: {
