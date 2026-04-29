@@ -65,6 +65,54 @@ def _sanitize_index_name(name: str) -> str:
     return sanitized
 
 
+_shard_doc_supported: bool | None = None
+
+
+def _pit_sort_with_field(field: str) -> list[dict]:
+    """Return PIT sort clause with a unique field as primary sort."""
+    if _shard_doc_supported:
+        return [{"_shard_doc": "asc"}]
+    return [{field: {"order": "asc"}}, {"_doc": "asc"}]
+
+
+def _pit_sort_with_composite_key(*fields: str) -> list[dict]:
+    """Return PIT sort clause with a composite unique key as primary sort."""
+    if _shard_doc_supported:
+        return [{"_shard_doc": "asc"}]
+    return [{field: {"order": "asc"}} for field in fields] + [{"_doc": "asc"}]
+
+
+async def _detect_shard_doc_support(client: AsyncOpenSearch) -> bool:
+    """Check if the cluster supports _shard_doc inside PIT searches."""
+    try:
+        info = await client.info()
+        if not isinstance(info, dict):
+            raise TypeError(f"unexpected info payload type: {type(info).__name__}")
+        version_str = info.get("version", {}).get("number", "0.0.0")
+        parts = [part.split("-")[0] for part in version_str.split(".")]
+        major = int(parts[0]) if parts and parts[0].isdigit() else 0
+        minor = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        supported = (major > 3) or (major == 3 and minor >= 3)
+        logger.info(
+            f"OpenSearch version {version_str}: "
+            f"_shard_doc {'supported' if supported else 'not supported, using field+_doc fallback'}"
+        )
+        return supported
+    except Exception as e:
+        logger.warning(
+            f"Failed to detect OpenSearch version, assuming _shard_doc not supported: {e}"
+        )
+        return False
+
+
+async def _ensure_shard_doc_support(client: AsyncOpenSearch) -> bool:
+    """Populate shard-doc support cache when client injection bypasses ClientManager."""
+    global _shard_doc_supported
+    if _shard_doc_supported is None:
+        _shard_doc_supported = await _detect_shard_doc_support(client)
+    return _shard_doc_supported
+
+
 class ClientManager:
     """Singleton manager for OpenSearch client connections."""
 
@@ -74,6 +122,7 @@ class ClientManager:
     @classmethod
     async def get_client(cls) -> AsyncOpenSearch:
         """Get or create a shared AsyncOpenSearch client with reference counting."""
+        global _shard_doc_supported
         async with cls._lock:
             if cls._instances["client"] is None:
                 hosts_str = _get_opensearch_env("OPENSEARCH_HOSTS", "localhost:9200")
@@ -110,6 +159,7 @@ class ClientManager:
                 )
                 cls._instances["client"] = client
                 cls._instances["ref_count"] = 0
+                _shard_doc_supported = await _detect_shard_doc_support(client)
                 logger.info(f"OpenSearch client connected to {hosts}")
 
             cls._instances["ref_count"] += 1
@@ -118,6 +168,7 @@ class ClientManager:
     @classmethod
     async def release_client(cls, client: AsyncOpenSearch):
         """Release a client reference. Closes the connection when ref count reaches 0."""
+        global _shard_doc_supported
         async with cls._lock:
             if client is not None and client is cls._instances["client"]:
                 cls._instances["ref_count"] -= 1
@@ -128,6 +179,7 @@ class ClientManager:
                         pass
                     cls._instances["client"] = None
                     cls._instances["ref_count"] = 0
+                    _shard_doc_supported = None
                     logger.info("OpenSearch client connection closed")
 
 
@@ -172,6 +224,24 @@ async def _mget_optional_doc(
 def _is_missing_index_error(exc: Exception) -> bool:
     """Return True when an OpenSearch exception means the target index is missing."""
     return "index_not_found_exception" in str(exc)
+
+
+async def _verify_mirrored_id_mapping(client: AsyncOpenSearch, index_name: str) -> None:
+    """Fail fast when an existing index lacks the __mirrored_id keyword mapping."""
+    if _shard_doc_supported:
+        return
+    try:
+        mapping = await client.indices.get_mapping(index=index_name)
+    except OpenSearchException:
+        return
+    props = mapping.get(index_name, {}).get("mappings", {}).get("properties", {})
+    if "__mirrored_id" not in props:
+        raise RuntimeError(
+            f"Index '{index_name}' lacks the '__mirrored_id' keyword mapping "
+            f"required for stable PIT pagination on OpenSearch < 3.3.0. "
+            f"This index was likely created by an older LightRAG release. "
+            f"Please reindex the data, or upgrade the cluster to OpenSearch >= 3.3.0."
+        )
 
 
 @final
@@ -225,10 +295,16 @@ class OpenSearchKVStorage(BaseKVStorage):
 
     async def _create_index_if_not_exists(self):
         try:
+            await _ensure_shard_doc_support(self.client)
             if not await self.client.indices.exists(index=self._index_name):
                 # Use dynamic mapping so any namespace schema works
                 body = {
-                    "mappings": {"dynamic": True},
+                    "mappings": {
+                        "dynamic": True,
+                        "properties": {
+                            "__mirrored_id": {"type": "keyword"},
+                        },
+                    },
                     "settings": {
                         "index": {
                             "number_of_shards": _get_index_number_of_shards(),
@@ -238,6 +314,8 @@ class OpenSearchKVStorage(BaseKVStorage):
                 }
                 await self.client.indices.create(index=self._index_name, body=body)
                 logger.info(f"[{self.workspace}] Created index: {self._index_name}")
+            else:
+                await _verify_mirrored_id_mapping(self.client, self._index_name)
         except RequestError as e:
             if "resource_already_exists_exception" not in str(e):
                 raise
@@ -270,7 +348,7 @@ class OpenSearchKVStorage(BaseKVStorage):
                         "query": {"match_all": {}},
                         "size": batch_size,
                         "pit": {"id": pit_id, "keep_alive": "1m"},
-                        "sort": [{"_shard_doc": "asc"}],
+                        "sort": _pit_sort_with_field("__mirrored_id"),
                     }
                     if search_after:
                         body["search_after"] = search_after
@@ -306,6 +384,7 @@ class OpenSearchKVStorage(BaseKVStorage):
             if response is None:
                 return None
             doc = response["_source"]
+            doc.pop("__mirrored_id", None)
             doc["_id"] = response["_id"]
             doc.setdefault("create_time", 0)
             doc.setdefault("update_time", 0)
@@ -327,6 +406,7 @@ class OpenSearchKVStorage(BaseKVStorage):
             for doc in response["docs"]:
                 if doc.get("found"):
                     data = doc["_source"]
+                    data.pop("__mirrored_id", None)
                     data["_id"] = doc["_id"]
                     data.setdefault("create_time", 0)
                     data.setdefault("update_time", 0)
@@ -369,12 +449,14 @@ class OpenSearchKVStorage(BaseKVStorage):
         for i, (doc_id, doc_data) in enumerate(data.items(), start=1):
             doc_data["update_time"] = current_time
             doc_data.setdefault("create_time", current_time)
+            source = {k: v for k, v in doc_data.items() if k != "_id"}
+            source["__mirrored_id"] = doc_id
             actions.append(
                 {
                     "_op_type": "index",
                     "_index": self._index_name,
                     "_id": doc_id,
-                    "_source": {k: v for k, v in doc_data.items() if k != "_id"},
+                    "_source": source,
                 }
             )
             await _cooperative_yield(i)
@@ -493,6 +575,7 @@ class OpenSearchDocStatusStorage(DocStatusStorage):
         """Normalize a raw OpenSearch document to DocProcessingStatus-compatible dict."""
         data = doc.copy()
         data.pop("_id", None)
+        data.pop("__mirrored_id", None)
         if "file_path" not in data:
             data["file_path"] = "no-file-path"
         data.setdefault("metadata", {})
@@ -532,11 +615,13 @@ class OpenSearchDocStatusStorage(DocStatusStorage):
 
     async def _create_index_if_not_exists(self):
         try:
+            await _ensure_shard_doc_support(self.client)
             if not await self.client.indices.exists(index=self._index_name):
                 body = {
                     "mappings": {
                         "dynamic": True,
                         "properties": {
+                            "__mirrored_id": {"type": "keyword"},
                             "status": {"type": "keyword"},
                             "file_path": {"type": "keyword"},
                             "track_id": {"type": "keyword"},
@@ -555,6 +640,8 @@ class OpenSearchDocStatusStorage(DocStatusStorage):
                 logger.info(
                     f"[{self.workspace}] Created doc status index: {self._index_name}"
                 )
+            else:
+                await _verify_mirrored_id_mapping(self.client, self._index_name)
         except RequestError as e:
             if "resource_already_exists_exception" not in str(e):
                 raise
@@ -577,6 +664,7 @@ class OpenSearchDocStatusStorage(DocStatusStorage):
             if response is None:
                 return None
             doc = response["_source"]
+            doc.pop("__mirrored_id", None)
             doc["_id"] = response["_id"]
             return doc
         except OpenSearchException as e:
@@ -596,6 +684,7 @@ class OpenSearchDocStatusStorage(DocStatusStorage):
             for doc in response["docs"]:
                 if doc.get("found"):
                     data = doc["_source"]
+                    data.pop("__mirrored_id", None)
                     data["_id"] = doc["_id"]
                     doc_map[doc["_id"]] = data
             return [doc_map.get(id) for id in ids]
@@ -632,12 +721,14 @@ class OpenSearchDocStatusStorage(DocStatusStorage):
         actions = []
         for i, (k, v) in enumerate(data.items(), start=1):
             v.setdefault("chunks_list", [])
+            source = {fk: fv for fk, fv in v.items() if fk != "_id"}
+            source["__mirrored_id"] = k
             actions.append(
                 {
                     "_op_type": "index",
                     "_index": self._index_name,
                     "_id": k,
-                    "_source": {fk: fv for fk, fv in v.items() if fk != "_id"},
+                    "_source": source,
                 }
             )
             await _cooperative_yield(i)
@@ -689,7 +780,7 @@ class OpenSearchDocStatusStorage(DocStatusStorage):
                         "query": query,
                         "size": batch_size,
                         "pit": {"id": pit_id, "keep_alive": "1m"},
-                        "sort": [{"_shard_doc": "asc"}],
+                        "sort": _pit_sort_with_field("__mirrored_id"),
                     }
                     if search_after:
                         body["search_after"] = search_after
@@ -779,7 +870,9 @@ class OpenSearchDocStatusStorage(DocStatusStorage):
             if total_count == 0 or skip_count >= total_count:
                 return [], total_count
 
-            sort_clause = [{sort_field: {"order": sort_order}}, {"_shard_doc": "asc"}]
+            sort_clause = [{sort_field: {"order": sort_order}}] + _pit_sort_with_field(
+                "__mirrored_id"
+            )
 
             pit = await self.client.create_pit(
                 index=self._index_name, params={"keep_alive": "1m"}
@@ -1307,7 +1400,9 @@ class OpenSearchGraphStorage(BaseGraphStorage):
                         "_source": ["source_node_id", "target_node_id"],
                         "size": 10000,
                         "pit": {"id": pit_id, "keep_alive": "1m"},
-                        "sort": [{"_shard_doc": "asc"}],
+                        "sort": _pit_sort_with_composite_key(
+                            "source_node_id", "target_node_id"
+                        ),
                     }
                     if search_after:
                         body["search_after"] = search_after
@@ -1439,7 +1534,9 @@ class OpenSearchGraphStorage(BaseGraphStorage):
                         "_source": ["source_node_id", "target_node_id"],
                         "size": 10000,
                         "pit": {"id": pit_id, "keep_alive": "1m"},
-                        "sort": [{"_shard_doc": "asc"}],
+                        "sort": _pit_sort_with_composite_key(
+                            "source_node_id", "target_node_id"
+                        ),
                     }
                     if search_after:
                         body["search_after"] = search_after
@@ -1783,7 +1880,7 @@ class OpenSearchGraphStorage(BaseGraphStorage):
                         "_source": False,
                         "size": 10000,
                         "pit": {"id": pit_id, "keep_alive": "1m"},
-                        "sort": [{"_shard_doc": "asc"}],
+                        "sort": _pit_sort_with_field("entity_id"),
                     }
                     if search_after:
                         body["search_after"] = search_after
@@ -1838,7 +1935,7 @@ class OpenSearchGraphStorage(BaseGraphStorage):
                     "_source": False,
                     "size": 10000,
                     "pit": {"id": pit_id, "keep_alive": "1m"},
-                    "sort": [{"_shard_doc": "asc"}],
+                    "sort": _pit_sort_with_field("entity_id"),
                 }
                 if search_after:
                     body["search_after"] = search_after
@@ -1908,7 +2005,9 @@ class OpenSearchGraphStorage(BaseGraphStorage):
                     "query": edge_query,
                     "size": 10000,
                     "pit": {"id": pit_id, "keep_alive": "1m"},
-                    "sort": [{"_shard_doc": "asc"}],
+                    "sort": _pit_sort_with_composite_key(
+                        "source_node_id", "target_node_id"
+                    ),
                 }
                 if search_after:
                     edge_body["search_after"] = search_after
@@ -2295,7 +2394,7 @@ class OpenSearchGraphStorage(BaseGraphStorage):
                         "query": {"match_all": {}},
                         "size": 10000,
                         "pit": {"id": pit_id, "keep_alive": "1m"},
-                        "sort": [{"_shard_doc": "asc"}],
+                        "sort": _pit_sort_with_field("entity_id"),
                     }
                     if search_after:
                         body["search_after"] = search_after
@@ -2339,7 +2438,9 @@ class OpenSearchGraphStorage(BaseGraphStorage):
                         "query": {"match_all": {}},
                         "size": 10000,
                         "pit": {"id": pit_id, "keep_alive": "1m"},
-                        "sort": [{"_shard_doc": "asc"}],
+                        "sort": _pit_sort_with_composite_key(
+                            "source_node_id", "target_node_id"
+                        ),
                     }
                     if search_after:
                         body["search_after"] = search_after

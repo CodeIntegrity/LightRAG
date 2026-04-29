@@ -22,10 +22,14 @@ from lightrag.kg.opensearch_impl import (
     OpenSearchGraphStorage,
     OpenSearchVectorDBStorage,
     ClientManager,
+    _detect_shard_doc_support,
     _build_index_name,
+    _pit_sort_with_composite_key,
+    _pit_sort_with_field,
     _resolve_workspace,
     _sanitize_index_name,
 )
+from lightrag.kg import opensearch_impl as opensearch_module
 from lightrag.base import DocStatus, DocProcessingStatus
 
 pytestmark = pytest.mark.offline
@@ -141,6 +145,7 @@ def _make_client():
         }
     )
     # PIT operations
+    client.info = AsyncMock(return_value={"version": {"number": "3.3.0"}})
     client.create_pit = AsyncMock(return_value={"pit_id": "mock_pit_id_123"})
     client.delete_pit = AsyncMock()
     return client
@@ -183,6 +188,35 @@ class TestHelpers:
         assert _sanitize_index_name("Hello_World") == "hello_world"
         assert _sanitize_index_name("-bad") == "x-bad"
         assert _sanitize_index_name("a.b/c") == "a_b_c"
+
+    @pytest.mark.asyncio
+    async def test_detect_shard_doc_support(self):
+        client = AsyncMock()
+        client.info = AsyncMock(return_value={"version": {"number": "3.3.0"}})
+        assert await _detect_shard_doc_support(client) is True
+
+        client.info = AsyncMock(return_value={"version": {"number": "3.2.1"}})
+        assert await _detect_shard_doc_support(client) is False
+
+    def test_pit_sort_helpers(self):
+        with patch.object(opensearch_module, "_shard_doc_supported", True):
+            assert _pit_sort_with_field("__mirrored_id") == [{"_shard_doc": "asc"}]
+            assert _pit_sort_with_composite_key("source_node_id", "target_node_id") == [
+                {"_shard_doc": "asc"}
+            ]
+
+        with patch.object(opensearch_module, "_shard_doc_supported", False):
+            assert _pit_sort_with_field("__mirrored_id") == [
+                {"__mirrored_id": {"order": "asc"}},
+                {"_doc": "asc"},
+            ]
+            assert _pit_sort_with_composite_key(
+                "source_node_id", "target_node_id"
+            ) == [
+                {"source_node_id": {"order": "asc"}},
+                {"target_node_id": {"order": "asc"}},
+                {"_doc": "asc"},
+            ]
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +495,7 @@ class TestKVStorage:
     async def test_iter_raw_docs_uses_pit_and_search_after(
         self, global_config, embed_func, mock_client
     ):
+        mock_client.info = AsyncMock(return_value={"version": {"number": "3.2.0"}})
         mock_client.search = AsyncMock(
             side_effect=[
                 {
@@ -481,25 +516,30 @@ class TestKVStorage:
             ]
         )
 
-        with patch.object(ClientManager, "get_client", return_value=mock_client):
-            s = self._make(global_config, embed_func)
-            await s.initialize()
+        with patch.object(opensearch_module, "_shard_doc_supported", None):
+            with patch.object(ClientManager, "get_client", return_value=mock_client):
+                s = self._make(global_config, embed_func)
+                await s.initialize()
 
-            batches = [batch async for batch in s._iter_raw_docs(batch_size=2)]
+                batches = [batch async for batch in s._iter_raw_docs(batch_size=2)]
 
-            assert [[doc["_id"] for doc in batch] for batch in batches] == [
-                ["d1", "d2"],
-                ["d3"],
-            ]
-            assert (
-                "search_after"
-                not in mock_client.search.await_args_list[0].kwargs["body"]
-            )
-            assert mock_client.search.await_args_list[1].kwargs["body"][
-                "search_after"
-            ] == [2]
-            mock_client.create_pit.assert_awaited_once()
-            mock_client.delete_pit.assert_awaited_once()
+                assert [[doc["_id"] for doc in batch] for batch in batches] == [
+                    ["d1", "d2"],
+                    ["d3"],
+                ]
+                assert mock_client.search.await_args_list[0].kwargs["body"]["sort"] == [
+                    {"__mirrored_id": {"order": "asc"}},
+                    {"_doc": "asc"},
+                ]
+                assert (
+                    "search_after"
+                    not in mock_client.search.await_args_list[0].kwargs["body"]
+                )
+                assert mock_client.search.await_args_list[1].kwargs["body"][
+                    "search_after"
+                ] == [2]
+                mock_client.create_pit.assert_awaited_once()
+                mock_client.delete_pit.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_iter_raw_docs_missing_index_demotes_readiness(
@@ -689,6 +729,7 @@ class TestDocStatusStorage:
     @pytest.mark.asyncio
     async def test_get_docs_paginated(self, global_config, embed_func, mock_client):
         """Page 1 returns results directly without search_after."""
+        mock_client.info = AsyncMock(return_value={"version": {"number": "3.2.0"}})
         mock_client.count = AsyncMock(return_value={"count": 50})
         mock_client.search = AsyncMock(
             return_value={
@@ -712,19 +753,25 @@ class TestDocStatusStorage:
                 },
             }
         )
-        with patch.object(ClientManager, "get_client", return_value=mock_client):
-            s = self._make(global_config, embed_func)
-            await s.initialize()
-            docs, total = await s.get_docs_paginated(page=1, page_size=10)
-            assert total == 50
-            assert len(docs) == 1
-            assert docs[0][0] == "d1"
-            # Page 1: no search_after needed, single search call
-            assert mock_client.search.await_count == 1
-            body = mock_client.search.call_args.kwargs.get(
-                "body"
-            ) or mock_client.search.call_args[1].get("body", {})
-            assert "search_after" not in body
+        with patch.object(opensearch_module, "_shard_doc_supported", None):
+            with patch.object(ClientManager, "get_client", return_value=mock_client):
+                s = self._make(global_config, embed_func)
+                await s.initialize()
+                docs, total = await s.get_docs_paginated(page=1, page_size=10)
+                assert total == 50
+                assert len(docs) == 1
+                assert docs[0][0] == "d1"
+                # Page 1: no search_after needed, single search call
+                assert mock_client.search.await_count == 1
+                body = mock_client.search.call_args.kwargs.get(
+                    "body"
+                ) or mock_client.search.call_args[1].get("body", {})
+                assert body["sort"] == [
+                    {"updated_at": {"order": "desc"}},
+                    {"__mirrored_id": {"order": "asc"}},
+                    {"_doc": "asc"},
+                ]
+                assert "search_after" not in body
 
     @pytest.mark.asyncio
     async def test_get_docs_paginated_page2_uses_search_after(
