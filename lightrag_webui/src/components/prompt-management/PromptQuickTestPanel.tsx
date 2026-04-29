@@ -124,7 +124,7 @@ export default function PromptQuickTestPanel({ sections, payload }: PromptQuickT
             {fields.length} {t('promptManagement.quickTestFields')}
           </span>
         </div>
-        <span className="text-xs text-emerald-500">
+        <span className="text-xs text-blue-500">
           {expanded ? t('promptManagement.collapse') : t('promptManagement.edit')}
         </span>
       </button>

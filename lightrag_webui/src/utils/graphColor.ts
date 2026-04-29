@@ -169,7 +169,28 @@ const EXTENDED_COLORS = [
   '#0f705d',
   '#ff99cc',
   '#6ef7b3',
-  '#cd071e'
+  '#cd071e',
+  '#1d4ed8',
+  '#7c3aed',
+  '#0f766e',
+  '#ea580c',
+  '#db2777',
+  '#0284c7',
+  '#65a30d',
+  '#9333ea',
+  '#c2410c',
+  '#0891b2',
+  '#4f46e5',
+  '#be185d',
+  '#0d9488',
+  '#ca8a04',
+  '#2563eb',
+  '#7e22ce',
+  '#059669',
+  '#dc2626',
+  '#0369a1',
+  '#4338ca',
+  '#a21caf'
 ]
 
 const PREDEFINED_COLOR_SET = new Set(Object.values(NODE_TYPE_COLORS))

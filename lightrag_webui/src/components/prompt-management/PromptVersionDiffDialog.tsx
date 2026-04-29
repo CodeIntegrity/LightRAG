@@ -138,7 +138,7 @@ export default function PromptVersionDiffDialog({
               <DialogDescription>
                 {t('promptManagement.versionDiffDescription')}
                 {totalChanges > 0 && (
-                  <span className="ml-2 text-emerald-600 dark:text-emerald-400">
+                  <span className="ml-2 text-blue-600 dark:text-blue-400">
                     (+{diffResults.reduce((s, d) => s + d.addedLines, 0)} / -{diffResults.reduce((s, d) => s + d.removedLines, 0)})
                   </span>
                 )}
@@ -183,7 +183,7 @@ export default function PromptVersionDiffDialog({
                     <span className="text-[10px] text-muted-foreground">
                       <span className="text-red-600 dark:text-red-400">-{result.removedLines}</span>
                       {' / '}
-                      <span className="text-emerald-600 dark:text-emerald-400">+{result.addedLines}</span>
+                      <span className="text-blue-600 dark:text-blue-400">+{result.addedLines}</span>
                     </span>
                   </div>
 
@@ -193,12 +193,12 @@ export default function PromptVersionDiffDialog({
                         {result.lines.map((line, idx) => {
                           const prefix = line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' '
                           const bgClass = line.type === 'add'
-                            ? 'bg-emerald-50/60 dark:bg-emerald-950/30'
+                            ? 'bg-blue-50/60 dark:bg-blue-950/30'
                             : line.type === 'remove'
                               ? 'bg-red-50/60 dark:bg-red-950/30'
                               : ''
                           const textClass = line.type === 'add'
-                            ? 'text-emerald-800 dark:text-emerald-300'
+                            ? 'text-blue-800 dark:text-blue-300'
                             : line.type === 'remove'
                               ? 'text-red-800 dark:text-red-300'
                               : 'text-muted-foreground'
@@ -248,7 +248,7 @@ export default function PromptVersionDiffDialog({
                           {result.lines
                             .filter((l) => l.type === 'context' || l.type === 'add')
                             .map((line, idx) => (
-                              <div key={idx} className={line.type === 'add' ? 'bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300' : ''}>
+                              <div key={idx} className={line.type === 'add' ? 'bg-blue-50/60 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300' : ''}>
                                 <span className="inline-block w-8 shrink-0 select-none text-right pr-2 text-[10px] text-muted-foreground/60">
                                   {line.lineNumAfter ?? ''}
                                 </span>

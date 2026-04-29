@@ -380,7 +380,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
           <div className="space-y-6">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/60 p-4">
+            <div className="rounded-xl border border-blue-200/70 bg-blue-50/60 p-4">
               <div className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
                 {t('workspaceManager.summary.total', 'Total workspaces')}
               </div>
@@ -411,8 +411,8 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
 
           <div className="grid gap-6 lg:grid-cols-[minmax(320px,360px)_minmax(0,1fr)]">
             <section className="space-y-6">
-              <Card className="overflow-hidden border-emerald-200/70 shadow-sm">
-                <CardHeader className="bg-emerald-50/50 pb-4">
+              <Card className="overflow-hidden border-blue-200/70 shadow-sm">
+                <CardHeader className="bg-blue-50/50 pb-4">
                   <CardTitle className="text-base">{t('workspaceManager.createTitle', 'Create Workspace')}</CardTitle>
                   <CardDescription>
                     {t(
@@ -522,7 +522,7 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
                           key={record.workspace}
                           className={`rounded-xl border p-4 shadow-sm transition-colors ${
                             record.workspace === currentWorkspace
-                              ? 'border-emerald-300/70 bg-emerald-50/40'
+                              ? 'border-blue-300/70 bg-blue-50/40'
                               : 'bg-background'
                           }`}
                         >

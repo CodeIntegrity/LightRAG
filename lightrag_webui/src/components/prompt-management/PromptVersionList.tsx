@@ -89,7 +89,7 @@ export default function PromptVersionList({
                 className={cn(
                   'w-full rounded-lg border p-3 text-left transition-colors',
                   isSelected
-                    ? 'border-emerald-400 bg-emerald-50/80 dark:bg-emerald-950/20'
+                    ? 'border-blue-400 bg-blue-50/80 dark:bg-blue-950/20'
                     : 'hover:bg-muted/40'
                 )}
               >
@@ -103,13 +103,13 @@ export default function PromptVersionList({
                     )}
                   </div>
                   {isActive ? (
-                    <span className="rounded-full bg-emerald-400 px-2 py-0.5 text-[10px] font-semibold text-white shrink-0">
+                    <span className="rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-semibold text-white shrink-0">
                       {t('promptManagement.active')}
                     </span>
                   ) : onRollbackToVersion ? (
                     <button
                       type="button"
-                      className="shrink-0 rounded p-1 text-muted-foreground hover:text-emerald-500 transition-colors"
+                      className="shrink-0 rounded p-1 text-muted-foreground hover:text-blue-500 transition-colors"
                       title={t('promptManagement.rollbackToVersion', { name: version.version_name })}
                       onClick={(e) => {
                         e.stopPropagation()

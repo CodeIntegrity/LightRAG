@@ -16,7 +16,7 @@ export default function PromptGroupSwitcher({ value, onChange }: PromptGroupSwit
       <Button
         type="button"
         variant="outline"
-        className={cn(value === 'retrieval' && 'bg-emerald-400 text-zinc-50 hover:bg-emerald-500 hover:text-zinc-50')}
+        className={cn(value === 'retrieval' && 'bg-blue-500 text-zinc-50 hover:bg-blue-600 hover:text-zinc-50')}
         onClick={() => onChange('retrieval')}
       >
         {t('promptManagement.groups.retrieval')}
@@ -24,7 +24,7 @@ export default function PromptGroupSwitcher({ value, onChange }: PromptGroupSwit
       <Button
         type="button"
         variant="outline"
-        className={cn(value === 'indexing' && 'bg-emerald-400 text-zinc-50 hover:bg-emerald-500 hover:text-zinc-50')}
+        className={cn(value === 'indexing' && 'bg-blue-500 text-zinc-50 hover:bg-blue-600 hover:text-zinc-50')}
         onClick={() => onChange('indexing')}
       >
         {t('promptManagement.groups.indexing')}

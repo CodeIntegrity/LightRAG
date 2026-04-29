@@ -24,7 +24,7 @@ function NavigationTab({ value, currentTab, children }: NavigationTabProps) {
       value={value}
       className={cn(
         'cursor-pointer px-2 py-1 transition-all',
-        currentTab === value ? '!bg-emerald-400 !text-zinc-50' : 'hover:bg-background/60'
+        currentTab === value ? '!bg-blue-500 !text-zinc-50' : 'hover:bg-background/60'
       )}
     >
       {children}

@@ -283,7 +283,7 @@ export default function PromptVersionEditor({
                     {preview || t('promptManagement.emptyPreview')}
                   </pre>
                 </div>
-                <span className="shrink-0 text-xs text-emerald-500">
+                <span className="shrink-0 text-xs text-blue-500">
                   {expanded ? t('promptManagement.collapse') : t('promptManagement.edit')}
                 </span>
               </button>
@@ -305,7 +305,7 @@ export default function PromptVersionEditor({
                           key={`${section.key}-${variable.label}-detail`}
                           className="rounded-md border border-border/60 bg-background/80 p-2"
                         >
-                          <div className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400">
+                          <div className="font-mono text-[11px] text-blue-600 dark:text-blue-400">
                             {variable.label}
                           </div>
                           <div className="mt-1 text-xs leading-5 text-muted-foreground">
