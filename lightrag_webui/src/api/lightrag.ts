@@ -331,6 +331,9 @@ export type QueryPromptOverrides = {
   }
 }
 
+const graphLabelSearchCacheTtlMs = 5000
+const graphLabelSearchCache = new Map<string, { expiresAt: number; labels: string[] }>()
+
 export type Message = {
   role: 'user' | 'assistant' | 'system'
   content: string
@@ -882,7 +885,23 @@ export const getPopularLabels = async (limit: number = popularLabelsDefaultLimit
 }
 
 export const searchLabels = async (query: string, limit: number = searchLabelsDefaultLimit): Promise<string[]> => {
-  const response = await axiosInstance.get(`/graph/label/search?q=${encodeURIComponent(query)}&limit=${limit}`)
+  const normalizedQuery = query.trim()
+  if (normalizedQuery.length < 2) {
+    return []
+  }
+
+  const workspace = useSettingsStore.getState().currentWorkspace ?? ''
+  const cacheKey = `${workspace}:${limit}:${normalizedQuery.toLowerCase()}`
+  const cachedEntry = graphLabelSearchCache.get(cacheKey)
+  if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
+    return cachedEntry.labels
+  }
+
+  const response = await axiosInstance.get(`/graph/label/search?q=${encodeURIComponent(normalizedQuery)}&limit=${limit}`)
+  graphLabelSearchCache.set(cacheKey, {
+    expiresAt: Date.now() + graphLabelSearchCacheTtlMs,
+    labels: response.data
+  })
   return response.data
 }
 

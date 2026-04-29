@@ -10,16 +10,22 @@ import MiniSearch from 'minisearch'
 import { useTranslation } from 'react-i18next'
 import { createMergeEntityNavigationPlan } from '@/utils/mergeEntity'
 import {
+  buildGraphSearchIndexKey,
   type GraphSearchOptionItem,
   graphSearchMessageId,
   limitGraphSearchOptions,
   mapRemoteLabelsToOptions,
   mergeGraphSearchOptions,
   resolveGraphSearchSelection,
-  searchLocalGraphNodes
+  searchLocalGraphNodes,
+  shouldFetchRemoteGraphLabels
 } from '@/utils/graphSearch'
 
 export type OptionItem = GraphSearchOptionItem
+
+const graphSearchDebounceMs = 300
+const localGraphContainsScanNodeLimit = 1500
+const localGraphSearchIndexNodeLimit = 2000
 
 const NodeOption = ({ id }: { id: string }) => {
   const graph = useGraphStore.use.sigmaGraph()
@@ -77,16 +83,22 @@ export const GraphSearchInput = ({
   const graph = useGraphStore.use.sigmaGraph()
   const rawGraph = useGraphStore.use.rawGraph()
   const searchEngine = useGraphStore.use.searchEngine()
+  const searchEngineKey = useGraphStore.use.searchEngineKey()
   const appliedWorkbenchQuery = useGraphWorkbenchStore.use.appliedQuery()
   const queryLabel = useSettingsStore.use.queryLabel()
   const applyScopeLabel = useGraphWorkbenchStore.use.applyScopeLabel()
   const setQueryLabel = useSettingsStore.use.setQueryLabel()
   const [pendingNavigationEntity, setPendingNavigationEntity] = useState<string | null>(null)
   const latestOptionsRef = useRef<Map<string, OptionItem>>(new Map())
+  const remoteSearchCacheRef = useRef<Map<string, OptionItem[]>>(new Map())
 
   const currentQueryLabel = useMemo(
     () => appliedWorkbenchQuery?.scope.label ?? queryLabel,
     [appliedWorkbenchQuery, queryLabel]
+  )
+  const graphSearchIndexKey = useMemo(
+    () => buildGraphSearchIndexKey(rawGraph, localGraphSearchIndexNodeLimit),
+    [rawGraph]
   )
 
   useEffect(() => {
@@ -106,8 +118,11 @@ export const GraphSearchInput = ({
   }, [rawGraph, pendingNavigationEntity])
 
   useEffect(() => {
-    if (!graph || graph.nodes().length === 0) {
+    if (!graph || !rawGraph || graph.nodes().length === 0) {
       useGraphStore.getState().setSearchEngine(null)
+      return
+    }
+    if (searchEngine && searchEngineKey === graphSearchIndexKey) {
       return
     }
 
@@ -125,6 +140,7 @@ export const GraphSearchInput = ({
 
     const documents = graph.nodes()
       .filter(id => graph.hasNode(id))
+      .slice(0, localGraphSearchIndexNodeLimit)
       .map((id: string) => ({
         id,
         label: graph.getNodeAttribute(id, 'label')
@@ -134,10 +150,12 @@ export const GraphSearchInput = ({
       newSearchEngine.addAll(documents)
     }
 
-    useGraphStore.getState().setSearchEngine(newSearchEngine)
-    // Note: only [graph] is needed because store.reset() always nulls sigmaGraph,
-    // so any path that clears searchEngine also changes graph reference.
-  }, [graph])
+    useGraphStore.getState().setSearchEngine(newSearchEngine, graphSearchIndexKey)
+  }, [graph, rawGraph, graphSearchIndexKey, searchEngine, searchEngineKey])
+
+  useEffect(() => {
+    remoteSearchCacheRef.current.clear()
+  }, [graphSearchIndexKey])
 
   /**
    * Loading the options while the user is typing.
@@ -153,14 +171,32 @@ export const GraphSearchInput = ({
         graph,
         searchEngine,
         normalizedQuery,
-        searchResultLimit
+        {
+          initialLimit: searchResultLimit,
+          maxContainsScanNodes: localGraphContainsScanNodeLimit
+        }
       )
 
       let options = localOptions
-      if (normalizedQuery) {
+      if (
+        normalizedQuery &&
+        shouldFetchRemoteGraphLabels(
+          normalizedQuery,
+          localOptions.length,
+          searchResultLimit
+        )
+      ) {
         try {
-          const remoteLabels = await searchLabels(normalizedQuery, searchLabelsDefaultLimit)
-          const remoteOptions = mapRemoteLabelsToOptions(remoteLabels, rawGraph)
+          const cacheKey = normalizedQuery.toLowerCase()
+          let remoteOptions = remoteSearchCacheRef.current.get(cacheKey)
+          if (!remoteOptions) {
+            const remoteLabels = await searchLabels(
+              normalizedQuery,
+              searchLabelsDefaultLimit
+            )
+            remoteOptions = mapRemoteLabelsToOptions(remoteLabels, rawGraph)
+            remoteSearchCacheRef.current.set(cacheKey, remoteOptions)
+          }
           options = mergeGraphSearchOptions(localOptions, remoteOptions)
         } catch {
           options = localOptions
@@ -181,6 +217,7 @@ export const GraphSearchInput = ({
   return (
     <AsyncSearch
       className="bg-background/60 min-w-[11rem] max-w-full rounded-xl border-1 opacity-60 backdrop-blur-lg transition-opacity hover:opacity-100 sm:w-[14rem] lg:w-[16rem]"
+      debounceTime={graphSearchDebounceMs}
       fetcher={loadOptions}
       renderOption={OptionComponent}
       getOptionValue={(item) => item.value}

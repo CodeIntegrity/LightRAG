@@ -29,6 +29,13 @@ export type GraphSearchOptionItem = {
   message?: string
 }
 
+type LocalGraphSearchConfig = {
+  initialLimit: number
+  maxContainsScanNodes?: number
+  minContainsQueryLength?: number
+  enoughExactMatches?: number
+}
+
 export type GraphSearchSelectionAction =
   | {
       kind: 'select-node'
@@ -67,12 +74,27 @@ export const createMessageOption = (message: string): GraphSearchOptionItem => (
   message
 })
 
+const defaultLocalGraphSearchConfig = {
+  maxContainsScanNodes: Number.POSITIVE_INFINITY,
+  minContainsQueryLength: 2,
+  enoughExactMatches: 5
+} as const
+
 export const searchLocalGraphNodes = (
   graph: SearchableGraph | null,
   searchEngine: MiniSearch<{ id: string; label: string }> | null,
   query: string,
-  initialLimit: number
+  configOrLimit: number | LocalGraphSearchConfig
 ): GraphSearchOptionItem[] => {
+  const {
+    initialLimit,
+    maxContainsScanNodes,
+    minContainsQueryLength,
+    enoughExactMatches
+  } = typeof configOrLimit === 'number'
+    ? { initialLimit: configOrLimit, ...defaultLocalGraphSearchConfig }
+    : { ...defaultLocalGraphSearchConfig, ...configOrLimit }
+
   if (!graph || !searchEngine || graph.nodes().length === 0) {
     return []
   }
@@ -95,7 +117,11 @@ export const searchLocalGraphNodes = (
       )
     )
 
-  if (matchedResults.length >= 5) {
+  if (
+    matchedResults.length >= enoughExactMatches ||
+    query.length < minContainsQueryLength ||
+    graph.nodes().length > maxContainsScanNodes
+  ) {
     return matchedResults
   }
 
@@ -119,6 +145,37 @@ export const searchLocalGraphNodes = (
     .map((id) => createNodeOption(id, String(graph.getNodeAttribute(id, 'label') || id)))
 
   return [...matchedResults, ...middleMatchedResults]
+}
+
+export const shouldFetchRemoteGraphLabels = (
+  query: string,
+  localOptionCount: number,
+  localLimit: number,
+  minQueryLength: number = 2
+): boolean => {
+  return query.length >= minQueryLength && localOptionCount < localLimit
+}
+
+export const buildGraphSearchIndexKey = (
+  rawGraph: SearchableRawGraph | null,
+  maxIndexedNodes: number
+): string => {
+  if (!rawGraph) {
+    return 'empty'
+  }
+
+  let hash = 0
+  const indexedNodes = rawGraph.nodes.slice(0, maxIndexedNodes)
+  for (const node of indexedNodes) {
+    const entityId = String(node.properties?.entity_id ?? '')
+    const name = String(node.properties?.name ?? '')
+    const signature = `${node.id}:${entityId}:${name}`
+    for (let index = 0; index < signature.length; index += 1) {
+      hash = (hash * 31 + signature.charCodeAt(index)) >>> 0
+    }
+  }
+
+  return `${rawGraph.nodes.length}:${indexedNodes.length}:${hash}`
 }
 
 export const mapRemoteLabelsToOptions = (

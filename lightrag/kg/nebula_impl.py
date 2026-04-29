@@ -807,9 +807,16 @@ class NebulaGraphStorage(BaseGraphStorage):
             await self._execute_in_space(stmt_if_not_exists)
             return
         except RuntimeError as exc:
+            if self._is_fulltext_index_exists_error(exc):
+                return
             if "syntax error" not in str(exc).lower() or "if" not in str(exc).lower():
                 raise
-        await self._execute_in_space(stmt_plain)
+        try:
+            await self._execute_in_space(stmt_plain)
+        except RuntimeError as exc:
+            if self._is_fulltext_index_exists_error(exc):
+                return
+            raise
 
     async def _wait_for_fulltext_query_ready(self, index_name: str) -> None:
         probe = (
@@ -889,6 +896,15 @@ class NebulaGraphStorage(BaseGraphStorage):
         schema_tokens = ("column", "field", "prop")
         return any(token in message for token in duplicate_tokens) and any(
             token in message for token in schema_tokens
+        )
+
+    @staticmethod
+    def _is_fulltext_index_exists_error(exc: RuntimeError) -> bool:
+        message = str(exc).lower()
+        duplicate_tokens = ("exist", "already", "duplicate", "conflict")
+        fulltext_tokens = ("fulltext", "index")
+        return any(token in message for token in duplicate_tokens) and any(
+            token in message for token in fulltext_tokens
         )
 
     async def index_done_callback(self) -> None:

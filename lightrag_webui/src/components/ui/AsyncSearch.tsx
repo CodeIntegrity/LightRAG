@@ -23,6 +23,8 @@ export interface Option {
 export interface AsyncSearchProps<T> {
   /** Async function to fetch options */
   fetcher: (query?: string) => Promise<T[]>
+  /** Debounce time for search input */
+  debounceTime?: number
   /** Preload all data ahead of time */
   preload?: boolean
   /** Function to filter options */
@@ -61,6 +63,7 @@ export interface AsyncSearchProps<T> {
 
 export function AsyncSearch<T>({
   fetcher,
+  debounceTime = 150,
   preload,
   filterFn,
   renderOption,
@@ -82,7 +85,7 @@ export function AsyncSearch<T>({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const debouncedSearchTerm = useDebounce(searchTerm, preload ? 0 : 150)
+  const debouncedSearchTerm = useDebounce(searchTerm, preload ? 0 : debounceTime)
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {

@@ -802,6 +802,32 @@ async def test_create_indexes_records_service_not_found_for_fulltext():
 
 
 @pytest.mark.asyncio
+async def test_create_indexes_treats_existing_fulltext_index_as_ready():
+    storage = build_storage(workspace="finance")
+    execute_in_space = AsyncMock(
+        side_effect=[
+            object(),  # create tag index
+            object(),  # create edge index
+            object(),  # rebuild tag index
+            object(),  # rebuild edge index
+            [["job", "entity_entity_id_idx", "FINISHED"]],
+            [["job", "relation_pair_idx", "FINISHED"]],
+            RuntimeError("Fulltext index already exists"),
+            RuntimeError("index exist"),
+            object(),  # rebuild fulltext index
+            [],        # fulltext query-ready probe
+        ]
+    )
+    with (
+        patch.object(storage, "_execute_in_space", execute_in_space),
+        patch.object(storage, "_ensure_fulltext_ready", AsyncMock()),
+    ):
+        await storage._create_indexes_if_needed(rebuild=True)
+
+    assert storage._fulltext_init_error is None
+
+
+@pytest.mark.asyncio
 async def test_initialize_skips_rebuild_paths_during_normal_startup():
     storage = build_storage(workspace="finance")
     execute_in_space = AsyncMock(side_effect=[object(), object(), object(), object(), []])

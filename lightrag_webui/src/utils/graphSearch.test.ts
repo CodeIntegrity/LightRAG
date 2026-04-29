@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'vitest'
 import MiniSearch from 'minisearch'
 import {
+  buildGraphSearchIndexKey,
   limitGraphSearchOptions,
   mapRemoteLabelsToOptions,
   mergeGraphSearchOptions,
   resolveGraphSearchSelection,
-  searchLocalGraphNodes
+  searchLocalGraphNodes,
+  shouldFetchRemoteGraphLabels
 } from './graphSearch'
 
 const createMockGraph = () => {
@@ -133,5 +135,64 @@ describe('graphSearch utils', () => {
       { value: 'node:n1', id: 'n1', type: 'nodes', label: 'OpenAI' },
       { value: '__message_item', id: '__message_item', type: 'message', message: '1 more' }
     ])
+  })
+
+  test('大图或短 query 时跳过本地 contains 扫描', () => {
+    const graph = createMockGraph()
+    const searchEngine = {
+      search: () => []
+    } as unknown as MiniSearch<{ id: string; label: string }>
+
+    expect(
+      searchLocalGraphNodes(graph, searchEngine, 'l', {
+        initialLimit: 10,
+        minContainsQueryLength: 2
+      })
+    ).toEqual([])
+
+    expect(
+      searchLocalGraphNodes(graph, searchEngine, 'lab', {
+        initialLimit: 10,
+        maxContainsScanNodes: 1
+      })
+    ).toEqual([])
+  })
+
+  test('远端搜索只在 query 足够长且本地结果不足时触发', () => {
+    expect(shouldFetchRemoteGraphLabels('', 0, 50)).toBe(false)
+    expect(shouldFetchRemoteGraphLabels('a', 0, 50)).toBe(false)
+    expect(shouldFetchRemoteGraphLabels('open', 50, 50)).toBe(false)
+    expect(shouldFetchRemoteGraphLabels('open', 3, 50)).toBe(true)
+  })
+
+  test('索引复用键仅在节点集合变化时变化', () => {
+    const firstGraph = {
+      nodes: [
+        { id: 'n1', properties: { entity_id: 'OpenAI', name: 'OpenAI' } },
+        { id: 'n2', properties: { entity_id: 'Anthropic', name: 'Anthropic Labs' } }
+      ],
+      getNode: () => undefined
+    }
+    const secondGraph = {
+      nodes: [
+        { id: 'n1', properties: { entity_id: 'OpenAI', name: 'OpenAI' } },
+        { id: 'n2', properties: { entity_id: 'Anthropic', name: 'Anthropic Labs' } }
+      ],
+      getNode: () => undefined
+    }
+    const changedGraph = {
+      nodes: [
+        { id: 'n1', properties: { entity_id: 'OpenAI', name: 'OpenAI' } },
+        { id: 'n3', properties: { entity_id: 'DeepMind', name: 'DeepMind' } }
+      ],
+      getNode: () => undefined
+    }
+
+    expect(buildGraphSearchIndexKey(firstGraph, 2000)).toBe(
+      buildGraphSearchIndexKey(secondGraph, 2000)
+    )
+    expect(buildGraphSearchIndexKey(firstGraph, 2000)).not.toBe(
+      buildGraphSearchIndexKey(changedGraph, 2000)
+    )
   })
 })

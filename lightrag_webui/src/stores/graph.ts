@@ -94,6 +94,7 @@ interface GraphState {
   sigmaInstance: any | null
 
   searchEngine: MiniSearch | null
+  searchEngineKey: string | null
 
   moveToSelectedNode: boolean
   isFetching: boolean
@@ -130,7 +131,7 @@ interface GraphState {
   setTypeColorMap: (typeColorMap: Map<string, string>) => void
 
   // Search engine methods
-  setSearchEngine: (engine: MiniSearch | null) => void
+  setSearchEngine: (engine: MiniSearch | null, key?: string | null) => void
   resetSearchEngine: () => void
 
   // Methods to set global flags
@@ -178,6 +179,7 @@ const useGraphStoreBase = create<GraphState>()((set, get) => ({
   typeColorMap: new Map<string, string>(),
 
   searchEngine: null,
+  searchEngineKey: null,
 
   setGraphIsEmpty: (isEmpty: boolean) => set({ graphIsEmpty: isEmpty }),
   setViewState: (viewState: GraphViewState) => set({ viewState }),
@@ -208,6 +210,7 @@ const useGraphStoreBase = create<GraphState>()((set, get) => ({
       sigmaGraph: null,
       sigmaInstance: null,
       searchEngine: null,
+      searchEngineKey: null,
       moveToSelectedNode: false,
       graphIsEmpty: false,
       viewState: 'idle',
@@ -234,8 +237,9 @@ const useGraphStoreBase = create<GraphState>()((set, get) => ({
 
   setTypeColorMap: (typeColorMap: Map<string, string>) => set({ typeColorMap }),
 
-  setSearchEngine: (engine: MiniSearch | null) => set({ searchEngine: engine }),
-  resetSearchEngine: () => set({ searchEngine: null }),
+  setSearchEngine: (engine: MiniSearch | null, key: string | null = null) =>
+    set({ searchEngine: engine, searchEngineKey: key }),
+  resetSearchEngine: () => set({ searchEngine: null, searchEngineKey: null }),
 
   // Methods to set global flags
   setGraphDataFetchAttempted: (attempted: boolean) => set({ graphDataFetchAttempted: attempted }),

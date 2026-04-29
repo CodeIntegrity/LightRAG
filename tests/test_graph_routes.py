@@ -44,8 +44,10 @@ class _DummyRAG:
         self.last_entity_detail_request: dict[str, Any] | None = None
         self.last_relation_detail_request: dict[str, Any] | None = None
         self.last_export_request: dict[str, Any] | None = None
+        self.last_search_labels_call: dict[str, Any] | None = None
         self.graph_entity_types = ["ORGANIZATION", "PERSON", "PRODUCT"]
         self.graph_result = graph_result
+        self.chunk_entity_relation_graph = self
 
     async def get_knowledge_graph(
         self, node_label: str, max_depth: int, max_nodes: int
@@ -290,6 +292,10 @@ class _DummyRAG:
     async def get_graph_entity_types(self) -> list[str]:
         return list(self.graph_entity_types)
 
+    async def search_labels(self, query: str, limit: int = 50) -> list[str]:
+        self.last_search_labels_call = {"query": query, "limit": limit}
+        return [query, f"{query}-{limit}"]
+
 
 class _DummyRAGNoMergeSupport:
     async def get_knowledge_graph(
@@ -365,6 +371,29 @@ def test_get_graphs_route_rejects_blank_label(graph_client):
     assert response.status_code == 422
     assert "label cannot be empty" in response.json()["detail"]
     assert rag.last_graph_call is None
+
+
+def test_search_labels_route_skips_blank_or_short_query(graph_client):
+    client, rag = graph_client
+
+    blank_response = client.get("/graph/label/search", params={"q": "   ", "limit": 10})
+    short_response = client.get("/graph/label/search", params={"q": "a", "limit": 10})
+
+    assert blank_response.status_code == 200
+    assert blank_response.json() == []
+    assert short_response.status_code == 200
+    assert short_response.json() == []
+    assert rag.last_search_labels_call is None
+
+
+def test_search_labels_route_trims_query_before_dispatch(graph_client):
+    client, rag = graph_client
+
+    response = client.get("/graph/label/search", params={"q": "  Tesla  ", "limit": 7})
+
+    assert response.status_code == 200
+    assert response.json() == ["Tesla", "Tesla-7"]
+    assert rag.last_search_labels_call == {"query": "Tesla", "limit": 7}
 
 
 def test_graph_query_accepts_v1_filter_shape_and_returns_meta_truncation(graph_client):

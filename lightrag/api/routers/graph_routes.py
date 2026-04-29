@@ -453,7 +453,12 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
             List[str]: List of matching labels sorted by relevance
         """
         try:
-            return await rag.chunk_entity_relation_graph.search_labels(q, limit)
+            normalized_query = q.strip()
+            if not normalized_query or len(normalized_query) < 2:
+                return []
+            return await rag.chunk_entity_relation_graph.search_labels(
+                normalized_query, limit
+            )
         except Exception as e:
             logger.error(f"Error searching labels with query '{q}': {str(e)}")
             logger.error(traceback.format_exc())
