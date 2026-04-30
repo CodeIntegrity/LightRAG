@@ -716,6 +716,583 @@ class TestAinsertCustomKgBatchPath:
 
     @pytest.mark.offline
     @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_writes_full_docs_and_doc_status(self):
+        """ainsert_custom_kg must write full_docs + doc_status for WebUI visibility."""
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            custom_kg = {
+                "chunks": [
+                    {
+                        "content": "first chunk",
+                        "chunk_order_index": 0,
+                        "source_id": "src-1",
+                        "file_path": "doc.pdf",
+                    },
+                    {
+                        "content": "second chunk",
+                        "chunk_order_index": 1,
+                        "source_id": "src-2",
+                        "file_path": "doc.pdf",
+                    },
+                ],
+                "entities": [
+                    {
+                        "entity_name": "EntityA",
+                        "entity_type": "CONCEPT",
+                        "description": "Entity A",
+                        "source_id": "src-1",
+                        "file_path": "doc.pdf",
+                    }
+                ],
+                "relationships": [],
+            }
+
+            result = await rag.ainsert_custom_kg(
+                custom_kg, full_doc_id="doc-explicit-1"
+            )
+
+            # Return value contract
+            assert result["full_doc_id"] == "doc-explicit-1"
+            assert isinstance(result["track_id"], str) and result["track_id"]
+            assert result["chunk_count"] == 2
+            assert result["entity_count"] == 1
+            assert result["relationship_count"] == 0
+
+            # full_docs contains the joined content
+            full_doc = await rag.full_docs.get_by_id("doc-explicit-1")
+            assert full_doc is not None
+            assert "first chunk" in full_doc["content"]
+            assert "second chunk" in full_doc["content"]
+            assert full_doc["file_path"] == "doc.pdf"
+
+            # doc_status records PROCESSED + chunks_list for delete chain
+            status = await rag.doc_status.get_by_id("doc-explicit-1")
+            assert status is not None
+            assert status["status"] == DocStatus.PROCESSED
+            assert status["chunks_count"] == 2
+            assert isinstance(status["chunks_list"], list)
+            assert len(status["chunks_list"]) == 2
+            assert status["track_id"] == result["track_id"]
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_marks_doc_status_failed_on_error(self):
+        """When the graph upsert blows up, doc_status must be flipped to FAILED."""
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            graph = rag.chunk_entity_relation_graph
+            graph.upsert_nodes_batch = AsyncMock(side_effect=RuntimeError("kaboom"))
+            graph.has_nodes_batch = AsyncMock(return_value=set())
+            graph.upsert_edges_batch = AsyncMock()
+
+            custom_kg = {
+                "chunks": [
+                    {
+                        "content": "chunk content",
+                        "chunk_order_index": 0,
+                        "source_id": "src-1",
+                    }
+                ],
+                "entities": [
+                    {
+                        "entity_name": "EntityA",
+                        "entity_type": "CONCEPT",
+                        "description": "Entity A",
+                        "source_id": "src-1",
+                        "file_path": "test.pdf",
+                    }
+                ],
+                "relationships": [],
+            }
+
+            with pytest.raises(RuntimeError, match="kaboom"):
+                await rag.ainsert_custom_kg(custom_kg, full_doc_id="doc-fail-1")
+
+            status = await rag.doc_status.get_by_id("doc-fail-1")
+            assert status is not None
+            assert status["status"] == DocStatus.FAILED
+            assert "kaboom" in (status.get("error_msg") or "")
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_rejects_missing_required_fields(self):
+        """Required fields must produce ValueError → 400, not bare KeyError → 500."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            with pytest.raises(ValueError):
+                await rag.ainsert_custom_kg(
+                    {"chunks": [], "entities": [], "relationships": []}
+                )
+
+            with pytest.raises(ValueError):
+                await rag.ainsert_custom_kg(
+                    {
+                        "chunks": [{"content": "x", "source_id": ""}],
+                        "entities": [],
+                        "relationships": [],
+                    }
+                )
+
+            with pytest.raises(ValueError):
+                await rag.ainsert_custom_kg(
+                    {
+                        "chunks": [],
+                        "entities": [{"entity_type": "X"}],
+                        "relationships": [],
+                    }
+                )
+
+            with pytest.raises(ValueError):
+                await rag.ainsert_custom_kg(
+                    {
+                        "chunks": [],
+                        "entities": [],
+                        "relationships": [{"src_id": "A", "tgt_id": ""}],
+                    }
+                )
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_placeholder_source_id_aggregates_chunks(self):
+        """Placeholder nodes inherit GRAPH_FIELD_SEP-joined sources from all relations."""
+        from lightrag import LightRAG
+        from lightrag.constants import GRAPH_FIELD_SEP
+        from lightrag.utils import compute_mdhash_id
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            graph = rag.chunk_entity_relation_graph
+            graph.upsert_nodes_batch = AsyncMock()
+            graph.has_nodes_batch = AsyncMock(return_value=set())
+            graph.upsert_edges_batch = AsyncMock()
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            content_a = "chunk one"
+            content_b = "chunk two"
+            chunk_id_a = compute_mdhash_id(content_a, prefix="chunk-")
+            chunk_id_b = compute_mdhash_id(content_b, prefix="chunk-")
+
+            custom_kg = {
+                "chunks": [
+                    {"content": content_a, "chunk_order_index": 0, "source_id": "s1"},
+                    {"content": content_b, "chunk_order_index": 1, "source_id": "s2"},
+                ],
+                "entities": [],
+                "relationships": [
+                    {
+                        "src_id": "Implicit",
+                        "tgt_id": "OtherImplicit",
+                        "description": "first relation",
+                        "keywords": "rel",
+                        "weight": 1.0,
+                        "source_id": "s1",
+                    },
+                    {
+                        "src_id": "Implicit",
+                        "tgt_id": "ThirdImplicit",
+                        "description": "second relation",
+                        "keywords": "rel",
+                        "weight": 1.0,
+                        "source_id": "s2",
+                    },
+                ],
+            }
+
+            await rag.ainsert_custom_kg(custom_kg)
+
+            # Placeholder upsert is the second nodes_batch call (after entity_nodes,
+            # which is empty here). Find the placeholder batch that contains "Implicit".
+            placeholder_batch = None
+            for call in graph.upsert_nodes_batch.await_args_list:
+                names = [name for name, _ in call.args[0]]
+                if "Implicit" in names:
+                    placeholder_batch = dict(call.args[0])
+                    break
+            assert placeholder_batch is not None, "Placeholder batch not found"
+            implicit_node = placeholder_batch["Implicit"]
+            sources = implicit_node["source_id"].split(GRAPH_FIELD_SEP)
+            assert set(sources) == {chunk_id_a, chunk_id_b}
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_handles_duplicate_source_id_chunks(self):
+        """Two chunks sharing the same source_id must both map back from chunk_to_source_map."""
+        from lightrag import LightRAG
+        from lightrag.constants import GRAPH_FIELD_SEP
+        from lightrag.utils import compute_mdhash_id
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            graph = rag.chunk_entity_relation_graph
+            graph.upsert_nodes_batch = AsyncMock()
+            graph.has_nodes_batch = AsyncMock(return_value=set())
+            graph.upsert_edges_batch = AsyncMock()
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            content_a = "alpha chunk"
+            content_b = "beta chunk"
+            chunk_id_a = compute_mdhash_id(content_a, prefix="chunk-")
+            chunk_id_b = compute_mdhash_id(content_b, prefix="chunk-")
+
+            custom_kg = {
+                "chunks": [
+                    {"content": content_a, "chunk_order_index": 0, "source_id": "src-1"},
+                    {"content": content_b, "chunk_order_index": 1, "source_id": "src-1"},
+                ],
+                "entities": [
+                    {
+                        "entity_name": "EntityA",
+                        "entity_type": "CONCEPT",
+                        "description": "Entity A",
+                        "source_id": "src-1",
+                    }
+                ],
+                "relationships": [],
+            }
+
+            await rag.ainsert_custom_kg(custom_kg)
+
+            entity_batch = graph.upsert_nodes_batch.await_args_list[0].args[0]
+            entity_node = dict(entity_batch)["EntityA"]
+            sources = entity_node["source_id"].split(GRAPH_FIELD_SEP)
+            assert set(sources) == {chunk_id_a, chunk_id_b}
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_returns_dict_summary(self):
+        """The new return contract: dict with full_doc_id, track_id, counts."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            graph = rag.chunk_entity_relation_graph
+            graph.upsert_nodes_batch = AsyncMock()
+            graph.has_nodes_batch = AsyncMock(return_value=set())
+            graph.upsert_edges_batch = AsyncMock()
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            result = await rag.ainsert_custom_kg(
+                {
+                    "chunks": [
+                        {"content": "x", "chunk_order_index": 0, "source_id": "s"}
+                    ],
+                    "entities": [
+                        {"entity_name": "X", "entity_type": "C", "description": "x"}
+                    ],
+                    "relationships": [],
+                }
+            )
+
+            assert set(result.keys()) == {
+                "full_doc_id",
+                "track_id",
+                "chunk_count",
+                "entity_count",
+                "relationship_count",
+            }
+            assert result["full_doc_id"].startswith("doc-")
+            assert result["track_id"]
+            assert result["chunk_count"] == 1
+            assert result["entity_count"] == 1
+            assert result["relationship_count"] == 0
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_chunkless_import_still_writes_full_docs(self):
+        """Chunkless custom KG import must still produce a readable full_docs entry."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            graph = rag.chunk_entity_relation_graph
+            graph.upsert_nodes_batch = AsyncMock()
+            graph.has_nodes_batch = AsyncMock(return_value=set())
+            graph.upsert_edges_batch = AsyncMock()
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            result = await rag.ainsert_custom_kg(
+                {
+                    "chunks": [],
+                    "entities": [
+                        {
+                            "entity_name": "EntityA",
+                            "entity_type": "CONCEPT",
+                            "description": "Entity only import",
+                        }
+                    ],
+                    "relationships": [],
+                }
+            )
+
+            full_doc = await rag.full_docs.get_by_id(result["full_doc_id"])
+            assert full_doc is not None
+            assert full_doc["file_path"] == "custom_kg"
+            assert isinstance(full_doc["content"], str)
+            assert full_doc["content"]
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_writes_full_entity_and_relation_indexes(self):
+        """Custom KG import must populate full_entities/full_relations for delete chain."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            result = await rag.ainsert_custom_kg(
+                {
+                    "chunks": [
+                        {"content": "chunk text", "source_id": "s1", "chunk_order_index": 0}
+                    ],
+                    "entities": [
+                        {"entity_name": "EntityA", "description": "A", "source_id": "s1"},
+                        {"entity_name": "EntityB", "description": "B", "source_id": "s1"},
+                    ],
+                    "relationships": [
+                        {
+                            "src_id": "EntityA",
+                            "tgt_id": "EntityB",
+                            "description": "A to B",
+                            "keywords": "link",
+                            "source_id": "s1",
+                        }
+                    ],
+                }
+            )
+
+            full_entities = await rag.full_entities.get_by_id(result["full_doc_id"])
+            full_relations = await rag.full_relations.get_by_id(result["full_doc_id"])
+
+            assert full_entities is not None
+            assert full_entities["entity_names"] == ["EntityA", "EntityB"]
+            assert full_entities["count"] == 2
+
+            assert full_relations is not None
+            assert full_relations["relation_pairs"] == [["EntityA", "EntityB"]]
+            assert full_relations["count"] == 1
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_full_entity_index_includes_placeholder_nodes(self):
+        """Relation-only imports must index placeholder endpoints for later deletion."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            result = await rag.ainsert_custom_kg(
+                {
+                    "chunks": [],
+                    "entities": [],
+                    "relationships": [
+                        {
+                            "src_id": "ImplicitA",
+                            "tgt_id": "ImplicitB",
+                            "description": "A to B",
+                            "keywords": "link",
+                        }
+                    ],
+                }
+            )
+
+            full_entities = await rag.full_entities.get_by_id(result["full_doc_id"])
+            assert full_entities is not None
+            assert full_entities["entity_names"] == ["ImplicitA", "ImplicitB"]
+            assert full_entities["count"] == 2
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_adelete_by_doc_id_removes_custom_kg_graph_metadata(self):
+        """End-to-end: deleting a custom KG doc must clear all document-level indexes."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            result = await rag.ainsert_custom_kg(
+                {
+                    "chunks": [
+                        {"content": "chunk text", "source_id": "s1", "chunk_order_index": 0}
+                    ],
+                    "entities": [
+                        {"entity_name": "EntityA", "description": "A", "source_id": "s1"},
+                        {"entity_name": "EntityB", "description": "B", "source_id": "s1"},
+                    ],
+                    "relationships": [
+                        {
+                            "src_id": "EntityA",
+                            "tgt_id": "EntityB",
+                            "description": "A to B",
+                            "keywords": "link",
+                            "source_id": "s1",
+                        }
+                    ],
+                }
+            )
+
+            doc_id = result["full_doc_id"]
+            delete_result = await rag.adelete_by_doc_id(doc_id)
+            assert delete_result.status == "success"
+
+            assert await rag.doc_status.get_by_id(doc_id) is None
+            assert await rag.full_docs.get_by_id(doc_id) is None
+            assert await rag.full_entities.get_by_id(doc_id) is None
+            assert await rag.full_relations.get_by_id(doc_id) is None
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_adelete_by_doc_id_removes_chunkless_custom_kg_graph_metadata(self):
+        """Chunkless custom KG delete must remove doc indexes and graph nodes."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            result = await rag.ainsert_custom_kg(
+                {
+                    "chunks": [],
+                    "entities": [],
+                    "relationships": [
+                        {
+                            "src_id": "ImplicitA",
+                            "tgt_id": "ImplicitB",
+                            "description": "A to B",
+                            "keywords": "link",
+                        }
+                    ],
+                }
+            )
+
+            doc_id = result["full_doc_id"]
+            delete_result = await rag.adelete_by_doc_id(doc_id)
+            assert delete_result.status == "success"
+
+            assert await rag.doc_status.get_by_id(doc_id) is None
+            assert await rag.full_docs.get_by_id(doc_id) is None
+            assert await rag.full_entities.get_by_id(doc_id) is None
+            assert await rag.full_relations.get_by_id(doc_id) is None
+            assert not await rag.chunk_entity_relation_graph.has_node("ImplicitA")
+            assert not await rag.chunk_entity_relation_graph.has_node("ImplicitB")
+            assert not await rag.chunk_entity_relation_graph.has_edge(
+                "ImplicitA", "ImplicitB"
+            )
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
     async def test_get_relation_info_falls_back_to_legacy_relation_vdb_id(self):
         from lightrag import LightRAG
 

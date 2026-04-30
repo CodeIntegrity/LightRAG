@@ -4,11 +4,11 @@ This module contains all graph-related routes for the LightRAG API.
 
 import os
 import tempfile
-from typing import Optional, Dict, Any, Literal
+from typing import Optional, Dict, Any, List, Literal
 import traceback
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from starlette.background import BackgroundTask
 
 from lightrag.api.graph_workbench import (
@@ -98,8 +98,81 @@ class RelationCreateRequest(BaseModel):
     )
 
 
+class CustomKGChunk(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    content: str = Field(..., min_length=1)
+    source_id: str = Field(..., min_length=1)
+    file_path: Optional[str] = None
+    chunk_order_index: Optional[int] = Field(default=None, ge=0)
+
+    @field_validator("content", "source_id", mode="after")
+    @classmethod
+    def _strip_required(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must be a non-empty string")
+        return normalized
+
+
+class CustomKGEntity(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    entity_name: str = Field(..., min_length=1)
+    entity_type: Optional[str] = None
+    description: Optional[str] = None
+    source_id: Optional[str] = None
+    file_path: Optional[str] = None
+    custom_properties: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("entity_name", mode="after")
+    @classmethod
+    def _strip_entity_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("entity_name must be a non-empty string")
+        return normalized
+
+
+class CustomKGRelation(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    src_id: str = Field(..., min_length=1)
+    tgt_id: str = Field(..., min_length=1)
+    description: Optional[str] = None
+    keywords: Optional[str] = None
+    weight: float = 1.0
+    source_id: Optional[str] = None
+    file_path: Optional[str] = None
+    custom_properties: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("src_id", "tgt_id", mode="after")
+    @classmethod
+    def _strip_endpoint(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("relation endpoint must be non-empty")
+        return normalized
+
+
+class CustomKGPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    chunks: List[CustomKGChunk] = Field(default_factory=list)
+    entities: List[CustomKGEntity] = Field(default_factory=list)
+    relationships: List[CustomKGRelation] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _require_any_section(self) -> "CustomKGPayload":
+        if not (self.chunks or self.entities or self.relationships):
+            raise ValueError(
+                "custom_kg must contain at least one of chunks/entities/relationships"
+            )
+        return self
+
+
 class CustomKGImportRequest(BaseModel):
-    custom_kg: Dict[str, Any] = Field(
+    custom_kg: CustomKGPayload = Field(
         ...,
         description="Structured knowledge graph payload with chunks, entities, and relationships.",
     )
@@ -113,6 +186,8 @@ class CustomKGImportRequest(BaseModel):
     def normalize_full_doc_id_before(cls, full_doc_id: Optional[str]) -> Optional[str]:
         if full_doc_id is None:
             return None
+        if not isinstance(full_doc_id, str):
+            raise ValueError("full_doc_id must be a string")
         normalized = full_doc_id.strip()
         return normalized or None
 
@@ -121,9 +196,10 @@ class GraphImportResponse(BaseModel):
     status: Literal["success"]
     message: str
     full_doc_id: Optional[str] = None
+    track_id: Optional[str] = None
+    chunk_count: int = 0
     entity_count: int = 0
     relationship_count: int = 0
-    chunk_count: int = 0
 
 
 class GraphDetailResponse(BaseModel):
@@ -522,17 +598,29 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
     )
     async def import_custom_kg(request: CustomKGImportRequest):
         try:
-            await rag.ainsert_custom_kg(
-                request.custom_kg,
+            payload = request.custom_kg.model_dump(exclude_none=False)
+            result = await rag.ainsert_custom_kg(
+                payload,
                 request.full_doc_id,
             )
+            if not isinstance(result, dict):
+                # Backward-compatible safety net for older core implementations
+                # that return None — fall back to request-derived counts.
+                result = {
+                    "full_doc_id": request.full_doc_id,
+                    "track_id": None,
+                    "chunk_count": len(request.custom_kg.chunks),
+                    "entity_count": len(request.custom_kg.entities),
+                    "relationship_count": len(request.custom_kg.relationships),
+                }
             return GraphImportResponse(
                 status="success",
                 message="Custom knowledge graph imported successfully",
-                full_doc_id=request.full_doc_id,
-                entity_count=len(request.custom_kg.get("entities", [])),
-                relationship_count=len(request.custom_kg.get("relationships", [])),
-                chunk_count=len(request.custom_kg.get("chunks", [])),
+                full_doc_id=result.get("full_doc_id") or request.full_doc_id,
+                track_id=result.get("track_id"),
+                chunk_count=int(result.get("chunk_count", 0) or 0),
+                entity_count=int(result.get("entity_count", 0) or 0),
+                relationship_count=int(result.get("relationship_count", 0) or 0),
             )
         except ValueError as ve:
             raise HTTPException(status_code=400, detail=str(ve))

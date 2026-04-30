@@ -1639,6 +1639,25 @@ rag.insert_custom_kg(custom_kg)
 
 Unknown entity or relation fields are collected into `custom_properties`. Use `src_id` and `tgt_id` for relationship endpoints, and pass `name` only when you want a display name separate from `entity_name`.
 
+**Return contract**: `insert_custom_kg()` / `ainsert_custom_kg()` return a summary `dict`:
+
+|Field|Type|Description|
+|---|---|---|
+|`full_doc_id`|`str`|Document id under which the KG was registered. Pass it back to `adelete_by_doc_id()` to remove the import.|
+|`track_id`|`str`|Pipeline tracking id; visible in `doc_status` and the WebUI.|
+|`chunk_count`|`int`|Number of chunks written. `0` for chunkless imports.|
+|`entity_count`|`int`|Declared entities plus placeholder nodes synthesized from relationship endpoints.|
+|`relationship_count`|`int`|Number of edges written.|
+
+If you want the imported KG to be deletable later, pass an explicit `full_doc_id`:
+
+```python
+result = rag.insert_custom_kg(custom_kg, full_doc_id="doc-custom-kg-1")
+print(result["full_doc_id"], result["track_id"])
+# Later:
+rag.delete_by_doc_id(result["full_doc_id"])
+```
+
 </details>
 
 <details>

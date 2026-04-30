@@ -69,6 +69,7 @@ from lightrag.kg.shared_storage import (
     get_default_workspace,
     set_default_workspace,
     get_namespace_lock,
+    get_storage_keyed_lock,
 )
 
 from lightrag.base import (
@@ -2437,67 +2438,226 @@ class LightRAG:
 
     def insert_custom_kg(
         self, custom_kg: dict[str, Any], full_doc_id: str = None
-    ) -> None:
+    ) -> dict[str, Any]:
         loop = always_get_an_event_loop()
-        loop.run_until_complete(self.ainsert_custom_kg(custom_kg, full_doc_id))
+        return loop.run_until_complete(
+            self.ainsert_custom_kg(custom_kg, full_doc_id)
+        )
 
     async def ainsert_custom_kg(
         self,
         custom_kg: dict[str, Any],
-        full_doc_id: str = None,
-    ) -> None:
+        full_doc_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Insert a user-supplied knowledge graph payload.
+
+        Returns a summary dict with keys:
+            full_doc_id, track_id, chunk_count, entity_count, relationship_count.
+        """
         from lightrag.utils_graph import (
             normalize_graph_edge_data,
             normalize_graph_node_data,
         )
 
+        def _sanitize_str(value: Any) -> Any:
+            if isinstance(value, str):
+                return sanitize_text_for_encoding(value)
+            return value
+
+        def _sanitize_metadata(value: Any) -> Any:
+            if isinstance(value, str):
+                return sanitize_text_for_encoding(value)
+            if isinstance(value, dict):
+                return {k: _sanitize_metadata(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [_sanitize_metadata(item) for item in value]
+            if isinstance(value, tuple):
+                return tuple(_sanitize_metadata(item) for item in value)
+            return value
+
+        track_id = generate_track_id("custom_kg")
         update_storage = False
+        full_doc_id_resolved: str | None = None
+        doc_status_initialized = False
+        created_at_iso = datetime.now(timezone.utc).isoformat()
+        processing_start_time = int(time.time())
+
+        # ---------- Validate top-level structure ----------
+        if not isinstance(custom_kg, dict):
+            raise ValueError("custom_kg must be a dict")
+        chunks_input = custom_kg.get("chunks", []) or []
+        entities_input = custom_kg.get("entities", []) or []
+        relationships_input = custom_kg.get("relationships", []) or []
+        if not (chunks_input or entities_input or relationships_input):
+            raise ValueError(
+                "custom_kg must contain at least one of chunks/entities/relationships"
+            )
+
+        # ---------- Resolve full_doc_id ----------
+        if full_doc_id is not None:
+            if not isinstance(full_doc_id, str) or not full_doc_id.strip():
+                raise ValueError("full_doc_id must be a non-empty string")
+            full_doc_id_resolved = full_doc_id.strip()
+
         try:
-            # Insert chunks into vector storage
-            all_chunks_data: dict[str, dict[str, str]] = {}
-            chunk_to_source_map: dict[str, str] = {}
-            for chunk_data in custom_kg.get("chunks", []):
-                chunk_content = sanitize_text_for_encoding(chunk_data["content"])
-                source_id = chunk_data["source_id"]
-                file_path = chunk_data.get("file_path", "custom_kg")
+            # ---------- Phase 1: build chunk records ----------
+            all_chunks_data: dict[str, dict[str, Any]] = {}
+            # Map source_id -> list of chunk_ids referencing it (preserve order)
+            chunk_to_source_map: dict[str, list[str]] = {}
+            joined_content_parts: list[str] = []
+            primary_file_path = "custom_kg"
+
+            for chunk_data in chunks_input:
+                if not isinstance(chunk_data, dict):
+                    raise ValueError("chunk entries must be dicts")
+                if not chunk_data.get("content"):
+                    raise ValueError("chunk.content is required and non-empty")
+                if not chunk_data.get("source_id"):
+                    raise ValueError("chunk.source_id is required and non-empty")
+
+                chunk_content = sanitize_text_for_encoding(str(chunk_data["content"]))
+                source_id = str(chunk_data["source_id"])
+                file_path = str(chunk_data.get("file_path") or "custom_kg")
+                if primary_file_path == "custom_kg" and file_path != "custom_kg":
+                    primary_file_path = file_path
                 tokens = len(self.tokenizer.encode(chunk_content))
-                chunk_order_index = (
-                    0
-                    if "chunk_order_index" not in chunk_data.keys()
-                    else chunk_data["chunk_order_index"]
-                )
+                chunk_order_index = chunk_data.get("chunk_order_index", 0)
+                if not isinstance(chunk_order_index, int) or chunk_order_index < 0:
+                    chunk_order_index = 0
                 chunk_id = compute_mdhash_id(chunk_content, prefix="chunk-")
+
+                joined_content_parts.append(chunk_content)
 
                 chunk_entry = {
                     "content": chunk_content,
                     "source_id": source_id,
                     "tokens": tokens,
                     "chunk_order_index": chunk_order_index,
-                    "full_doc_id": full_doc_id
-                    if full_doc_id is not None
-                    else source_id,
+                    # full_doc_id will be filled after resolution (below)
+                    "full_doc_id": None,
                     "file_path": file_path,
                     "status": DocStatus.PROCESSED,
                 }
-                all_chunks_data[chunk_id] = chunk_entry
-                chunk_to_source_map[source_id] = chunk_id
-                update_storage = True
+                if chunk_id in all_chunks_data:
+                    logger.warning(
+                        f"Custom KG: duplicate chunk content detected (chunk_id={chunk_id}), merging source_id mappings"
+                    )
+                else:
+                    all_chunks_data[chunk_id] = chunk_entry
+                    update_storage = True
 
+                # Always record source_id -> chunk_id mapping (allow many-to-one)
+                bucket = chunk_to_source_map.setdefault(source_id, [])
+                if chunk_id not in bucket:
+                    bucket.append(chunk_id)
+
+            # Resolve full_doc_id (after we know joined content)
+            joined_content = "\n\n".join(joined_content_parts) if joined_content_parts else ""
+            if full_doc_id_resolved is None:
+                base_for_hash = joined_content if joined_content else (
+                    "custom_kg::"
+                    + "::".join(
+                        sorted(
+                            {
+                                str(e.get("entity_name", ""))
+                                for e in entities_input
+                                if isinstance(e, dict) and e.get("entity_name")
+                            }
+                        )
+                    )
+                    or f"custom_kg::{track_id}"
+                )
+                full_doc_id_resolved = compute_mdhash_id(base_for_hash, prefix="doc-")
+
+            # Backfill full_doc_id into chunk entries
+            for entry in all_chunks_data.values():
+                entry["full_doc_id"] = full_doc_id_resolved
+
+            content_summary = get_content_summary(joined_content) if joined_content else (
+                f"Custom KG import ({len(entities_input)} entities, "
+                f"{len(relationships_input)} relationships)"
+            )
+            content_length = len(joined_content)
+
+            # ---------- Phase 2: write full_docs + initial doc_status (PROCESSING) ----------
+            if joined_content:
+                full_doc_content = joined_content
+            else:
+                full_doc_content = (
+                    f"Custom KG import\n"
+                    f"Entities: {len(entities_input)}\n"
+                    f"Relationships: {len(relationships_input)}"
+                )
+
+            await self.full_docs.upsert(
+                {
+                    full_doc_id_resolved: {
+                        "content": full_doc_content,
+                        "file_path": primary_file_path,
+                    }
+                }
+            )
+
+            await self.doc_status.upsert(
+                {
+                    full_doc_id_resolved: {
+                        "status": DocStatus.PROCESSING,
+                        "chunks_count": len(all_chunks_data),
+                        "chunks_list": list(all_chunks_data.keys()),
+                        "content_summary": content_summary,
+                        "content_length": content_length,
+                        "created_at": created_at_iso,
+                        "updated_at": created_at_iso,
+                        "file_path": primary_file_path,
+                        "track_id": track_id,
+                        "metadata": {
+                            "source": "custom_kg",
+                            "processing_start_time": processing_start_time,
+                        },
+                    }
+                }
+            )
+            doc_status_initialized = True
+
+            # ---------- Phase 3: write chunks (vdb + text) ----------
             if all_chunks_data:
                 await asyncio.gather(
                     self.chunks_vdb.upsert(all_chunks_data),
                     self.text_chunks.upsert(all_chunks_data),
                 )
 
+            # ---------- Phase 4: build entity nodes ----------
             # Keep the last declaration for each entity_name so batch backends
             # preserve the old serial upsert semantics deterministically.
             deduped_entities: dict[str, dict[str, Any]] = {}
-            for entity_data in custom_kg.get("entities", []):
-                entity_name = entity_data["entity_name"]
+            for entity_data in entities_input:
+                if not isinstance(entity_data, dict):
+                    raise ValueError("entity entries must be dicts")
+                entity_name = entity_data.get("entity_name")
+                if not entity_name or not isinstance(entity_name, str):
+                    raise ValueError("entity.entity_name is required and non-empty")
                 deduped_entities.pop(entity_name, None)
                 deduped_entities[entity_name] = entity_data
 
-            # Insert entities into knowledge graph (batch for performance)
+            # Track sources per endpoint name for placeholder source_id composition
+            endpoint_to_sources: dict[str, set[str]] = {}
+            endpoint_to_file_paths: dict[str, set[str]] = {}
+
+            def _resolve_chunk_ids(source_ref: str) -> list[str]:
+                if not source_ref or source_ref == "UNKNOWN":
+                    return []
+                return list(chunk_to_source_map.get(source_ref, []))
+
+            def _format_source_id(chunk_ids: list[str]) -> str:
+                if not chunk_ids:
+                    return "UNKNOWN"
+                # Deduplicate while preserving order
+                seen: list[str] = []
+                for cid in chunk_ids:
+                    if cid not in seen:
+                        seen.append(cid)
+                return GRAPH_FIELD_SEP.join(seen)
+
             all_entities_data: list[dict[str, Any]] = []
             entity_nodes: list[tuple[str, dict[str, Any]]] = []
             for entity_data in deduped_entities.values():
@@ -2508,29 +2668,43 @@ class LightRAG:
                         "entity_id": entity_name,
                     }
                 )
-                source_chunk_id = normalized_entity.get("source_id", "UNKNOWN")
-                source_id = chunk_to_source_map.get(source_chunk_id, "UNKNOWN")
-                file_path = normalized_entity.get("file_path", "custom_kg")
+                source_ref = str(normalized_entity.get("source_id", "") or "")
+                chunk_ids = _resolve_chunk_ids(source_ref)
+                source_id = _format_source_id(chunk_ids)
+                file_path = str(
+                    normalized_entity.get("file_path", "custom_kg") or "custom_kg"
+                )
 
                 if source_id == "UNKNOWN":
                     logger.warning(
                         f"Entity '{entity_name}' has an UNKNOWN source_id. Please check the source mapping."
                     )
 
+                # Track for placeholder composition (declared entity = authoritative source)
+                if chunk_ids:
+                    endpoint_to_sources.setdefault(entity_name, set()).update(chunk_ids)
+                if file_path and file_path != "custom_kg":
+                    endpoint_to_file_paths.setdefault(entity_name, set()).add(file_path)
+
                 node_data: dict[str, Any] = {
                     "entity_id": entity_name,
-                    "name": str(normalized_entity.get("name", "") or ""),
-                    "entity_type": normalized_entity.get("entity_type", "UNKNOWN")
-                    or "UNKNOWN",
-                    "description": normalized_entity.get(
-                        "description", "No description provided"
-                    )
-                    or "No description provided",
+                    "name": _sanitize_str(
+                        str(normalized_entity.get("name", "") or "")
+                    ),
+                    "entity_type": _sanitize_str(
+                        normalized_entity.get("entity_type", "UNKNOWN") or "UNKNOWN"
+                    ),
+                    "description": _sanitize_str(
+                        normalized_entity.get(
+                            "description", "No description provided"
+                        )
+                        or "No description provided"
+                    ),
                     "source_id": source_id,
                     "file_path": file_path,
                     "created_at": int(time.time()),
-                    "custom_properties": dict(
-                        normalized_entity.get("custom_properties", {})
+                    "custom_properties": _sanitize_metadata(
+                        dict(normalized_entity.get("custom_properties", {}))
                     ),
                 }
                 entity_nodes.append((entity_name, node_data))
@@ -2539,25 +2713,42 @@ class LightRAG:
                 all_entities_data.append(node_data_copy)
                 update_storage = True
 
-            # Batch insert entities (reduces N serial awaits to 1)
-            if entity_nodes:
-                await self.chunk_entity_relation_graph.upsert_nodes_batch(entity_nodes)
-
-            # Relationship storage is undirected, so keep only the last update
-            # for each endpoint pair regardless of order.
+            # ---------- Phase 5: build edges + dedupe relationships ----------
             deduped_relationships: dict[tuple[str, str], dict[str, Any]] = {}
-            for relationship_data in custom_kg.get("relationships", []):
-                src_id = relationship_data["src_id"]
-                tgt_id = relationship_data["tgt_id"]
+            for relationship_data in relationships_input:
+                if not isinstance(relationship_data, dict):
+                    raise ValueError("relationship entries must be dicts")
+                src_id = relationship_data.get("src_id")
+                tgt_id = relationship_data.get("tgt_id")
+                if not src_id or not isinstance(src_id, str):
+                    raise ValueError("relationship.src_id is required and non-empty")
+                if not tgt_id or not isinstance(tgt_id, str):
+                    raise ValueError("relationship.tgt_id is required and non-empty")
                 relation_key = tuple(sorted((src_id, tgt_id)))
                 deduped_relationships.pop(relation_key, None)
                 deduped_relationships[relation_key] = relationship_data
 
-            # Insert relationships into knowledge graph (batch for performance)
-            all_relationships_data: list[dict[str, Any]] = []
-            edge_list: list[tuple[str, str, dict[str, Any]]] = []
+            # First pass over relationships: collect endpoint sources for placeholder fill-in
+            for relationship_data in deduped_relationships.values():
+                normalized_relationship = normalize_graph_edge_data(relationship_data)
+                src_id = str(normalized_relationship["src_id"])
+                tgt_id = str(normalized_relationship["tgt_id"])
+                source_ref = str(normalized_relationship.get("source_id", "") or "")
+                chunk_ids = _resolve_chunk_ids(source_ref)
+                file_path = str(
+                    normalized_relationship.get("file_path", "custom_kg") or "custom_kg"
+                )
+                for endpoint_name in (src_id, tgt_id):
+                    if chunk_ids:
+                        endpoint_to_sources.setdefault(endpoint_name, set()).update(
+                            chunk_ids
+                        )
+                    if file_path and file_path != "custom_kg":
+                        endpoint_to_file_paths.setdefault(endpoint_name, set()).add(
+                            file_path
+                        )
 
-            # Batch check which relationship endpoints exist (1 await instead of 2M)
+            # Detect missing nodes against existing graph state
             needed_node_ids: set[str] = set()
             for relationship_data in deduped_relationships.values():
                 needed_node_ids.add(relationship_data["src_id"])
@@ -2567,126 +2758,273 @@ class LightRAG:
                 list(needed_node_ids)
             )
 
-            # Create missing nodes in batch
-            missing_nodes: list[tuple[str, dict[str, Any]]] = []
+            declared_entity_names = {name for name, _ in entity_nodes}
+            placeholder_nodes: dict[str, dict[str, Any]] = {}
+
+            all_relationships_data: list[dict[str, Any]] = []
+            edge_list: list[tuple[str, str, dict[str, Any]]] = []
+
             for relationship_data in deduped_relationships.values():
                 normalized_relationship = normalize_graph_edge_data(relationship_data)
                 src_id = str(normalized_relationship["src_id"])
                 tgt_id = str(normalized_relationship["tgt_id"])
-                source_chunk_id = normalized_relationship.get("source_id", "UNKNOWN")
-                source_id = chunk_to_source_map.get(source_chunk_id, "UNKNOWN")
-                file_path = normalized_relationship.get("file_path", "custom_kg")
+                source_ref = str(normalized_relationship.get("source_id", "") or "")
+                chunk_ids = _resolve_chunk_ids(source_ref)
+                source_id = _format_source_id(chunk_ids)
+                file_path = str(
+                    normalized_relationship.get("file_path", "custom_kg") or "custom_kg"
+                )
 
                 if source_id == "UNKNOWN":
                     logger.warning(
                         f"Relationship from '{src_id}' to '{tgt_id}' has an UNKNOWN source_id. Please check the source mapping."
                     )
 
-                for need_insert_id in [src_id, tgt_id]:
-                    if need_insert_id not in existing_nodes:
-                        missing_nodes.append(
-                            (
-                                need_insert_id,
-                                {
-                                    "entity_id": need_insert_id,
-                                    "name": "",
-                                    "source_id": source_id,
-                                    "description": "UNKNOWN",
-                                    "entity_type": "UNKNOWN",
-                                    "file_path": file_path,
-                                    "created_at": int(time.time()),
-                                    "custom_properties": {},
-                                },
-                            )
-                        )
-                        existing_nodes.add(need_insert_id)
+                # Build placeholder nodes once per missing endpoint, using all collected sources
+                for endpoint_name in (src_id, tgt_id):
+                    if endpoint_name in declared_entity_names:
+                        continue
+                    if endpoint_name in existing_nodes:
+                        continue
+                    if endpoint_name in placeholder_nodes:
+                        continue
+                    sources_for_endpoint = sorted(
+                        endpoint_to_sources.get(endpoint_name, set())
+                    )
+                    placeholder_source_id = (
+                        GRAPH_FIELD_SEP.join(sources_for_endpoint)
+                        if sources_for_endpoint
+                        else "UNKNOWN"
+                    )
+                    paths_for_endpoint = sorted(
+                        endpoint_to_file_paths.get(endpoint_name, set())
+                    )
+                    placeholder_file_path = (
+                        GRAPH_FIELD_SEP.join(paths_for_endpoint)
+                        if paths_for_endpoint
+                        else "custom_kg"
+                    )
+                    placeholder_nodes[endpoint_name] = {
+                        "entity_id": endpoint_name,
+                        "name": "",
+                        "source_id": placeholder_source_id,
+                        "description": "UNKNOWN",
+                        "entity_type": "UNKNOWN",
+                        "file_path": placeholder_file_path,
+                        "created_at": int(time.time()),
+                        "custom_properties": {},
+                    }
 
                 normalized_src_id, normalized_tgt_id = sorted((src_id, tgt_id))
 
                 edge_data = {
-                    "weight": normalized_relationship.get("weight", 1.0),
-                    "description": normalized_relationship.get("description", ""),
-                    "keywords": normalized_relationship.get("keywords", ""),
+                    "weight": float(normalized_relationship.get("weight", 1.0) or 1.0),
+                    "description": _sanitize_str(
+                        normalized_relationship.get("description", "") or ""
+                    ),
+                    "keywords": _sanitize_str(
+                        normalized_relationship.get("keywords", "") or ""
+                    ),
                     "source_id": source_id,
                     "file_path": file_path,
                     "created_at": int(time.time()),
-                    "custom_properties": dict(
-                        normalized_relationship.get("custom_properties", {})
+                    "custom_properties": _sanitize_metadata(
+                        dict(normalized_relationship.get("custom_properties", {}))
                     ),
                 }
+                # Preserve user-declared direction for graph edge (matches existing
+                # behavior; vdb id and relationship_data use sorted endpoints).
                 edge_list.append((src_id, tgt_id, edge_data))
 
                 all_relationships_data.append(
                     {
                         "src_id": normalized_src_id,
                         "tgt_id": normalized_tgt_id,
-                        "description": normalized_relationship.get("description", ""),
-                        "keywords": normalized_relationship.get("keywords", ""),
+                        "description": edge_data["description"],
+                        "keywords": edge_data["keywords"],
                         "source_id": source_id,
-                        "weight": normalized_relationship.get("weight", 1.0),
+                        "weight": edge_data["weight"],
                         "file_path": file_path,
-                        "created_at": int(time.time()),
-                        "custom_properties": dict(
-                            normalized_relationship.get("custom_properties", {})
-                        ),
+                        "created_at": edge_data["created_at"],
+                        "custom_properties": edge_data["custom_properties"],
                     }
                 )
                 update_storage = True
 
-            # Batch insert missing placeholder nodes
-            if missing_nodes:
-                await self.chunk_entity_relation_graph.upsert_nodes_batch(missing_nodes)
+            # ---------- Phase 6: serialized graph + vdb writes ----------
+            workspace = self.workspace or ""
+            graph_lock_namespace = (
+                f"{workspace}:GraphDB" if workspace else "GraphDB"
+            )
+            async with get_storage_keyed_lock(
+                ["custom_kg_bulk"],
+                namespace=graph_lock_namespace,
+                enable_logging=False,
+            ):
+                if entity_nodes:
+                    await self.chunk_entity_relation_graph.upsert_nodes_batch(
+                        entity_nodes
+                    )
 
-            # Batch insert edges
-            if edge_list:
-                await self.chunk_entity_relation_graph.upsert_edges_batch(edge_list)
+                if placeholder_nodes:
+                    await self.chunk_entity_relation_graph.upsert_nodes_batch(
+                        list(placeholder_nodes.items())
+                    )
 
-            # Insert entities and relationships into vector storage (parallel)
-            data_for_entities_vdb = {
-                compute_mdhash_id(dp["entity_name"], prefix="ent-"): {
-                    "content": dp["entity_name"] + "\n" + dp["description"],
-                    "entity_name": dp["entity_name"],
-                    "source_id": dp["source_id"],
-                    "description": dp["description"],
-                    "entity_type": dp["entity_type"],
-                    "file_path": dp.get("file_path", "custom_kg"),
+                if edge_list:
+                    await self.chunk_entity_relation_graph.upsert_edges_batch(edge_list)
+
+                # Insert entities and relationships into vector storage (parallel)
+                data_for_entities_vdb = {
+                    compute_mdhash_id(dp["entity_name"], prefix="ent-"): {
+                        "content": dp["entity_name"] + "\n" + dp["description"],
+                        "entity_name": dp["entity_name"],
+                        "source_id": dp["source_id"],
+                        "description": dp["description"],
+                        "entity_type": dp["entity_type"],
+                        "file_path": dp.get("file_path", "custom_kg"),
+                    }
+                    for dp in all_entities_data
                 }
-                for dp in all_entities_data
-            }
 
-            data_for_rels_vdb = {
-                compute_mdhash_id(dp["src_id"] + dp["tgt_id"], prefix="rel-"): {
-                    "src_id": dp["src_id"],
-                    "tgt_id": dp["tgt_id"],
-                    "source_id": dp["source_id"],
-                    "content": f"{dp['keywords']}\t{dp['src_id']}\n{dp['tgt_id']}\n{dp['description']}",
-                    "keywords": dp["keywords"],
-                    "description": dp["description"],
-                    "weight": dp["weight"],
-                    "file_path": dp.get("file_path", "custom_kg"),
-                }
-                for dp in all_relationships_data
-            }
-
-            legacy_rel_ids_to_delete = sorted(
-                {
-                    rel_id
+                data_for_rels_vdb = {
+                    compute_mdhash_id(dp["src_id"] + dp["tgt_id"], prefix="rel-"): {
+                        "src_id": dp["src_id"],
+                        "tgt_id": dp["tgt_id"],
+                        "source_id": dp["source_id"],
+                        "content": f"{dp['keywords']}\t{dp['src_id']}\n{dp['tgt_id']}\n{dp['description']}",
+                        "keywords": dp["keywords"],
+                        "description": dp["description"],
+                        "weight": dp["weight"],
+                        "file_path": dp.get("file_path", "custom_kg"),
+                    }
                     for dp in all_relationships_data
-                    for rel_id in make_relation_vdb_ids(dp["src_id"], dp["tgt_id"])[1:]
+                }
+
+                legacy_rel_ids_to_delete = sorted(
+                    {
+                        rel_id
+                        for dp in all_relationships_data
+                        for rel_id in make_relation_vdb_ids(
+                            dp["src_id"], dp["tgt_id"]
+                        )[1:]
+                    }
+                )
+
+                vdb_tasks: list[Awaitable[Any]] = []
+                if data_for_entities_vdb:
+                    vdb_tasks.append(self.entities_vdb.upsert(data_for_entities_vdb))
+                if data_for_rels_vdb:
+                    vdb_tasks.append(self.relationships_vdb.upsert(data_for_rels_vdb))
+                if vdb_tasks:
+                    await asyncio.gather(*vdb_tasks)
+
+                if legacy_rel_ids_to_delete:
+                    await self.relationships_vdb.delete(legacy_rel_ids_to_delete)
+
+            # ---------- Phase 6.5: write full_entities / full_relations indexes ----------
+            # These document-level indexes are consumed by adelete_by_doc_id to locate
+            # affected graph nodes/edges. Format must stay aligned with the consumer:
+            #   full_entities[doc_id] = {"entity_names": [...], "count": N}
+            #   full_relations[doc_id] = {"relation_pairs": [[src, tgt], ...], "count": N}
+            all_doc_entity_names = [dp["entity_name"] for dp in all_entities_data] + [
+                name for name in placeholder_nodes.keys() if name not in declared_entity_names
+            ]
+            full_entities_data = {
+                full_doc_id_resolved: {
+                    "entity_names": all_doc_entity_names,
+                    "count": len(all_doc_entity_names),
+                }
+            }
+            full_relations_data = {
+                full_doc_id_resolved: {
+                    "relation_pairs": [
+                        [dp["src_id"], dp["tgt_id"]] for dp in all_relationships_data
+                    ],
+                    "count": len(all_relationships_data),
+                }
+            }
+
+            doc_index_tasks: list[Awaitable[Any]] = []
+            if all_doc_entity_names:
+                doc_index_tasks.append(self.full_entities.upsert(full_entities_data))
+            if all_relationships_data:
+                doc_index_tasks.append(self.full_relations.upsert(full_relations_data))
+            if doc_index_tasks:
+                await asyncio.gather(*doc_index_tasks)
+
+            # ---------- Phase 7: doc_status -> PROCESSED ----------
+            processing_end_time = int(time.time())
+            await self.doc_status.upsert(
+                {
+                    full_doc_id_resolved: {
+                        "status": DocStatus.PROCESSED,
+                        "chunks_count": len(all_chunks_data),
+                        "chunks_list": list(all_chunks_data.keys()),
+                        "content_summary": content_summary,
+                        "content_length": content_length,
+                        "created_at": created_at_iso,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                        "file_path": primary_file_path,
+                        "track_id": track_id,
+                        "metadata": {
+                            "source": "custom_kg",
+                            "processing_start_time": processing_start_time,
+                            "processing_end_time": processing_end_time,
+                        },
+                    }
                 }
             )
 
-            # Parallel VDB upserts (was serial in original)
-            await asyncio.gather(
-                self.entities_vdb.upsert(data_for_entities_vdb),
-                self.relationships_vdb.upsert(data_for_rels_vdb),
-            )
-
-            if legacy_rel_ids_to_delete:
-                await self.relationships_vdb.delete(legacy_rel_ids_to_delete)
+            return {
+                "full_doc_id": full_doc_id_resolved,
+                "track_id": track_id,
+                "chunk_count": len(all_chunks_data),
+                "entity_count": len(entity_nodes) + len(placeholder_nodes),
+                "relationship_count": len(all_relationships_data),
+            }
 
         except Exception as e:
             logger.error(f"Error in ainsert_custom_kg: {e}")
+            if doc_status_initialized and full_doc_id_resolved is not None:
+                try:
+                    await self.doc_status.upsert(
+                        {
+                            full_doc_id_resolved: {
+                                "status": DocStatus.FAILED,
+                                "chunks_count": len(all_chunks_data)
+                                if "all_chunks_data" in locals()
+                                else 0,
+                                "chunks_list": list(all_chunks_data.keys())
+                                if "all_chunks_data" in locals()
+                                else [],
+                                "content_summary": content_summary
+                                if "content_summary" in locals()
+                                else "Custom KG import",
+                                "content_length": content_length
+                                if "content_length" in locals()
+                                else 0,
+                                "created_at": created_at_iso,
+                                "updated_at": datetime.now(
+                                    timezone.utc
+                                ).isoformat(),
+                                "file_path": primary_file_path
+                                if "primary_file_path" in locals()
+                                else "custom_kg",
+                                "track_id": track_id,
+                                "error_msg": str(e),
+                                "metadata": {
+                                    "source": "custom_kg",
+                                    "processing_start_time": processing_start_time,
+                                    "processing_end_time": int(time.time()),
+                                },
+                            }
+                        }
+                    )
+                except Exception as status_err:
+                    logger.error(
+                        f"Failed to mark custom KG import as FAILED: {status_err}"
+                    )
             raise
         finally:
             if update_storage:
@@ -3500,76 +3838,12 @@ class LightRAG:
                     context=f"doc {doc_id} chunks_list",
                 )
             )
+            deleting_chunkless_doc = not chunk_ids
 
-            if not chunk_ids:
+            if deleting_chunkless_doc:
                 logger.warning(f"No chunks found for document {doc_id}")
-                # Mark that deletion operations have started
-                deletion_operations_started = True
-
-                # A prior failed deletion may have collected LLM cache IDs before the
-                # chunks were removed. If delete_llm_cache is requested and persisted IDs
-                # exist, clean them up now before removing the doc/status entries.
-                if delete_llm_cache and metadata_cache_ids:
-                    if not self.llm_response_cache:
-                        no_cache_msg = (
-                            f"Cannot delete LLM cache for document {doc_id}: "
-                            "cache storage is unavailable"
-                        )
-                        logger.error(no_cache_msg)
-                        async with pipeline_status_lock:
-                            pipeline_status["latest_message"] = no_cache_msg
-                            pipeline_status["history_messages"].append(no_cache_msg)
-                        raise Exception(no_cache_msg)
-                    try:
-                        deletion_stage = "delete_llm_cache"
-                        await self.llm_response_cache.delete(metadata_cache_ids)
-                        remaining_cache_ids = await self._get_existing_llm_cache_ids(
-                            metadata_cache_ids
-                        )
-                        if remaining_cache_ids:
-                            raise Exception(
-                                f"{len(remaining_cache_ids)} LLM cache entries still exist after delete"
-                            )
-                        logger.info(
-                            "Cleaned up %d LLM cache entries from prior attempt for document %s",
-                            len(metadata_cache_ids),
-                            doc_id,
-                        )
-                    except Exception as cache_err:
-                        raise Exception(
-                            f"Failed to delete LLM cache for document {doc_id}: {cache_err}"
-                        ) from cache_err
-
-                try:
-                    # Still need to delete the doc status and full doc.
-                    # Delete doc_status first: if full_docs.delete fails on retry, the
-                    # doc_status record is already gone so the retry finds no record and
-                    # treats the document as already deleted rather than creating a zombie.
-                    deletion_stage = "delete_doc_entries"
-                    await self.doc_status.delete([doc_id])
-                    await self.full_docs.delete([doc_id])
-                except Exception as e:
-                    logger.error(
-                        f"Failed to delete document {doc_id} with no chunks: {e}"
-                    )
-                    raise Exception(f"Failed to delete document entry: {e}") from e
-
-                async with pipeline_status_lock:
-                    log_message = (
-                        f"Document deleted without associated chunks: {doc_id}"
-                    )
-                    logger.info(log_message)
-                    pipeline_status["latest_message"] = log_message
-                    pipeline_status["history_messages"].append(log_message)
-
-                deletion_fully_completed = True
-                return DeletionResult(
-                    status="success",
-                    doc_id=doc_id,
-                    message=log_message,
-                    status_code=200,
-                    file_path=file_path,
-                )
+                # Preserve retry-state cache ids even for chunkless documents.
+                doc_llm_cache_ids = list(metadata_cache_ids)
 
             # Mark that deletion operations have started
             deletion_operations_started = True
@@ -3717,6 +3991,11 @@ class LightRAG:
                     if not node_label:
                         continue
 
+                    if deleting_chunkless_doc:
+                        entities_to_delete.add(node_label)
+                        entity_chunk_updates[node_label] = []
+                        continue
+
                     existing_sources: list[str] = []
                     graph_sources: list[str] = []
                     if self.entity_chunks:
@@ -3788,6 +4067,11 @@ class LightRAG:
                         edge_tuple in relationships_to_delete
                         or edge_tuple in relationships_to_rebuild
                     ):
+                        continue
+
+                    if deleting_chunkless_doc:
+                        relationships_to_delete.add(edge_tuple)
+                        relation_chunk_updates[edge_tuple] = []
                         continue
 
                     existing_sources: list[str] = []
@@ -4256,6 +4540,23 @@ class LightRAG:
             self.entities_vdb,
             self.relationships_vdb,
             entity_name,
+        )
+
+    def delete_by_doc_id(
+        self, doc_id: str, delete_llm_cache: bool = False
+    ) -> DeletionResult:
+        """Synchronously delete a document and all derived graph artifacts.
+
+        Args:
+            doc_id: Document ID to delete.
+            delete_llm_cache: Whether to remove persisted LLM cache entries.
+
+        Returns:
+            DeletionResult: Deletion outcome.
+        """
+        loop = always_get_an_event_loop()
+        return loop.run_until_complete(
+            self.adelete_by_doc_id(doc_id, delete_llm_cache=delete_llm_cache)
         )
 
     def delete_by_entity(self, entity_name: str) -> DeletionResult:

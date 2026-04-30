@@ -966,6 +966,21 @@ rag.insert_custom_kg(custom_kg)
 
 Unknown entity and relation fields are normalized into `custom_properties`. Relationship endpoints use `src_id` and `tgt_id`, while `name` is an optional display name distinct from `entity_name`.
 
+**Return contract** — `insert_custom_kg()` and `ainsert_custom_kg()` return a summary `dict` containing `full_doc_id`, `track_id`, `chunk_count`, `entity_count`, and `relationship_count`. Pass an explicit `full_doc_id` if you want to remove the import later via `adelete_by_doc_id`:
+
+```python
+result = rag.insert_custom_kg(custom_kg, full_doc_id="doc-custom-kg-1")
+# result == {"full_doc_id": "doc-custom-kg-1", "track_id": "...",
+#            "chunk_count": 4, "entity_count": 6, "relationship_count": 3}
+rag.delete_by_doc_id(result["full_doc_id"])  # removes the entire imported KG
+```
+
+**HTTP API** — `POST /graph/import/custom-kg` validates the payload before the call hits the core:
+
+- Missing required fields or empty strings on `chunk.content`, `chunk.source_id`, `entity.entity_name`, `relationship.src_id`, or `relationship.tgt_id` return `422 Unprocessable Entity` instead of a bare `500`.
+- A blank or whitespace-only `full_doc_id` is normalized to `null` (the server then derives a stable id).
+- A successful response carries `track_id`, `chunk_count`, `entity_count`, and `relationship_count` alongside the resolved `full_doc_id`.
+
 * Other Entity and Relation Operations
   - **create_entity**: Creates a new entity with specified attributes
   - **edit_entity**: Updates an existing entity's attributes or renames it

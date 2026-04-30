@@ -226,10 +226,19 @@ class _DummyRAG:
 
     async def ainsert_custom_kg(
         self, custom_kg: dict[str, Any], full_doc_id: str | None = None
-    ) -> None:
+    ) -> dict[str, Any]:
         self.last_custom_kg_request = {
             "custom_kg": custom_kg,
             "full_doc_id": full_doc_id,
+        }
+        # Mirror the real method's structured return so the route handler
+        # can populate the response body deterministically.
+        return {
+            "full_doc_id": full_doc_id or "doc-test-generated",
+            "track_id": "track-test-1",
+            "chunk_count": len(custom_kg.get("chunks", [])),
+            "entity_count": len(custom_kg.get("entities", [])),
+            "relationship_count": len(custom_kg.get("relationships", [])),
         }
 
     async def get_entity_info(
@@ -804,17 +813,93 @@ def test_graph_import_custom_kg_route_calls_core_method(graph_client):
     body = response.json()
     assert body["status"] == "success"
     assert body["full_doc_id"] == "doc-custom-kg-1"
+    assert body["track_id"] == "track-test-1"
     assert body["entity_count"] == 1
     assert body["relationship_count"] == 0
     assert body["chunk_count"] == 1
-    assert rag.last_custom_kg_request == {
-        "custom_kg": {
-            "chunks": [{"content": "Tesla text", "source_id": "Source1"}],
-            "entities": [{"entity_name": "Tesla", "source_id": "Source1"}],
-            "relationships": [],
+    assert rag.last_custom_kg_request is not None
+    assert rag.last_custom_kg_request["full_doc_id"] == "doc-custom-kg-1"
+    payload = rag.last_custom_kg_request["custom_kg"]
+    assert payload["chunks"][0]["content"] == "Tesla text"
+    assert payload["chunks"][0]["source_id"] == "Source1"
+    assert payload["entities"][0]["entity_name"] == "Tesla"
+    assert payload["relationships"] == []
+
+
+def test_graph_import_custom_kg_route_rejects_missing_fields(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/import/custom-kg",
+        json={
+            "custom_kg": {
+                "chunks": [{"content": "Tesla text"}],
+                "entities": [],
+                "relationships": [],
+            }
         },
-        "full_doc_id": "doc-custom-kg-1",
-    }
+    )
+
+    assert response.status_code == 422
+    assert rag.last_custom_kg_request is None
+
+
+def test_graph_import_custom_kg_route_rejects_empty_payload(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/import/custom-kg",
+        json={
+            "custom_kg": {
+                "chunks": [],
+                "entities": [],
+                "relationships": [],
+            }
+        },
+    )
+
+    assert response.status_code == 422
+    assert rag.last_custom_kg_request is None
+
+
+def test_graph_import_custom_kg_route_rejects_blank_strings(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/import/custom-kg",
+        json={
+            "custom_kg": {
+                "chunks": [{"content": "  ", "source_id": "Source1"}],
+                "entities": [],
+                "relationships": [],
+            }
+        },
+    )
+
+    assert response.status_code == 422
+    assert rag.last_custom_kg_request is None
+
+
+def test_graph_import_custom_kg_route_normalizes_full_doc_id(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/import/custom-kg",
+        json={
+            "custom_kg": {
+                "chunks": [{"content": "Tesla text", "source_id": "Source1"}],
+                "entities": [],
+                "relationships": [],
+            },
+            "full_doc_id": "  ",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    # Empty-after-strip becomes None; route falls back to core method's value
+    assert body["full_doc_id"] == "doc-test-generated"
+    assert rag.last_custom_kg_request["full_doc_id"] is None
 
 
 def test_graph_entity_detail_route_returns_entity_payload(graph_client):
