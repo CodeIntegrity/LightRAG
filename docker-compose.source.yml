@@ -1,6 +1,4 @@
-# Source-build variant of docker-compose.yml.
-# Builds the LightRAG application image from the local checkout instead of
-# pulling the published ghcr.io/hkuds/lightrag image.
+
 services:
   lightrag:
     image: lightrag:source-dev
