@@ -27,7 +27,7 @@ services:
     volumes:
       - ./data/rag_storage:/app/data/rag_storage
       - ./data/inputs:/app/data/inputs
-      - ./config.ini:/app/config.ini
+      - .//workspaces:/app/workspaces
       - ./.env:/app/.env
     deploy:
       restart_policy:
