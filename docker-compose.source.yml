@@ -6,7 +6,7 @@ services:
     image: lightrag:source-dev
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.cn
       cache_from:
         - type=local,src=.docker-buildx-cache
       cache_to:
