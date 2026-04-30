@@ -418,6 +418,12 @@
         "fullScreen": "全屏",
         "windowed": "窗口"
       },
+      "exportImageControl": {
+        "export": "导出图片",
+        "exporting": "正在导出...",
+        "exportSuccess": "图片导出成功",
+        "exportFailed": "图片导出失败"
+      },
       "legendControl": {
         "toggleLegend": "切换图例显示"
       }

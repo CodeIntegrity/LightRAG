@@ -418,6 +418,12 @@
         "fullScreen": "Full Screen",
         "windowed": "Windowed"
       },
+      "exportImageControl": {
+        "export": "Export Image",
+        "exporting": "Exporting...",
+        "exportSuccess": "Image exported successfully",
+        "exportFailed": "Failed to export image"
+      },
       "legendControl": {
         "toggleLegend": "Toggle Legend"
       }
