@@ -110,6 +110,52 @@ class TestNoPrefixIntegration:
             assert response.status_code == 404
 
 
+class TestWebUIPrefixIntegration:
+    """Test that WebUI is served at the correct prefixed path."""
+
+    def test_webui_at_prefixed_path(self, mock_args_api_prefix):
+        """Test WebUI assets are at the prefixed path."""
+        with patch('lightrag.api.lightrag_server.LightRAG') as mock_rag:
+            mock_rag.return_value = MagicMock()
+            from lightrag.api.lightrag_server import create_app
+            from lightrag.api.config import parse_args
+
+            # Set webui path in args
+            original_argv = sys.argv.copy()
+            try:
+                sys.argv = ['lightrag-server', '--api-prefix', '/test-api', '--webui-path', '/test-webui']
+                args = parse_args()
+                app = create_app(args)
+                client = TestClient(app)
+
+                # Test that prefixed WebUI path works
+                response = client.get('/test-webui/')
+                # Should be 200 (if assets exist) or 307 redirect (if not)
+                assert response.status_code in [200, 307]
+            finally:
+                sys.argv = original_argv
+
+    def test_webui_not_at_unprefixed_path_with_prefix(self, mock_args_api_prefix):
+        """Test /webui returns 404 when custom path is set."""
+        with patch('lightrag.api.lightrag_server.LightRAG') as mock_rag:
+            mock_rag.return_value = MagicMock()
+            from lightrag.api.lightrag_server import create_app
+            from lightrag.api.config import parse_args
+
+            original_argv = sys.argv.copy()
+            try:
+                sys.argv = ['lightrag-server', '--api-prefix', '/test-api', '--webui-path', '/test-webui']
+                args = parse_args()
+                app = create_app(args)
+                client = TestClient(app)
+
+                # /webui should not exist when custom path is set
+                response = client.get('/webui/')
+                assert response.status_code == 404
+            finally:
+                sys.argv = original_argv
+
+
 class TestEnvironmentVariables:
     """Test that environment variables are read correctly."""
 
