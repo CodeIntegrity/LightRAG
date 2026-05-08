@@ -245,14 +245,22 @@ Backends still set `LIGHTRAG_API_PREFIX=/site01` / `=/site02`.
 
 ## Local development with `bun run dev`
 
+> **Always open `http://localhost:5173/` — root path, no `/webui`, no `/site01` — regardless of which scenario below you're in.**
+>
+> Vite's dev server serves the SPA at its own root (`/`) no matter what prefix you configure. `VITE_DEV_API_PREFIX` only affects how the SPA composes API URLs *after* the page is loaded, and which paths the dev proxy intercepts; it does **not** change the URL you type in the address bar. Trying to access `localhost:5173/site01/webui/` works (Vite's SPA fallback returns the same `index.html`), but it's not the canonical entry point and only differs cosmetically in the address bar.
+>
+> This is the deliberate consequence of `base: './'` in [`vite.config.ts`](../lightrag_webui/vite.config.ts) — the same setting that makes one production build reusable across any number of reverse-proxy mount points. Tying the dev URL to a prefix would force the build to bake the prefix back in.
+
 The dev server mirrors production injection: it serves `index.html` via the same `transformIndexHtml` mechanism the FastAPI server uses at request time, so the SPA reads `window.__LIGHTRAG_CONFIG__` in dev exactly the way it does in prod. Only **two** environment variables matter:
 
 | Variable | Purpose | Where it lives |
 | --- | --- | --- |
 | `VITE_BACKEND_URL` | Where the dev server forwards proxied API calls. | `lightrag_webui/.env*` |
-| `VITE_DEV_API_PREFIX` | Prefix to **simulate** (matches the production `LIGHTRAG_API_PREFIX`). Empty → no prefix. | `lightrag_webui/.env*` |
+| `VITE_DEV_API_PREFIX` | Prefix to **simulate** (matches the backend LIGHTRAG_API_PREFIX`). Empty → no prefix. | `lightrag_webui/.env*` |
 
-`VITE_DEV_WEBUI_PREFIX` is also accepted but only affects the home/logo `<a href>` link inside the SPA — set it to `${VITE_DEV_API_PREFIX}/webui/` if you care about that link in dev, otherwise leave it empty.
+`VITE_DEV_API_PREFIX` injects `apiPrefix` into `window.__LIGHTRAG_CONFIG__` in the browser, mirroring the backend behavior. It also serves as a prefix for `VITE_API_ENDPOINTS`, ensuring correct access to backend APIs.
+
+`VITE_DEV_WEBUI_PREFIX` is also accepted, and the only purpose is injecting `webuiPrefix` to `window.__LIGHTRAG_CONFIG__` for the browser. It only affects the home/logo `<a href>` link inside the SPA — set it to `${VITE_DEV_API_PREFIX}/webui/` if you care about that link in dev, otherwise leave it empty.
 
 Three scenarios cover everything you'll hit:
 
@@ -382,7 +390,7 @@ Same logic applies to Scenario 2 (`VITE_BACKEND_URL=http://localhost:9621`, no p
 | Reproduce a multi-site bug locally | `http://localhost:9621` | `/site01` | local backend with `LIGHTRAG_API_PREFIX=/site01`, no nginx | `http://localhost:5173/` |
 | Hit a real (remote) backend through its production nginx | `https://prod.example.com` | `/site01` | production nginx already strips `/site01/` | `http://localhost:5173/` |
 
-In every case the browser only talks to local Vite at `localhost:5173`; the column on the right is the same. Where the API traffic ultimately lands is what differs.
+**The "Open in browser" column is always `http://localhost:5173/` — that is the entry point in every dev scenario.** What changes between rows is where the API traffic ultimately lands; the SPA itself is always served from the dev server's root.
 
 ---
 
