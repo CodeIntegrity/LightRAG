@@ -52,6 +52,9 @@ load_dotenv(dotenv_path=".env", override=False)
 
 ollama_server_infos = OllamaServerInfos()
 DEFAULT_TOKEN_SECRET = "lightrag-jwt-default-secret-key!"
+DEFAULT_SAMPLE_AUTH_ACCOUNTS = (
+    "admin:admin123,user1:{bcrypt}$2b$12$S8Yu.gCbuAbNTJFB.231gegTwr5pgrFxc8H9kXQ4/sduFBHkhM8Ka"
+)
 
 
 class DefaultRAGStorageConfig:
@@ -404,6 +407,11 @@ def parse_args() -> argparse.Namespace:
 
     # For JWT Auth
     args.auth_accounts = get_env_value("AUTH_ACCOUNTS", "")
+    if args.auth_accounts == DEFAULT_SAMPLE_AUTH_ACCOUNTS:
+        logging.warning(
+            "AUTH_ACCOUNTS matches the documented sample value; treating it as unset."
+        )
+        args.auth_accounts = ""
     args.auth_admin_users = get_env_value("AUTH_ADMIN_USERS", "")
     args.token_secret = get_env_value("TOKEN_SECRET", None)
     args.token_expire_hours = get_env_value("TOKEN_EXPIRE_HOURS", 48, float)
@@ -485,8 +493,11 @@ def parse_args() -> argparse.Namespace:
     )
 
     # Workspace management configuration
+    default_workspace_registry_path = os.path.join(
+        args.working_dir, "workspaces", "registry.sqlite3"
+    )
     args.workspace_registry_path = get_env_value(
-        "LIGHTRAG_WORKSPACE_REGISTRY_PATH", "./workspaces/registry.sqlite3"
+        "LIGHTRAG_WORKSPACE_REGISTRY_PATH", default_workspace_registry_path
     )
     args.workspace_registry_busy_timeout_ms = get_env_value(
         "LIGHTRAG_WORKSPACE_REGISTRY_BUSY_TIMEOUT_MS", 5000, int

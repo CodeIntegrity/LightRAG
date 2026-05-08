@@ -15,6 +15,7 @@ import shutil
 import logging
 import logging.config
 import sys
+from importlib import import_module
 import uvicorn
 import pipmaster as pm
 from fastapi.staticfiles import StaticFiles
@@ -83,7 +84,6 @@ from lightrag.kg.shared_storage import (
     finalize_share_data,
 )
 from fastapi.security import OAuth2PasswordRequestForm
-from lightrag.api.auth import auth_handler
 
 # use the .env that is inside the current folder
 # allows to use different .env file for each lightrag instance
@@ -101,9 +101,38 @@ ALL_GUEST_VISIBLE_TABS = (
     "api",
 )
 
-# Global authentication configuration
-auth_configured = bool(auth_handler.accounts)
 
+def _get_auth_handler():
+    return import_module("lightrag.api.auth").auth_handler
+
+
+def _sync_auth_handler(args) -> None:
+    auth_module = import_module("lightrag.api.auth")
+    existing_handler = getattr(auth_module, "auth_handler", None)
+    existing_args = getattr(auth_module, "global_args", None)
+    preserve_runtime_accounts = (
+        existing_handler is not None
+        and not getattr(args, "auth_accounts", "")
+        and not getattr(existing_args, "auth_accounts", "")
+        and bool(getattr(existing_handler, "accounts", {}))
+    )
+    preserved_accounts = (
+        dict(existing_handler.accounts) if preserve_runtime_accounts else None
+    )
+    auth_module.global_args = args
+    rebuilt_handler = auth_module.AuthHandler()
+    if preserved_accounts is not None:
+        rebuilt_handler.accounts = preserved_accounts
+    if existing_handler is None:
+        auth_module.auth_handler = rebuilt_handler
+        return
+
+    existing_handler.secret = rebuilt_handler.secret
+    existing_handler.algorithm = rebuilt_handler.algorithm
+    existing_handler.expire_hours = rebuilt_handler.expire_hours
+    existing_handler.guest_expire_hours = rebuilt_handler.guest_expire_hours
+    existing_handler.admin_users = rebuilt_handler.admin_users
+    existing_handler.accounts = rebuilt_handler.accounts
 
 class LLMConfigCache:
     """Smart LLM and Embedding configuration cache class"""
@@ -309,6 +338,14 @@ def check_frontend_build():
 
 
 def create_app(args):
+    _sync_auth_handler(args)
+    import_module("lightrag.api.routers.workspace_routes").get_combined_auth_dependency = (
+        get_combined_auth_dependency
+    )
+    import_module("lightrag.api.routers.query_routes").get_combined_auth_dependency = (
+        get_combined_auth_dependency
+    )
+
     # Check frontend build first and get status
     webui_assets_exist, is_frontend_outdated = check_frontend_build()
 
@@ -837,7 +874,10 @@ def create_app(args):
         )
 
     def _guest_login_capability() -> bool:
-        return bool(auth_handler.accounts) and bool(args.enable_guest_login_entry)
+        return bool(_get_auth_handler().accounts) and bool(args.enable_guest_login_entry)
+
+    def _auth_configured() -> bool:
+        return bool(_get_auth_handler().accounts)
 
     def _guest_visible_tabs() -> list[str]:
         configured_tabs = getattr(args, "guest_visible_tabs", None)
@@ -861,7 +901,7 @@ def create_app(args):
     def _build_guest_login_response(
         *, auth_mode: str, message: str
     ) -> dict[str, object]:
-        guest_token = auth_handler.create_token(
+        guest_token = _get_auth_handler().create_token(
             username="guest", role="guest", metadata={"auth_mode": auth_mode}
         )
         return {
@@ -1557,7 +1597,7 @@ def create_app(args):
     async def get_auth_status():
         """Get authentication status and guest token if auth is not configured"""
 
-        if not auth_handler.accounts:
+        if not _auth_configured():
             # Authentication not configured, return guest token
             return {
                 "auth_configured": False,
@@ -1581,13 +1621,14 @@ def create_app(args):
 
     @app.post("/login")
     async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-        if not auth_handler.accounts:
+        if not _auth_configured():
             # Authentication not configured, return guest token
             return _build_guest_login_response(
                 auth_mode="disabled",
                 message="Authentication is disabled. Using guest access.",
             )
         username = form_data.username
+        auth_handler = _get_auth_handler()
         if not auth_handler.verify_password(username, form_data.password):
             raise HTTPException(status_code=401, detail="Incorrect credentials")
 
@@ -1608,7 +1649,7 @@ def create_app(args):
 
     @app.post("/login/guest")
     async def login_guest():
-        if not auth_handler.accounts:
+        if not _auth_configured():
             return _build_guest_login_response(
                 auth_mode="disabled",
                 message="Authentication is disabled. Using guest access.",
@@ -1662,7 +1703,7 @@ def create_app(args):
                 "pipeline_status", workspace=workspace
             )
 
-            if not auth_configured:
+            if not _auth_configured():
                 auth_mode = "disabled"
             else:
                 auth_mode = "enabled"

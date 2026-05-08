@@ -21,7 +21,6 @@ from ..utils_api import get_combined_auth_dependency
 
 router = APIRouter(tags=["graph"])
 
-
 class EntityUpdateRequest(BaseModel):
     entity_name: str
     updated_data: Dict[str, Any]
@@ -450,6 +449,7 @@ def _cleanup_export_file(path: str) -> None:
 
 
 def create_graph_routes(rag, api_key: Optional[str] = None):
+    router = APIRouter(tags=["graph"])
     combined_auth = get_combined_auth_dependency(api_key)
 
     @router.get("/graph/label/list", dependencies=[Depends(combined_auth)])

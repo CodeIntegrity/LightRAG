@@ -3925,6 +3925,123 @@ class LightRAG:
                 else:
                     logger.info("No LLM cache entries found for document %s", doc_id)
 
+            if deleting_chunkless_doc:
+                preserve_chunkless_artifacts = False
+                doc_entities_data = await self.full_entities.get_by_id(doc_id)
+                doc_relations_data = await self.full_relations.get_by_id(doc_id)
+
+                if doc_entities_data and "entity_names" in doc_entities_data:
+                    entity_names = doc_entities_data["entity_names"]
+                    nodes_dict = await self.chunk_entity_relation_graph.get_nodes_batch(
+                        entity_names
+                    )
+                    for entity_name in entity_names:
+                        if self.entity_chunks:
+                            stored_chunks = await self.entity_chunks.get_by_id(entity_name)
+                            if stored_chunks and stored_chunks.get("chunk_ids"):
+                                preserve_chunkless_artifacts = True
+                                break
+                        node_data = nodes_dict.get(entity_name) or {}
+                        source_ids = str(node_data.get("source_id", "")).split(
+                            GRAPH_FIELD_SEP
+                        )
+                        if any(chunk_id and chunk_id != "UNKNOWN" for chunk_id in source_ids):
+                            preserve_chunkless_artifacts = True
+                            break
+
+                if (
+                    not preserve_chunkless_artifacts
+                    and doc_relations_data
+                    and "relation_pairs" in doc_relations_data
+                ):
+                    relation_pairs = doc_relations_data["relation_pairs"]
+                    edge_pairs_dicts = [
+                        {"src": pair[0], "tgt": pair[1]} for pair in relation_pairs
+                    ]
+                    edges_dict = await self.chunk_entity_relation_graph.get_edges_batch(
+                        edge_pairs_dicts
+                    )
+                    for src, tgt in relation_pairs:
+                        if self.relation_chunks:
+                            storage_key = make_relation_chunk_key(src, tgt)
+                            stored_chunks = await self.relation_chunks.get_by_id(
+                                storage_key
+                            )
+                            if stored_chunks and stored_chunks.get("chunk_ids"):
+                                preserve_chunkless_artifacts = True
+                                break
+                        edge_data = edges_dict.get((src, tgt)) or {}
+                        source_ids = str(edge_data.get("source_id", "")).split(
+                            GRAPH_FIELD_SEP
+                        )
+                        if any(chunk_id and chunk_id != "UNKNOWN" for chunk_id in source_ids):
+                            preserve_chunkless_artifacts = True
+                            break
+
+                if preserve_chunkless_artifacts:
+                    log_message = (
+                        f"Document {doc_id} successfully deleted without associated chunks"
+                    )
+                    if delete_llm_cache and doc_llm_cache_ids:
+                        if not self.llm_response_cache:
+                            log_message = (
+                                f"Cannot delete LLM cache for document {doc_id}: "
+                                "cache storage is unavailable"
+                            )
+                            logger.error(log_message)
+                            async with pipeline_status_lock:
+                                pipeline_status["latest_message"] = log_message
+                                pipeline_status["history_messages"].append(log_message)
+                            raise Exception(log_message)
+                        try:
+                            deletion_stage = "delete_llm_cache"
+                            await self.llm_response_cache.delete(doc_llm_cache_ids)
+                            remaining_cache_ids = await self._get_existing_llm_cache_ids(
+                                doc_llm_cache_ids
+                            )
+                            if remaining_cache_ids:
+                                doc_llm_cache_ids = remaining_cache_ids
+                                raise Exception(
+                                    f"{len(remaining_cache_ids)} LLM cache entries still exist after delete"
+                                )
+                            cache_log_message = f"Successfully deleted {len(doc_llm_cache_ids)} LLM cache entries for document {doc_id}"
+                            logger.info(cache_log_message)
+                            async with pipeline_status_lock:
+                                pipeline_status["latest_message"] = cache_log_message
+                                pipeline_status["history_messages"].append(
+                                    cache_log_message
+                                )
+                            log_message = cache_log_message
+                        except Exception as cache_delete_error:
+                            log_message = (
+                                f"Failed to delete LLM cache for document {doc_id}: "
+                                f"{cache_delete_error}"
+                            )
+                            logger.error(log_message)
+                            logger.error(traceback.format_exc())
+                            async with pipeline_status_lock:
+                                pipeline_status["latest_message"] = log_message
+                                pipeline_status["history_messages"].append(log_message)
+                            raise Exception(log_message) from cache_delete_error
+
+                    try:
+                        deletion_stage = "delete_doc_entries"
+                        in_final_delete_stage = True
+                        await self.doc_status.delete([doc_id])
+                        await self.full_docs.delete([doc_id])
+                    except Exception as e:
+                        logger.error(f"Failed to delete document and status: {e}")
+                        raise Exception(f"Failed to delete document and status: {e}") from e
+
+                    deletion_fully_completed = True
+                    return DeletionResult(
+                        status="success",
+                        doc_id=doc_id,
+                        message=log_message,
+                        status_code=200,
+                        file_path=file_path,
+                    )
+
             # 4. Analyze entities and relationships that will be affected
             entities_to_delete = set()
             entities_to_rebuild = {}  # entity_name -> remaining chunk id list
@@ -4328,13 +4445,21 @@ class LightRAG:
                     logger.error(f"Failed to delete entities: {e}")
                     raise Exception(f"Failed to delete entities: {e}") from e
 
+            chunkless_without_graph_changes = deleting_chunkless_doc and not (
+                entities_to_delete
+                or relationships_to_delete
+                or entities_to_rebuild
+                or relationships_to_rebuild
+            )
+
             # Persist changes to graph database before entity and relationship rebuild
-            try:
-                deletion_stage = "persist_pre_rebuild_changes"
-                await self._insert_done()
-            except Exception as e:
-                logger.error(f"Failed to persist pre-rebuild changes: {e}")
-                raise Exception(f"Failed to persist pre-rebuild changes: {e}") from e
+            if not chunkless_without_graph_changes:
+                try:
+                    deletion_stage = "persist_pre_rebuild_changes"
+                    await self._insert_done()
+                except Exception as e:
+                    logger.error(f"Failed to persist pre-rebuild changes: {e}")
+                    raise Exception(f"Failed to persist pre-rebuild changes: {e}") from e
 
             # 8. Rebuild entities and relationships from remaining chunks
             if entities_to_rebuild or relationships_to_rebuild:
@@ -4361,7 +4486,12 @@ class LightRAG:
 
             # 9. Delete LLM cache while the document status still exists so a failure
             # remains retryable via the same doc_id.
-            log_message = f"Document {doc_id} successfully deleted"
+            if chunkless_without_graph_changes:
+                log_message = (
+                    f"Document {doc_id} successfully deleted without associated chunks"
+                )
+            else:
+                log_message = f"Document {doc_id} successfully deleted"
             if delete_llm_cache and doc_llm_cache_ids:
                 if not self.llm_response_cache:
                     log_message = (

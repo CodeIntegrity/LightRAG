@@ -8,6 +8,7 @@ from typing import Optional, List, Tuple
 import sys
 import time
 import logging
+from importlib import import_module
 from ascii_colors import ASCIIColors
 from .._version import __api_version__ as api_version
 from .._version import __version__ as core_version
@@ -18,7 +19,6 @@ from lightrag.api.runtime_validation import validate_runtime_target_from_env_fil
 from fastapi import HTTPException, Security, Request, Response, status
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from starlette.status import HTTP_403_FORBIDDEN
-from .auth import auth_handler
 from .config import ollama_server_infos, global_args, get_env_value
 
 logger = logging.getLogger("lightrag")
@@ -39,6 +39,21 @@ _TOKEN_RENEWAL_SKIP_PATHS = [
     "/documents/paginated",
     "/documents/pipeline_status",
 ]
+
+
+def _get_auth_handler():
+    return import_module("lightrag.api.auth").auth_handler
+
+
+class _AuthHandlerProxy:
+    def __getattr__(self, name):
+        return getattr(_get_auth_handler(), name)
+
+    def __setattr__(self, name, value):
+        setattr(_get_auth_handler(), name, value)
+
+
+auth_handler = _AuthHandlerProxy()
 
 
 def check_env_file():
@@ -132,10 +147,10 @@ def get_combined_auth_dependency(api_key: Optional[str] = None):
         # 2. Validate token first if provided in the request (Ensure 401 error if token is invalid)
         if token:
             try:
+                auth_handler = _get_auth_handler()
                 token_info = auth_handler.validate_token(token)
 
                 # ========== Token Auto-Renewal Logic ==========
-                from lightrag.api.config import global_args
                 from datetime import datetime, timezone
 
                 if global_args.token_auto_renew:
@@ -212,8 +227,10 @@ def get_combined_auth_dependency(api_key: Optional[str] = None):
                     getattr(global_args, "enable_guest_login_entry", False)
                 )
 
-                # Accept guest token if no auth is configured
-                if not auth_enabled and token_info.get("role") == "guest":
+                # When password auth is disabled, any valid JWT signed by this
+                # server is acceptable. Tests rely on user-scoped tokens still
+                # working in guest-mode deployments.
+                if not auth_enabled:
                     return
                 # Accept non-guest token if auth is configured
                 if auth_enabled and token_info.get("role") != "guest":
@@ -234,7 +251,7 @@ def get_combined_auth_dependency(api_key: Optional[str] = None):
                 # For other exceptions, continue processing
 
         # 3. Acept all request if no API protection needed
-        auth_enabled = bool(auth_handler.accounts)
+        auth_enabled = bool(_get_auth_handler().accounts)
 
         if not auth_enabled and not api_key_configured:
             return

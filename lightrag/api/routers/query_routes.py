@@ -243,6 +243,7 @@ def create_query_routes(
     top_k: int = 60,
     allow_prompt_overrides_via_api: bool = False,
 ):
+    router = APIRouter(tags=["query"])
     combined_auth = get_combined_auth_dependency(api_key)
 
     def _assert_prompt_override_capability(request: QueryRequest) -> None:
