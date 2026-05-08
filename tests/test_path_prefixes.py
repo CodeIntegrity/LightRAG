@@ -283,6 +283,7 @@ class TestEnvironmentVariables:
         finally:
             del os.environ["LIGHTRAG_API_PREFIX"]
 
+
 class TestPathNormalization:
     """User input for `--api-prefix` may contain trailing slashes, a missing
     leading slash, or be just '/'. create_app must canonicalize these before
@@ -376,9 +377,7 @@ class TestRuntimeConfigInjection:
             mock_rag.return_value = MagicMock()
             return create_app(args)
 
-    def test_injection_populates_window_config_with_prefix(
-        self, tmp_path, monkeypatch
-    ):
+    def test_injection_populates_window_config_with_prefix(self, tmp_path, monkeypatch):
         """With api_prefix=/site01, the injected script must carry both the
         api prefix and the composed webui prefix the browser will see."""
         self._stage_index_html(tmp_path)

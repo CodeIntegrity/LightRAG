@@ -410,4 +410,3 @@ Confirm the backend is also running with the matching `LIGHTRAG_API_PREFIX`. The
 ### I want to disable the WebUI entirely
 
 Don't build the frontend — `lightrag/api/webui/index.html` will not exist and the server will skip the WebUI mount, redirecting `/` and the WebUI path to `/docs` instead. The runtime-config injection is purely opt-in via the existence of the build artifact.
-
