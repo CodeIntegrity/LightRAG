@@ -385,9 +385,22 @@ def create_app(args):
         + (" (API-Key Enabled)" if api_key else "")
         + "\n\n[View ReDoc documentation](/redoc)"
     )
-    # Get API prefix and WebUI path from args or env vars
-    api_prefix = getattr(args, "api_prefix", "") or ""
-    webui_path = getattr(args, "webui_path", "/webui") or "/webui"
+    # Normalize API prefix and WebUI mount path. Both accept user input from
+    # CLI/env, so we strip surrounding whitespace, strip a trailing slash
+    # (Starlette's app.mount rejects mount paths ending in '/'), and treat
+    # empty/"/" as "use the default". A leading slash is ensured.
+    def _normalize_path(value: str | None, default: str) -> str:
+        if value is None:
+            return default
+        value = value.strip()
+        if not value or value == "/":
+            return default
+        if not value.startswith("/"):
+            value = "/" + value
+        return value.rstrip("/")
+
+    api_prefix = _normalize_path(getattr(args, "api_prefix", None), default="")
+    webui_path = _normalize_path(getattr(args, "webui_path", None), default="/webui")
 
     app_kwargs = {
         "title": "LightRAG Server API",
@@ -1210,12 +1223,18 @@ def create_app(args):
         return get_swagger_ui_oauth2_redirect_html()
 
     @app.get("/")
-    async def redirect_to_webui():
-        """Redirect root path based on WebUI availability"""
+    async def redirect_to_webui(request: Request):
+        """Redirect root path based on WebUI availability.
+
+        Prepend the ASGI root_path so that, behind a reverse proxy, the
+        absolute redirect target keeps the configured prefix instead of
+        bypassing it.
+        """
+        root = request.scope.get("root_path", "")
         if webui_assets_exist:
-            return RedirectResponse(url=f"{webui_path}/")
+            return RedirectResponse(url=f"{root}{webui_path}/")
         else:
-            return RedirectResponse(url="/docs")
+            return RedirectResponse(url=f"{root}/docs")
 
     @app.get("/auth-status")
     async def get_auth_status():
@@ -1444,9 +1463,10 @@ def create_app(args):
         # Add redirect for WebUI path when assets are not available
         @app.get(webui_path)
         @app.get(f"{webui_path}/")
-        async def webui_redirect_to_docs():
-            """Redirect WebUI path to /docs when WebUI is not available"""
-            return RedirectResponse(url="/docs")
+        async def webui_redirect_to_docs(request: Request):
+            """Redirect WebUI path to /docs when WebUI is not available."""
+            root = request.scope.get("root_path", "")
+            return RedirectResponse(url=f"{root}/docs")
 
     return app
 
