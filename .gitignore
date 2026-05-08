@@ -18,6 +18,7 @@ venv/
 
 # Generated Docker Compose files (output of setup wizard)
 docker-compose.*.yml
+!docker-compose.podman.yml
 
 # Build / Distribution
 dist/
@@ -56,6 +57,9 @@ rag_storage/
 data/
 workspaces/
 
+# Runtime-provided entity type prompt profiles (keep sample files only)
+prompts/entity_type/
+
 # Evaluation results
 lightrag/evaluation/results/
 
@@ -93,3 +97,6 @@ CLAUDE.md
 .jules/
 .ace-tool/
 .env.bak
+
+# native_parser/docx CLI output (audit JSONL + image dir)
+/parse_output/

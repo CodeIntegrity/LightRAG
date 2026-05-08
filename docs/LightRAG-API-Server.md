@@ -111,7 +111,17 @@ EMBEDDING_DIM=1024
 # EMBEDDING_BINDING_API_KEY=your_api_key
 ```
 
-> **Important Note**: The Embedding model must be determined before document indexing, and the same model must be used during the document query phase. For certain storage solutions (e.g., PostgreSQL), the vector dimension must be defined upon initial table creation. Therefore, when changing embedding models, it is necessary to delete the existing vector-related tables and allow LightRAG to recreate them with the new dimensions.
+> **Important Note**: The embedding model and asymmetric embedding configuration must be determined before document indexing, and the same settings must be used during the query phase. For certain storage solutions (e.g., PostgreSQL), the vector dimension must be defined upon initial table creation. When changing the embedding model, embedding dimension, `EMBEDDING_ASYMMETRIC`, query/document prefixes, or provider task behavior, clear the existing LightRAG workspace/vector data and re-index the source files.
+
+#### Asymmetric Embedding Configuration
+
+LightRAG uses symmetric embeddings by default. Query/document asymmetric embeddings are enabled only when `EMBEDDING_ASYMMETRIC=true` is explicitly set.
+
+- Provider task bindings such as `jina`, `gemini`, and `voyageai` use provider parameters (`task` / `task_type` / `input_type`) and should not use query/document prefixes.
+- Prefix-based bindings such as `openai`, `azure_openai`, and `ollama` require both `EMBEDDING_QUERY_PREFIX` and `EMBEDDING_DOCUMENT_PREFIX`. Use `NO_PREFIX` for a side that should intentionally have no prefix.
+- Any valid change to asymmetric embedding settings requires clearing existing data and re-indexing files.
+
+For the full validation rules and examples, see [Asymmetric Embedding Configuration](./AsymmetricEmbedding.md).
 
 ### Create .env File With Setup Tool
 
@@ -360,113 +370,6 @@ When using LightRAG for content queries, avoid combining the search process with
 /mix[Use mermaid format for diagrams] Please draw a character relationship diagram for Scrooge
 ```
 
-### Structured prompt overrides (query-time)
-
-`user_prompt` is an additive instruction for answer formatting. Structured prompt overrides are different: they override prompt templates used during query execution. If a custom answer template includes `{user_prompt}`, the value is injected there; otherwise LightRAG appends a standard additional-instructions block automatically.
-
-- SDK instance defaults: `LightRAG(prompt_config=...)`
-- SDK per-request overrides: `QueryParam(prompt_overrides=...)`
-- API request field: `prompt_overrides`
-
-API security gate:
-
-- `ALLOW_PROMPT_OVERRIDES_VIA_API` is `false` by default
-- set `ALLOW_PROMPT_OVERRIDES_VIA_API=true` to allow request-level `prompt_overrides`
-- `/health` exposes `configuration.allow_prompt_overrides_via_api`, which clients can use for capability discovery
-
-Example API request:
-
-```json
-{
-  "query": "What is LightRAG?",
-  "mode": "mix",
-  "user_prompt": "Use short bullet points",
-  "prompt_overrides": {
-    "query": {
-      "rag_response": "Answer in numbered steps.\n\n{context_data}\n\n{response_type}"
-    }
-  }
-}
-```
-
-WebUI only supports query-time prompt overrides. It does not edit server instance defaults (`prompt_config`).
-
-### Workspace Prompt Version APIs
-
-The server also exposes workspace-scoped prompt version management endpoints:
-
-- `POST /prompt-config/initialize`
-- `GET /prompt-config/groups`
-- `GET /prompt-config/{group_type}/versions`
-- `GET /prompt-config/{group_type}/versions/{version_id}`
-- `POST /prompt-config/{group_type}/versions`
-- `PATCH /prompt-config/{group_type}/versions/{version_id}`
-- `POST /prompt-config/{group_type}/versions/{version_id}/activate`
-- `DELETE /prompt-config/{group_type}/versions/{version_id}`
-- `GET /prompt-config/{group_type}/versions/{version_id}/diff`
-
-Version groups:
-
-- `indexing`: manages `ENTITY_TYPES`, `SUMMARY_LANGUAGE`, and indexing-time prompt families
-- `retrieval`: manages query/keyword prompt families
-
-Important semantics:
-
-- saving a version does not activate it
-- deleting the active version is rejected
-- if no group has an active version, the server falls back to the original built-in/default behavior
-- retrieval-page temporary version selection still uses request-scoped `prompt_overrides`
-- activating a new `indexing` version does not rewrite existing graph data
-
-`/health` now also exposes `configuration.active_prompt_versions`, which clients can use to show the current active indexing/retrieval version summary.
-`/health` also includes `capabilities.workspace_create`, which indicates whether the current session can create workspaces right now.
-
-### Workspace Management APIs
-
-The server also exposes workspace management endpoints for the WebUI header switcher and management dialog:
-
-- `GET /workspaces`
-- `POST /workspaces`
-- `GET /workspaces/{workspace}`
-- `GET /workspaces/{workspace}/stats`
-- `POST /workspaces/{workspace}/soft-delete`
-- `POST /workspaces/{workspace}/restore`
-- `POST /workspaces/{workspace}/hard-delete`
-- `GET /workspaces/{workspace}/operation`
-
-Important semantics:
-
-- Workspace switching is request-scoped, not server-global. Clients select the active workspace by sending the `LIGHTRAG-WORKSPACE` header.
-- Unknown workspaces are rejected by default instead of being created from request traffic.
-- Guest/login-free workspace creation is opt-in and controlled by `ALLOW_GUEST_WORKSPACE_CREATE=true`.
-- `POST /workspaces` accepts `guest` sessions only when `ALLOW_GUEST_WORKSPACE_CREATE=true`; guest-created records are stored as `created_by='guest'` and `owners=['guest']`.
-- `POST /workspaces` is now two-phase: the registry record is created as `creating`, and the workspace is promoted to `ready` only after prompt/document assets initialize successfully.
-- If initialization fails, the workspace is kept as `create_failed`; clients can inspect `/workspaces/{workspace}/operation` for the last error and retry the same `POST /workspaces` request to resume initialization.
-- The guest-create toggle affects only workspace creation and does not widen dangerous admin-only operations such as `hard-delete`.
-- `soft-delete` hides a workspace from the normal selector but keeps the underlying data.
-- `hard-delete` is asynchronous and returns `202 Accepted`; clients should poll `/workspaces/{workspace}/operation` for progress.
-- New workspace prompt seeds follow the instance summary language by default (`English -> en`, `Chinese/中文 -> zh`). Manual `POST /prompt-config/initialize?locale=...` remains the explicit override path.
-- `GET /workspaces/{workspace}/stats` is best-effort and includes a `capabilities` object explaining why some fields may be `null`. By default it returns lightweight metadata only; pass `include_runtime=true` when the caller explicitly wants runtime-backed counts such as `document_count` and `chunk_count`.
-
-### Workspace Migration CLI
-
-Legacy workspaces should be imported into the managed registry explicitly:
-
-```bash
-lightrag-migrate-workspaces \
-  --registry-path ./workspaces/registry.sqlite3 \
-  --discover-local \
-  --dry-run
-```
-
-Useful flags:
-
-- `--workspace <name>` repeated for explicit imports
-- `--from-file <path>` to load workspace names from a file
-- `--owner <username>` to assign imported ownership
-- `--visibility public|private`
-- `--on-conflict error|skip`
-
 ## API Key and Authentication
 
 By default, the LightRAG Server can be accessed without any authentication. We can configure the server with an API Key or account credentials to secure it.
@@ -497,7 +400,6 @@ LightRAG API Server implements JWT-based authentication using the HS256 algorith
 ```bash
 # For jwt auth
 AUTH_ACCOUNTS='admin:{bcrypt}$2b$12$replace-with-generated-hash,user1:pass456'
-AUTH_ADMIN_USERS='admin'
 TOKEN_SECRET='your-key'
 TOKEN_EXPIRE_HOURS=4
 ```
@@ -509,8 +411,6 @@ lightrag-hash-password --username admin
 ```
 
 The command prompts for the password and prints an `admin:{bcrypt}...` entry ready to paste into `.env`.
-
-Use `AUTH_ADMIN_USERS` to decide which authenticated usernames receive the `admin` JWT role and can perform dangerous workspace operations such as `hard-delete`.
 
 > Currently, only the configuration of an administrator account and password is supported. A comprehensive account system is yet to be developed and implemented.
 
@@ -563,15 +463,29 @@ Most of the configurations come with default settings; check out the details in 
 
 ### LLM and Embedding Backend Supported
 
-LightRAG supports binding to various LLM/Embedding backends:
+LightRAG supports binding to various LLM backends:
 
 * ollama
 * openai (including openai compatible)
 * azure_openai
 * lollms
 * aws_bedrock
+* gemini
+
+LightRAG supports binding to various Embedding backends:
+
+* lollms
+* ollama
+* openai (including openai compatible)
+* azure_openai
+* aws_bedrock
+* jina
+* gemini
+* voyageai
 
 Use environment variables `LLM_BINDING` or CLI argument `--llm-binding` to select the LLM backend type. Use environment variables `EMBEDDING_BINDING` or CLI argument `--embedding-binding` to select the Embedding backend type.
+
+Asymmetric embedding is explicit opt-in. Set `EMBEDDING_ASYMMETRIC=true` only when the selected embedding backend supports either provider task parameters or task prefixes. See [Asymmetric Embedding Configuration](./AsymmetricEmbedding.md) before changing these settings, because existing data must be cleared and files re-indexed after any change.
 
 For LLM and embedding configuration examples, please refer to the `env.example` file in the project's root directory. To view the complete list of configurable options for OpenAI and Ollama-compatible LLM interfaces, use the following commands:
 ```
@@ -631,21 +545,21 @@ When switching the storage implementation in LightRAG, the LLM cache can be migr
 
 ### LightRAG API Server Command Line Options
 
-| Parameter           | Default       | Description                                                                          |
-| ------------------- | ------------- | ------------------------------------------------------------------------------------ |
-| --host              | 0.0.0.0       | Server host                                                                          |
-| --port              | 9621          | Server port                                                                          |
-| --working-dir       | ./rag_storage | Working directory for RAG storage                                                    |
-| --input-dir         | ./inputs      | Directory containing input documents                                                 |
-| --max-async         | 4             | Maximum number of async operations                                                   |
-| --log-level         | INFO          | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)                                |
-| --verbose           | -             | Verbose debug output (True, False)                                                   |
-| --key               | None          | API key for authentication. Protects the LightRAG server against unauthorized access |
-| --ssl               | False         | Enable HTTPS                                                                         |
-| --ssl-certfile      | None          | Path to SSL certificate file (required if --ssl is enabled)                          |
-| --ssl-keyfile       | None          | Path to SSL private key file (required if --ssl is enabled)                          |
-| --llm-binding       | ollama        | LLM binding type (lollms, ollama, openai, openai-ollama, azure_openai, aws_bedrock)  |
-| --embedding-binding | ollama        | Embedding binding type (lollms, ollama, openai, azure_openai, aws_bedrock)           |
+| Parameter             | Default       | Description                                                                                                                     |
+| --------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| --host                | 0.0.0.0       | Server host                                                                                                                     |
+| --port                | 9621          | Server port                                                                                                                     |
+| --working-dir         | ./rag_storage | Working directory for RAG storage                                                                                               |
+| --input-dir           | ./inputs      | Directory containing input documents                                                                                            |
+| --max-async           | 4             | Maximum number of async operations                                                                                              |
+| --log-level           | INFO          | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)                                                                           |
+| --verbose             | -             | Verbose debug output (True, False)                                                                                              |
+| --key                 | None          | API key for authentication. Protects the LightRAG server against unauthorized access                                            |
+| --ssl                 | False         | Enable HTTPS                                                                                                                    |
+| --ssl-certfile        | None          | Path to SSL certificate file (required if --ssl is enabled)                                                                     |
+| --ssl-keyfile         | None          | Path to SSL private key file (required if --ssl is enabled)                                                                     |
+| --llm-binding         | ollama        | LLM binding type (lollms, ollama, openai, openai-ollama, azure_openai, aws_bedrock)                                                          |
+| --embedding-binding   | ollama        | Embedding binding type (lollms, ollama, openai, azure_openai, aws_bedrock, jina, gemini, voyageai)                                           |
 
 ### Reranking Configuration
 
@@ -766,6 +680,11 @@ EMBEDDING_MODEL=bge-m3:latest
 EMBEDDING_DIM=1024
 EMBEDDING_BINDING=ollama
 EMBEDDING_BINDING_HOST=http://localhost:11434
+# Optional asymmetric embedding for prefix-based models:
+# EMBEDDING_ASYMMETRIC=true
+# EMBEDDING_QUERY_PREFIX="search_query: "
+# EMBEDDING_DOCUMENT_PREFIX="search_document: "
+# Use NO_PREFIX for a side that should intentionally have no prefix.
 
 ### For JWT Auth
 # AUTH_ACCOUNTS='admin:{bcrypt}$2b$12$replace-with-generated-hash,user1:pass456'
@@ -820,494 +739,10 @@ LightRAG implements asynchronous document indexing to enable frontend monitoring
 * `/documents/texts`
 
 **Document Processing Status Query Endpoint:**
-* `/documents/track_status/{track_id}`
+* `/track_status/{track_id}`
 
 This endpoint provides comprehensive status information including:
 * Document processing status (pending/processing/processed/failed)
 * Content summary and metadata
 * Error messages if processing failed
 * Timestamps for creation and updates
-
-## Direct Import and Detail Endpoints
-
-The server also exposes a small set of direct import and inspection endpoints for advanced integrations:
-
-**Document APIs**
-
-* `POST /documents/import/custom-chunks`
-  * Import a pre-split document directly through `ainsert_custom_chunks`
-  * Best suited for upstream pipelines that already own chunking
-* `POST /documents/by-ids`
-  * Fetch document statuses for a batch of `doc_id` values
-
-**Query APIs**
-
-* `POST /query/raw`
-  * Return the complete non-streaming `aquery_llm` payload
-  * Suitable for advanced integrations that need both structured retrieval data and the final LLM response in one contract
-
-**Graph APIs**
-
-* `POST /graph/import/custom-kg`
-  * Import a structured custom knowledge graph payload through `ainsert_custom_kg`
-  * Relationship endpoints use `src_id` and `tgt_id`; entity records may include optional `name`
-  * Unknown entity and relation fields are normalized into `custom_properties`
-* `GET /graph/entity/detail`
-  * Fetch detailed entity information
-  * Supports optional `include_vector_data=true`
-  * Returns normalized `graph_data`, including `custom_properties`
-* `GET /graph/relation/detail`
-  * Fetch detailed relation information
-  * Supports optional `include_vector_data=true`
-  * Returns normalized `graph_data`, including `custom_properties`
-* `POST /graph/export`
-  * Export graph data to `csv`, `excel`, `md`, or `txt`
-  * Returns the exported file as a download response
-
-## API Conventions
-
-### Base URL
-
-- Local default: `http://localhost:9621`
-- OpenAPI schema: `/openapi.json`
-- Swagger UI: `/docs`
-- ReDoc: `/redoc`
-
-### Authentication
-
-- If `LIGHTRAG_API_KEY` is configured, send `X-API-Key: <your-key>`.
-- If JWT login is enabled for WebUI, browser requests may also carry bearer credentials.
-- Some paths can be whitelisted through `WHITELIST_PATHS`; do not assume `/api/*` is protected unless you configured it that way.
-
-### Workspace Scoping
-
-- Workspace-aware APIs are request-scoped.
-- To target a specific workspace, send `LIGHTRAG-WORKSPACE: <workspace-name>`.
-- Omitting the header uses the server/runtime default workspace.
-
-### Response And Error Patterns
-
-- Success responses are JSON unless the endpoint explicitly returns a file download or a streaming body.
-- Validation failures are typically `422 Unprocessable Entity`.
-- Business-rule failures usually return `400`, `403`, or `404`.
-- Unexpected internal failures return `500`.
-
-## Detailed API Reference
-
-### Shared Query Request Fields
-
-The following request fields are reused by `/query`, `/query/stream`, `/query/data`, and `/query/raw`.
-
-| Field                   | Type                                                  | Required | Default | Notes                                                |
-| ----------------------- | ----------------------------------------------------- | -------- | ------- | ---------------------------------------------------- |
-| `query`                 | `string`                                              | Yes      | -       | Must contain non-whitespace text                     |
-| `mode`                  | `local \| global \| hybrid \| naive \| mix \| bypass` | No       | `mix`   | `mix` is the recommended general mode                |
-| `only_need_context`     | `boolean`                                             | No       | `null`  | Return prepared context only                         |
-| `only_need_prompt`      | `boolean`                                             | No       | `null`  | Return prompt only                                   |
-| `response_type`         | `string`                                              | No       | `null`  | Controls answer format, such as bullet points        |
-| `top_k`                 | `integer`                                             | No       | `null`  | Entity/relationship recall size depending on mode    |
-| `chunk_top_k`           | `integer`                                             | No       | `null`  | Initial chunk recall count                           |
-| `max_entity_tokens`     | `integer`                                             | No       | `null`  | Entity context token budget                          |
-| `max_relation_tokens`   | `integer`                                             | No       | `null`  | Relation context token budget                        |
-| `max_total_tokens`      | `integer`                                             | No       | `null`  | Total context token budget                           |
-| `hl_keywords`           | `string[]`                                            | No       | `[]`    | High-level retrieval hints                           |
-| `ll_keywords`           | `string[]`                                            | No       | `[]`    | Low-level retrieval hints                            |
-| `conversation_history`  | `object[]`                                            | No       | `null`  | LLM context only; not used as retrieval corpus       |
-| `user_prompt`           | `string`                                              | No       | `null`  | Post-retrieval answer instruction                    |
-| `prompt_overrides`      | `object`                                              | No       | `null`  | Requires `ALLOW_PROMPT_OVERRIDES_VIA_API=true`       |
-| `enable_rerank`         | `boolean`                                             | No       | `null`  | Per-request rerank toggle                            |
-| `include_references`    | `boolean`                                             | No       | `true`  | `/query/data` always includes references             |
-| `include_chunk_content` | `boolean`                                             | No       | `false` | Only effective when references are included          |
-| `stream`                | `boolean`                                             | No       | `true`  | Relevant to stream behavior; some endpoints force it |
-
-### Documents APIs
-
-#### POST `/documents/upload`
-
-Uploads one file with `multipart/form-data` and starts background indexing.
-
-| Parameter | Location  | Type   | Required | Notes                          |
-| --------- | --------- | ------ | -------- | ------------------------------ |
-| `file`    | form-data | binary | Yes      | Must use a supported extension |
-
-Response fields:
-
-| Field      | Type                                                  | Notes                                            |
-| ---------- | ----------------------------------------------------- | ------------------------------------------------ |
-| `status`   | `success \| duplicated \| partial_success \| failure` | `duplicated` is returned for filename duplicates |
-| `message`  | `string`                                              | Human-readable status                            |
-| `track_id` | `string`                                              | Use with `/documents/track_status/{track_id}`    |
-
-```bash
-curl -X POST "http://localhost:9621/documents/upload" \
-  -H "X-API-Key: $LIGHTRAG_API_KEY" \
-  -F "file=@./book.pdf"
-```
-
-#### POST `/documents/text`
-
-Indexes a single text payload asynchronously.
-
-| Field         | Type     | Required | Notes                                   |
-| ------------- | -------- | -------- | --------------------------------------- |
-| `text`        | `string` | Yes      | Empty-after-trim values are rejected    |
-| `file_source` | `string` | No       | Logical source name shown in references |
-
-```bash
-curl -X POST "http://localhost:9621/documents/text" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $LIGHTRAG_API_KEY" \
-  -d '{
-    "text": "LightRAG is a graph-based retrieval-augmented generation framework.",
-    "file_source": "manual-note.md"
-  }'
-```
-
-#### POST `/documents/texts`
-
-Indexes multiple texts in one request.
-
-| Field          | Type       | Required | Notes                          |
-| -------------- | ---------- | -------- | ------------------------------ |
-| `texts`        | `string[]` | Yes      | At least one item              |
-| `file_sources` | `string[]` | No       | Optional parallel source names |
-
-```bash
-curl -X POST "http://localhost:9621/documents/texts" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $LIGHTRAG_API_KEY" \
-  -d '{
-    "texts": [
-      "LightRAG combines graph retrieval and vector retrieval.",
-      "Workspaces isolate data for multi-tenant operation."
-    ],
-    "file_sources": ["intro.txt", "workspace.txt"]
-  }'
-```
-
-#### GET `/documents/track_status/{track_id}`
-
-Polls indexing progress for a previously returned `track_id`.
-
-| Parameter  | Location | Type     | Required | Notes           |
-| ---------- | -------- | -------- | -------- | --------------- |
-| `track_id` | path     | `string` | Yes      | Cannot be blank |
-
-Main response fields:
-
-| Field            | Type                  | Notes                                      |
-| ---------------- | --------------------- | ------------------------------------------ |
-| `track_id`       | `string`              | Requested tracking id                      |
-| `documents`      | `DocStatusResponse[]` | One entry per document in this job         |
-| `total_count`    | `integer`             | Number of documents in this tracking group |
-| `status_summary` | `object`              | Aggregated status counts                   |
-
-```bash
-curl "http://localhost:9621/documents/track_status/upload_20250729_170612_abc123" \
-  -H "X-API-Key: $LIGHTRAG_API_KEY"
-```
-
-#### POST `/documents/by-ids`
-
-Fetches status rows for a batch of known document ids.
-
-| Field     | Type       | Required | Notes                        |
-| --------- | ---------- | -------- | ---------------------------- |
-| `doc_ids` | `string[]` | Yes      | Must be unique and non-empty |
-
-Main response fields:
-
-| Field             | Type                  | Notes                                |
-| ----------------- | --------------------- | ------------------------------------ |
-| `documents`       | `DocStatusResponse[]` | Found documents only                 |
-| `requested_count` | `integer`             | Count of requested ids               |
-| `found_count`     | `integer`             | Count of matched ids                 |
-| `missing_doc_ids` | `string[]`            | Requested ids not present in storage |
-
-```bash
-curl -X POST "http://localhost:9621/documents/by-ids" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $LIGHTRAG_API_KEY" \
-  -d '{"doc_ids": ["doc-a", "doc-b", "doc-c"]}'
-```
-
-#### POST `/documents/import/custom-chunks`
-
-Imports a pre-chunked document directly, bypassing server-side chunking.
-
-| Field         | Type       | Required | Notes                                      |
-| ------------- | ---------- | -------- | ------------------------------------------ |
-| `full_text`   | `string`   | Yes      | Full original document text                |
-| `text_chunks` | `string[]` | Yes      | Trimmed, non-empty chunks                  |
-| `doc_id`      | `string`   | No       | If omitted, server derives it from content |
-
-Response fields:
-
-| Field                   | Type      | Notes                             |
-| ----------------------- | --------- | --------------------------------- |
-| `status`                | `string`  | Currently `success` on success    |
-| `message`               | `string`  | Import status text                |
-| `doc_id`                | `string`  | Final document id used by storage |
-| `requested_chunk_count` | `integer` | Number of chunks sent             |
-
-```bash
-curl -X POST "http://localhost:9621/documents/import/custom-chunks" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $LIGHTRAG_API_KEY" \
-  -d '{
-    "full_text": "Paragraph 1.\n\nParagraph 2.\n\nParagraph 3.",
-    "text_chunks": ["Paragraph 1.", "Paragraph 2.", "Paragraph 3."],
-    "doc_id": "custom-doc-001"
-  }'
-```
-
-#### POST `/documents/scan`
-
-Scans the configured input directory for new files and starts background processing.
-
-No request body.
-
-```bash
-curl -X POST "http://localhost:9621/documents/scan" \
-  -H "X-API-Key: $LIGHTRAG_API_KEY"
-```
-
-#### GET `/documents/paginated`
-
-Lists stored documents with pagination and sorting.
-
-| Parameter        | Location | Type                                          | Required | Default      | Notes            |
-| ---------------- | -------- | --------------------------------------------- | -------- | ------------ | ---------------- |
-| `status_filter`  | query    | `DocStatus`                                   | No       | `null`       | Filter by status |
-| `page`           | query    | `integer`                                     | No       | `1`          | 1-based          |
-| `page_size`      | query    | `integer`                                     | No       | `50`         | Range `10..200`  |
-| `sort_field`     | query    | `created_at \| updated_at \| id \| file_path` | No       | `updated_at` | Sort key         |
-| `sort_direction` | query    | `asc \| desc`                                 | No       | `desc`       | Sort direction   |
-
-```bash
-curl "http://localhost:9621/documents/paginated?page=1&page_size=20&sort_field=updated_at&sort_direction=desc" \
-  -H "X-API-Key: $LIGHTRAG_API_KEY"
-```
-
-#### Operational document endpoints
-
-| Path                                       | Method | Usage                                                         | Main input              |
-| ------------------------------------------ | ------ | ------------------------------------------------------------- | ----------------------- |
-| `/documents/pipeline_status`               | GET    | Inspect current indexing pipeline state                       | none                    |
-| `/documents/status_counts`                 | GET    | Aggregate stored document counts by status                    | none                    |
-| `/documents/reprocess_failed`              | POST   | Requeue failed documents                                      | none                    |
-| `/documents/cancel_pipeline`               | POST   | Request pipeline cancellation                                 | none                    |
-| `/documents/delete_document`               | DELETE | Delete one or more documents                                  | JSON delete payload     |
-| `/documents/clear_cache`                   | POST   | Clear cache entries                                           | JSON cache payload      |
-| `/documents/delete_entity`                 | DELETE | Delete an entity from graph/vector storage                    | JSON entity payload     |
-| `/documents/delete_relation`               | DELETE | Delete a relation from graph/vector storage                   | JSON relation payload   |
-| `/documents/rebuild_from_indexing_version` | POST   | Rebuild workspace after activating an indexing prompt version | `{"version_id": "..."}` |
-
-### Query APIs
-
-#### POST `/query`
-
-Returns the final non-streaming answer, optionally with references.
-
-Use this when your client mainly needs the generated answer.
-
-```bash
-curl -X POST "http://localhost:9621/query" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $LIGHTRAG_API_KEY" \
-  -d '{
-    "query": "What is LightRAG?",
-    "mode": "mix",
-    "include_references": true
-  }'
-```
-
-Response shape:
-
-| Field        | Type                      | Notes                                   |
-| ------------ | ------------------------- | --------------------------------------- |
-| `response`   | `string`                  | Final answer text                       |
-| `references` | `ReferenceItem[] \| null` | Omitted when `include_references=false` |
-
-#### POST `/query/stream`
-
-Streams newline-delimited JSON chunks.
-
-Typical behavior:
-
-- The first chunk can contain `references`
-- Later chunks contain partial `response`
-- Error chunks can include `error`
-
-```bash
-curl -N -X POST "http://localhost:9621/query/stream" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $LIGHTRAG_API_KEY" \
-  -d '{
-    "query": "Summarize the uploaded book",
-    "mode": "hybrid",
-    "include_references": true
-  }'
-```
-
-#### POST `/query/data`
-
-Returns structured retrieval data for debugging, evaluation, graph-aware analysis, or custom rendering.
-
-Response shape:
-
-| Field      | Type     | Notes                                       |
-| ---------- | -------- | ------------------------------------------- |
-| `status`   | `string` | Query status                                |
-| `message`  | `string` | Status message                              |
-| `data`     | `object` | Entities, relationships, chunks, references |
-| `metadata` | `object` | Query mode, generated keywords, diagnostics |
-
-```bash
-curl -X POST "http://localhost:9621/query/data" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $LIGHTRAG_API_KEY" \
-  -d '{
-    "query": "machine learning algorithms",
-    "mode": "local",
-    "top_k": 10,
-    "include_chunk_content": true
-  }'
-```
-
-#### POST `/query/raw`
-
-Returns the complete non-streaming `aquery_llm` result envelope.
-
-This endpoint is the lowest-level HTTP contract for advanced integrations that want both retrieval structure and raw LLM payloads in one call.
-
-Response shape:
-
-| Field          | Type     | Notes                            |
-| -------------- | -------- | -------------------------------- |
-| `status`       | `string` | Query execution status           |
-| `message`      | `string` | Status message                   |
-| `data`         | `object` | Raw structured retrieval payload |
-| `metadata`     | `object` | Raw metadata payload             |
-| `llm_response` | `object` | Final LLM content and metadata   |
-
-```bash
-curl -X POST "http://localhost:9621/query/raw" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $LIGHTRAG_API_KEY" \
-  -d '{
-    "query": "Give me both the answer and the raw retrieval payload",
-    "mode": "mix",
-    "stream": false
-  }'
-```
-
-#### Query mode guidance
-
-| Mode     | Best for                                       |
-| -------- | ---------------------------------------------- |
-| `local`  | Entity-centric lookup                          |
-| `global` | Relationship-pattern or topology-driven lookup |
-| `hybrid` | Balanced graph retrieval                       |
-| `naive`  | Vector-only lookup                             |
-| `mix`    | General-purpose answer generation              |
-| `bypass` | Direct LLM call without retrieval              |
-
-### Graph APIs
-
-| Path                       | Method | Usage                               | Main params                                                               |
-| -------------------------- | ------ | ----------------------------------- | ------------------------------------------------------------------------- |
-| `/graph/label/list`        | GET    | List all graph labels               | none                                                                      |
-| `/graph/entity-type/list`  | GET    | List known entity types             | none                                                                      |
-| `/graph/label/popular`     | GET    | Return popular labels               | `limit`                                                                   |
-| `/graph/label/search`      | GET    | Search labels by text               | `q`, `limit`                                                              |
-| `/graphs`                  | GET    | Fetch legacy connected subgraph     | `label`, `max_depth`, `max_nodes`                                         |
-| `/graph/query`             | POST   | Structured graph query              | `scope`, `node_filters`, `edge_filters`, `source_filters`, `view_options` |
-| `/graph/entity/detail`     | GET    | Fetch entity detail                 | `entity_name`, `include_vector_data`; response `graph_data` includes `custom_properties` |
-| `/graph/relation/detail`   | GET    | Fetch relation detail               | `source_entity`, `target_entity`, `include_vector_data`; response `graph_data` includes `custom_properties` |
-| `/graph/export`            | POST   | Export graph data as file           | `file_format`, `include_vector_data`                                      |
-| `/graph/import/custom-kg`  | POST   | Import structured custom KG payload | custom KG JSON body; relations use `src_id`/`tgt_id`, entities may pass optional `name`, unknown fields go to `custom_properties` |
-| `/graph/entity`            | DELETE | Delete one entity                   | `entity_name`                                                             |
-| `/graph/relation`          | DELETE | Delete one relation                 | `source_entity`, `target_entity`                                          |
-| `/graph/merge/suggestions` | POST   | Generate merge suggestions          | merge suggestion payload                                                  |
-| `/graph/entity/exists`     | GET    | Check entity existence              | `name`                                                                    |
-| `/graph/entity/edit`       | POST   | Update entity fields                | entity update payload                                                     |
-| `/graph/relation/edit`     | POST   | Update relation fields              | relation update payload                                                   |
-| `/graph/entity/create`     | POST   | Create entity                       | entity create payload                                                     |
-| `/graph/relation/create`   | POST   | Create relation                     | relation create payload                                                   |
-| `/graph/entities/merge`    | POST   | Merge multiple entities             | entity merge payload                                                      |
-
-Representative export example:
-
-```bash
-curl -X POST "http://localhost:9621/graph/export" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $LIGHTRAG_API_KEY" \
-  -o graph-export.csv \
-  -d '{
-    "file_format": "csv",
-    "include_vector_data": false
-  }'
-```
-
-### Prompt Version APIs
-
-All prompt version endpoints are workspace-scoped.
-
-| Path                                                         | Method | Usage                                         | Main params                                               |
-| ------------------------------------------------------------ | ------ | --------------------------------------------- | --------------------------------------------------------- |
-| `/prompt-config/initialize`                                  | POST   | Seed prompt registry for a workspace          | `locale` query param, default `zh`                        |
-| `/prompt-config/groups`                                      | GET    | Return indexing and retrieval groups together | none                                                      |
-| `/prompt-config/{group_type}/versions`                       | GET    | List versions in one group                    | `group_type=indexing                                      | retrieval` |
-| `/prompt-config/{group_type}/versions/{version_id}`          | GET    | Fetch one version                             | `group_type`, `version_id`                                |
-| `/prompt-config/{group_type}/versions`                       | POST   | Create version                                | `version_name`, `comment`, `payload`, `source_version_id` |
-| `/prompt-config/{group_type}/versions/{version_id}`          | PATCH  | Update version                                | `version_name`, `comment`, `payload`                      |
-| `/prompt-config/{group_type}/versions/{version_id}/activate` | POST   | Activate version                              | path params only                                          |
-| `/prompt-config/{group_type}/versions/{version_id}`          | DELETE | Delete version                                | path params only                                          |
-| `/prompt-config/{group_type}/versions/{version_id}/diff`     | GET    | Diff against active or explicit base version  | optional `base_version_id`                                |
-
-Important semantics:
-
-- `group_type` must be `indexing` or `retrieval`
-- activating a new indexing version only affects future indexing work
-- deleting the active version is rejected
-
-### Workspace APIs
-
-| Path                                  | Method | Usage                                | Main params                                              |
-| ------------------------------------- | ------ | ------------------------------------ | -------------------------------------------------------- |
-| `/workspaces`                         | GET    | List visible workspaces              | `include_deleted`                                        |
-| `/workspaces`                         | POST   | Create workspace                     | `workspace`, `display_name`, `description`, `visibility` |
-| `/workspaces/{workspace}`             | GET    | Get workspace record                 | path `workspace`                                         |
-| `/workspaces/{workspace}/stats`       | GET    | Get best-effort workspace stats      | path `workspace`                                         |
-| `/workspaces/{workspace}/soft-delete` | POST   | Hide workspace without deleting data | path `workspace`                                         |
-| `/workspaces/{workspace}/restore`     | POST   | Restore soft-deleted workspace       | path `workspace`                                         |
-| `/workspaces/{workspace}/hard-delete` | POST   | Schedule irreversible data deletion  | path `workspace`                                         |
-| `/workspaces/{workspace}/operation`   | GET    | Poll async delete operation          | path `workspace`                                         |
-
-Creation request fields:
-
-| Field          | Type                | Required | Notes                           |
-| -------------- | ------------------- | -------- | ------------------------------- |
-| `workspace`    | `string`            | Yes      | Normalized workspace identifier |
-| `display_name` | `string`            | Yes      | Human-readable name             |
-| `description`  | `string`            | No       | Free text                       |
-| `visibility`   | `public \| private` | No       | Default `public`                |
-
-### Ollama-Compatible APIs
-
-These routes are mounted under `/api/*`.
-
-| Path            | Method | Usage                                 | Main params                  |
-| --------------- | ------ | ------------------------------------- | ---------------------------- |
-| `/api/version`  | GET    | Return Ollama-compatible version info | none                         |
-| `/api/tags`     | GET    | Return available models               | none                         |
-| `/api/ps`       | GET    | Return running models                 | none                         |
-| `/api/generate` | POST   | Ollama-compatible generate            | Ollama generate request body |
-| `/api/chat`     | POST   | Ollama-compatible chat                | Ollama chat request body     |
-
-Important behavior:
-
-- `/api/chat` parses query prefixes such as `/mix`, `/hybrid`, and `/bypass`
-- Open WebUI-specific title/keyword calls can be forwarded directly to the underlying LLM
-- This is an Ollama-style compatibility layer, not an OpenAI `/v1/*` server API

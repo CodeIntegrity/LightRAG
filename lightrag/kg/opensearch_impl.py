@@ -64,33 +64,45 @@ def _sanitize_index_name(name: str) -> str:
         sanitized = "x" + sanitized
     return sanitized
 
-
+# Detected at first connection; True when OpenSearch >= 3.3.0.
 _shard_doc_supported: bool | None = None
 
 
 def _pit_sort_with_field(field: str) -> list[dict]:
-    """Return PIT sort clause with a unique field as primary sort."""
+    """Return PIT sort clause with a unique field as primary sort.
+
+    Used purely as a pagination tiebreaker — order is fixed to asc since the
+    business sort (when present) is applied separately by the caller.
+
+    >= 3.3.0: _shard_doc only (most efficient, already unique within PIT).
+    < 3.3.0:  field + _doc (field is unique, _doc for efficiency).
+    """
     if _shard_doc_supported:
         return [{"_shard_doc": "asc"}]
     return [{field: {"order": "asc"}}, {"_doc": "asc"}]
 
 
 def _pit_sort_with_composite_key(*fields: str) -> list[dict]:
-    """Return PIT sort clause with a composite unique key as primary sort."""
+    """Return PIT sort clause with multiple fields forming a composite unique key.
+
+    >= 3.3.0: _shard_doc (most efficient, ignores the fields).
+    < 3.3.0:  field1 + field2 + ... + _doc (composite is unique, _doc for efficiency).
+    """
     if _shard_doc_supported:
         return [{"_shard_doc": "asc"}]
-    return [{field: {"order": "asc"}} for field in fields] + [{"_doc": "asc"}]
+    return [{f: {"order": "asc"}} for f in fields] + [{"_doc": "asc"}]
 
 
 async def _detect_shard_doc_support(client: AsyncOpenSearch) -> bool:
-    """Check if the cluster supports _shard_doc inside PIT searches."""
+    """Check if the cluster supports _shard_doc (OpenSearch >= 3.3.0)."""
     try:
         info = await client.info()
         if not isinstance(info, dict):
             raise TypeError(f"unexpected info payload type: {type(info).__name__}")
         version_str = info.get("version", {}).get("number", "0.0.0")
-        parts = [part.split("-")[0] for part in version_str.split(".")]
-        major = int(parts[0]) if parts and parts[0].isdigit() else 0
+        # Strip pre-release suffixes (e.g. "3.3.0-SNAPSHOT" → "3", "3", "0")
+        parts = [p.split("-")[0] for p in version_str.split(".")]
+        major = int(parts[0]) if parts[0].isdigit() else 0
         minor = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
         supported = (major > 3) or (major == 3 and minor >= 3)
         logger.info(
@@ -104,15 +116,12 @@ async def _detect_shard_doc_support(client: AsyncOpenSearch) -> bool:
         )
         return False
 
-
 async def _ensure_shard_doc_support(client: AsyncOpenSearch) -> bool:
     """Populate shard-doc support cache when client injection bypasses ClientManager."""
     global _shard_doc_supported
     if _shard_doc_supported is None:
         _shard_doc_supported = await _detect_shard_doc_support(client)
     return _shard_doc_supported
-
-
 class ClientManager:
     """Singleton manager for OpenSearch client connections."""
 
@@ -227,7 +236,13 @@ def _is_missing_index_error(exc: Exception) -> bool:
 
 
 async def _verify_mirrored_id_mapping(client: AsyncOpenSearch, index_name: str) -> None:
-    """Fail fast when an existing index lacks the __mirrored_id keyword mapping."""
+    """Fail-fast when an existing index lacks the __mirrored_id keyword mapping.
+
+    Only enforced on OpenSearch < 3.3.0, where __mirrored_id serves as the
+    cross-shard pagination tiebreaker. Indices created by older LightRAG
+    releases will be missing this mapping; sorting by a missing field on a
+    multi-shard index can drop or duplicate documents during PIT pagination.
+    """
     if _shard_doc_supported:
         return
     try:
@@ -2766,7 +2781,7 @@ class OpenSearchVectorDBStorage(BaseVectorStorage):
             for i in range(0, len(contents), self._max_batch_size)
         ]
         embeddings_list = await asyncio.gather(
-            *[self.embedding_func(batch) for batch in batches]
+            *[self.embedding_func(batch, context="document") for batch in batches]
         )
         embeddings = np.concatenate(embeddings_list)
         assert len(embeddings) == len(
@@ -2814,7 +2829,7 @@ class OpenSearchVectorDBStorage(BaseVectorStorage):
                 else list(query_embedding)
             )
         else:
-            embedding = await self.embedding_func([query], _priority=5)
+            embedding = await self.embedding_func([query], context="query", _priority=5)
             query_vector = embedding[0].tolist()
 
         search_body = {
