@@ -485,9 +485,13 @@ def parse_args() -> argparse.Namespace:
     )
 
     # Workspace management configuration
-    args.workspace_registry_path = get_env_value(
-        "LIGHTRAG_WORKSPACE_REGISTRY_PATH", "./workspaces/registry.sqlite3"
-    )
+    workspace_registry_path = get_env_value("LIGHTRAG_WORKSPACE_REGISTRY_PATH", None)
+    if workspace_registry_path:
+        args.workspace_registry_path = workspace_registry_path
+    else:
+        args.workspace_registry_path = os.path.join(
+            args.working_dir, "workspaces", "registry.sqlite3"
+        )
     args.workspace_registry_busy_timeout_ms = get_env_value(
         "LIGHTRAG_WORKSPACE_REGISTRY_BUSY_TIMEOUT_MS", 5000, int
     )

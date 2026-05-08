@@ -3933,244 +3933,241 @@ class LightRAG:
             entity_chunk_updates: dict[str, list[str]] = {}
             relation_chunk_updates: dict[tuple[str, str], list[str]] = {}
 
-            try:
-                deletion_stage = "analyze_graph_dependencies"
-                # Get affected entities and relations from full_entities and full_relations storage
-                doc_entities_data = await self.full_entities.get_by_id(doc_id)
-                doc_relations_data = await self.full_relations.get_by_id(doc_id)
+            if chunk_ids:
+                try:
+                    deletion_stage = "analyze_graph_dependencies"
+                    # Get affected entities and relations from full_entities and full_relations storage
+                    doc_entities_data = await self.full_entities.get_by_id(doc_id)
+                    doc_relations_data = await self.full_relations.get_by_id(doc_id)
 
-                affected_nodes = []
-                affected_edges = []
+                    affected_nodes = []
+                    affected_edges = []
 
-                # Get entity data from graph storage using entity names from full_entities
-                if doc_entities_data and "entity_names" in doc_entities_data:
-                    entity_names = doc_entities_data["entity_names"]
-                    # get_nodes_batch returns dict[str, dict], need to convert to list[dict]
-                    nodes_dict = await self.chunk_entity_relation_graph.get_nodes_batch(
-                        entity_names
-                    )
-                    for entity_name in entity_names:
-                        node_data = nodes_dict.get(entity_name)
-                        if node_data:
-                            # Ensure compatibility with existing logic that expects "id" field
-                            if "id" not in node_data:
-                                node_data["id"] = entity_name
-                            affected_nodes.append(node_data)
-
-                # Get relation data from graph storage using relation pairs from full_relations
-                if doc_relations_data and "relation_pairs" in doc_relations_data:
-                    relation_pairs = doc_relations_data["relation_pairs"]
-                    edge_pairs_dicts = [
-                        {"src": pair[0], "tgt": pair[1]} for pair in relation_pairs
-                    ]
-                    # get_edges_batch returns dict[tuple[str, str], dict], need to convert to list[dict]
-                    edges_dict = await self.chunk_entity_relation_graph.get_edges_batch(
-                        edge_pairs_dicts
-                    )
-
-                    for pair in relation_pairs:
-                        src, tgt = pair[0], pair[1]
-                        edge_key = (src, tgt)
-                        edge_data = edges_dict.get(edge_key)
-                        if edge_data:
-                            # Ensure compatibility with existing logic that expects "source" and "target" fields
-                            if "source" not in edge_data:
-                                edge_data["source"] = src
-                            if "target" not in edge_data:
-                                edge_data["target"] = tgt
-                            affected_edges.append(edge_data)
-
-            except Exception as e:
-                logger.error(f"Failed to analyze affected graph elements: {e}")
-                raise Exception(f"Failed to analyze graph dependencies: {e}") from e
-
-            try:
-                # Process entities
-                for node_data in affected_nodes:
-                    node_label = node_data.get("entity_id")
-                    if not node_label:
-                        continue
-
-                    if deleting_chunkless_doc:
-                        entities_to_delete.add(node_label)
-                        entity_chunk_updates[node_label] = []
-                        continue
-
-                    existing_sources: list[str] = []
-                    graph_sources: list[str] = []
-                    if self.entity_chunks:
-                        stored_chunks = await self.entity_chunks.get_by_id(node_label)
-                        if stored_chunks and isinstance(stored_chunks, dict):
-                            existing_sources = [
-                                chunk_id
-                                for chunk_id in stored_chunks.get("chunk_ids", [])
-                                if chunk_id
-                            ]
-
-                    if node_data.get("source_id"):
-                        graph_sources = [
-                            chunk_id
-                            for chunk_id in node_data["source_id"].split(
-                                GRAPH_FIELD_SEP
+                    # Get entity data from graph storage using entity names from full_entities
+                    if doc_entities_data and "entity_names" in doc_entities_data:
+                        entity_names = doc_entities_data["entity_names"]
+                        # get_nodes_batch returns dict[str, dict], need to convert to list[dict]
+                        nodes_dict = (
+                            await self.chunk_entity_relation_graph.get_nodes_batch(
+                                entity_names
                             )
-                            if chunk_id
-                        ]
-
-                    if not existing_sources:
-                        existing_sources = graph_sources
-
-                    if not existing_sources:
-                        # No chunk references means this entity should be deleted
-                        entities_to_delete.add(node_label)
-                        entity_chunk_updates[node_label] = []
-                        continue
-
-                    remaining_sources = subtract_source_ids(existing_sources, chunk_ids)
-                    # `existing_sources` comes from chunk-tracking storage when available, but
-                    # graph `source_id` can still be stale after a failed prior delete. If the
-                    # graph still references any chunk being deleted in this attempt, force a
-                    # rebuild/delete so the graph metadata gets synchronized instead of being
-                    # left untouched with orphaned source references.
-                    graph_references_deleted_chunks = bool(
-                        graph_sources and set(graph_sources) & chunk_ids
-                    )
-
-                    if not remaining_sources:
-                        entities_to_delete.add(node_label)
-                        entity_chunk_updates[node_label] = []
-                    elif (
-                        remaining_sources != existing_sources
-                        or graph_references_deleted_chunks
-                    ):
-                        entities_to_rebuild[node_label] = remaining_sources
-                        entity_chunk_updates[node_label] = remaining_sources
-                    else:
-                        logger.info(f"Untouch entity: {node_label}")
-
-                async with pipeline_status_lock:
-                    log_message = f"Found {len(entities_to_rebuild)} affected entities"
-                    logger.info(log_message)
-                    pipeline_status["latest_message"] = log_message
-                    pipeline_status["history_messages"].append(log_message)
-
-                # Process relationships
-                for edge_data in affected_edges:
-                    # source target is not in normalize order in graph db property
-                    src = edge_data.get("source")
-                    tgt = edge_data.get("target")
-
-                    if not src or not tgt or "source_id" not in edge_data:
-                        continue
-
-                    edge_tuple = tuple(sorted((src, tgt)))
-                    if (
-                        edge_tuple in relationships_to_delete
-                        or edge_tuple in relationships_to_rebuild
-                    ):
-                        continue
-
-                    if deleting_chunkless_doc:
-                        relationships_to_delete.add(edge_tuple)
-                        relation_chunk_updates[edge_tuple] = []
-                        continue
-
-                    existing_sources: list[str] = []
-                    graph_sources: list[str] = []
-                    if self.relation_chunks:
-                        storage_key = make_relation_chunk_key(src, tgt)
-                        stored_chunks = await self.relation_chunks.get_by_id(
-                            storage_key
                         )
-                        if stored_chunks and isinstance(stored_chunks, dict):
-                            existing_sources = [
+                        for entity_name in entity_names:
+                            node_data = nodes_dict.get(entity_name)
+                            if node_data:
+                                # Ensure compatibility with existing logic that expects "id" field
+                                if "id" not in node_data:
+                                    node_data["id"] = entity_name
+                                affected_nodes.append(node_data)
+
+                    # Get relation data from graph storage using relation pairs from full_relations
+                    if doc_relations_data and "relation_pairs" in doc_relations_data:
+                        relation_pairs = doc_relations_data["relation_pairs"]
+                        edge_pairs_dicts = [
+                            {"src": pair[0], "tgt": pair[1]} for pair in relation_pairs
+                        ]
+                        # get_edges_batch returns dict[tuple[str, str], dict], need to convert to list[dict]
+                        edges_dict = await self.chunk_entity_relation_graph.get_edges_batch(
+                            edge_pairs_dicts
+                        )
+
+                        for pair in relation_pairs:
+                            src, tgt = pair[0], pair[1]
+                            edge_key = (src, tgt)
+                            edge_data = edges_dict.get(edge_key)
+                            if edge_data:
+                                # Ensure compatibility with existing logic that expects "source" and "target" fields
+                                if "source" not in edge_data:
+                                    edge_data["source"] = src
+                                if "target" not in edge_data:
+                                    edge_data["target"] = tgt
+                                affected_edges.append(edge_data)
+
+                except Exception as e:
+                    logger.error(f"Failed to analyze affected graph elements: {e}")
+                    raise Exception(f"Failed to analyze graph dependencies: {e}") from e
+
+                try:
+                    # Process entities
+                    for node_data in affected_nodes:
+                        node_label = node_data.get("entity_id")
+                        if not node_label:
+                            continue
+
+                        existing_sources: list[str] = []
+                        graph_sources: list[str] = []
+                        if self.entity_chunks:
+                            stored_chunks = await self.entity_chunks.get_by_id(node_label)
+                            if stored_chunks and isinstance(stored_chunks, dict):
+                                existing_sources = [
+                                    chunk_id
+                                    for chunk_id in stored_chunks.get("chunk_ids", [])
+                                    if chunk_id
+                                ]
+
+                        if node_data.get("source_id"):
+                            graph_sources = [
                                 chunk_id
-                                for chunk_id in stored_chunks.get("chunk_ids", [])
+                                for chunk_id in node_data["source_id"].split(
+                                    GRAPH_FIELD_SEP
+                                )
                                 if chunk_id
                             ]
 
-                    if edge_data.get("source_id"):
-                        graph_sources = [
-                            chunk_id
-                            for chunk_id in edge_data["source_id"].split(
-                                GRAPH_FIELD_SEP
+                        if not existing_sources:
+                            existing_sources = graph_sources
+
+                        if not existing_sources:
+                            # No chunk references means this entity should be deleted
+                            entities_to_delete.add(node_label)
+                            entity_chunk_updates[node_label] = []
+                            continue
+
+                        remaining_sources = subtract_source_ids(
+                            existing_sources, chunk_ids
+                        )
+                        # `existing_sources` comes from chunk-tracking storage when available, but
+                        # graph `source_id` can still be stale after a failed prior delete. If the
+                        # graph still references any chunk being deleted in this attempt, force a
+                        # rebuild/delete so the graph metadata gets synchronized instead of being
+                        # left untouched with orphaned source references.
+                        graph_references_deleted_chunks = bool(
+                            graph_sources and set(graph_sources) & chunk_ids
+                        )
+
+                        if not remaining_sources:
+                            entities_to_delete.add(node_label)
+                            entity_chunk_updates[node_label] = []
+                        elif (
+                            remaining_sources != existing_sources
+                            or graph_references_deleted_chunks
+                        ):
+                            entities_to_rebuild[node_label] = remaining_sources
+                            entity_chunk_updates[node_label] = remaining_sources
+                        else:
+                            logger.info(f"Untouch entity: {node_label}")
+
+                    async with pipeline_status_lock:
+                        log_message = f"Found {len(entities_to_rebuild)} affected entities"
+                        logger.info(log_message)
+                        pipeline_status["latest_message"] = log_message
+                        pipeline_status["history_messages"].append(log_message)
+
+                    # Process relationships
+                    for edge_data in affected_edges:
+                        # source target is not in normalize order in graph db property
+                        src = edge_data.get("source")
+                        tgt = edge_data.get("target")
+
+                        if not src or not tgt or "source_id" not in edge_data:
+                            continue
+
+                        edge_tuple = tuple(sorted((src, tgt)))
+                        if (
+                            edge_tuple in relationships_to_delete
+                            or edge_tuple in relationships_to_rebuild
+                        ):
+                            continue
+
+                        existing_sources: list[str] = []
+                        graph_sources: list[str] = []
+                        if self.relation_chunks:
+                            storage_key = make_relation_chunk_key(src, tgt)
+                            stored_chunks = await self.relation_chunks.get_by_id(
+                                storage_key
                             )
-                            if chunk_id
-                        ]
+                            if stored_chunks and isinstance(stored_chunks, dict):
+                                existing_sources = [
+                                    chunk_id
+                                    for chunk_id in stored_chunks.get("chunk_ids", [])
+                                    if chunk_id
+                                ]
 
-                    if not existing_sources:
-                        existing_sources = graph_sources
+                        if edge_data.get("source_id"):
+                            graph_sources = [
+                                chunk_id
+                                for chunk_id in edge_data["source_id"].split(
+                                    GRAPH_FIELD_SEP
+                                )
+                                if chunk_id
+                            ]
 
-                    if not existing_sources:
-                        # No chunk references means this relationship should be deleted
-                        relationships_to_delete.add(edge_tuple)
-                        relation_chunk_updates[edge_tuple] = []
-                        continue
+                        if not existing_sources:
+                            existing_sources = graph_sources
 
-                    remaining_sources = subtract_source_ids(existing_sources, chunk_ids)
-                    # Same as the entity path above: even when relation chunk-tracking is already
-                    # correct, the graph edge may still carry a stale `source_id` that mentions a
-                    # chunk deleted in this attempt. Treat that as an affected relation so retry
-                    # deletion can repair the graph metadata rather than skipping it as "untouched".
-                    graph_references_deleted_chunks = bool(
-                        graph_sources and set(graph_sources) & chunk_ids
-                    )
-
-                    if not remaining_sources:
-                        relationships_to_delete.add(edge_tuple)
-                        relation_chunk_updates[edge_tuple] = []
-                    elif (
-                        remaining_sources != existing_sources
-                        or graph_references_deleted_chunks
-                    ):
-                        relationships_to_rebuild[edge_tuple] = remaining_sources
-                        relation_chunk_updates[edge_tuple] = remaining_sources
-                    else:
-                        logger.info(f"Untouch relation: {edge_tuple}")
-
-                async with pipeline_status_lock:
-                    log_message = (
-                        f"Found {len(relationships_to_rebuild)} affected relations"
-                    )
-                    logger.info(log_message)
-                    pipeline_status["latest_message"] = log_message
-                    pipeline_status["history_messages"].append(log_message)
-
-                current_time = int(time.time())
-                deletion_stage = "update_chunk_tracking"
-
-                if entity_chunk_updates and self.entity_chunks:
-                    entity_upsert_payload = {}
-                    for entity_name, remaining in entity_chunk_updates.items():
-                        if not remaining:
-                            # Empty entities are deleted alongside graph nodes later
+                        if not existing_sources:
+                            # No chunk references means this relationship should be deleted
+                            relationships_to_delete.add(edge_tuple)
+                            relation_chunk_updates[edge_tuple] = []
                             continue
-                        entity_upsert_payload[entity_name] = {
-                            "chunk_ids": remaining,
-                            "count": len(remaining),
-                            "updated_at": current_time,
-                        }
-                    if entity_upsert_payload:
-                        await self.entity_chunks.upsert(entity_upsert_payload)
 
-                if relation_chunk_updates and self.relation_chunks:
-                    relation_upsert_payload = {}
-                    for edge_tuple, remaining in relation_chunk_updates.items():
-                        if not remaining:
-                            # Empty relations are deleted alongside graph edges later
-                            continue
-                        storage_key = make_relation_chunk_key(*edge_tuple)
-                        relation_upsert_payload[storage_key] = {
-                            "chunk_ids": remaining,
-                            "count": len(remaining),
-                            "updated_at": current_time,
-                        }
+                        remaining_sources = subtract_source_ids(
+                            existing_sources, chunk_ids
+                        )
+                        # Same as the entity path above: even when relation chunk-tracking is already
+                        # correct, the graph edge may still carry a stale `source_id` that mentions a
+                        # chunk deleted in this attempt. Treat that as an affected relation so retry
+                        # deletion can repair the graph metadata rather than skipping it as "untouched".
+                        graph_references_deleted_chunks = bool(
+                            graph_sources and set(graph_sources) & chunk_ids
+                        )
 
-                    if relation_upsert_payload:
-                        await self.relation_chunks.upsert(relation_upsert_payload)
+                        if not remaining_sources:
+                            relationships_to_delete.add(edge_tuple)
+                            relation_chunk_updates[edge_tuple] = []
+                        elif (
+                            remaining_sources != existing_sources
+                            or graph_references_deleted_chunks
+                        ):
+                            relationships_to_rebuild[edge_tuple] = remaining_sources
+                            relation_chunk_updates[edge_tuple] = remaining_sources
+                        else:
+                            logger.info(f"Untouch relation: {edge_tuple}")
 
-            except Exception as e:
-                logger.error(f"Failed to process graph analysis results: {e}")
-                raise Exception(f"Failed to process graph dependencies: {e}") from e
+                    async with pipeline_status_lock:
+                        log_message = (
+                            f"Found {len(relationships_to_rebuild)} affected relations"
+                        )
+                        logger.info(log_message)
+                        pipeline_status["latest_message"] = log_message
+                        pipeline_status["history_messages"].append(log_message)
+
+                    current_time = int(time.time())
+                    deletion_stage = "update_chunk_tracking"
+
+                    if entity_chunk_updates and self.entity_chunks:
+                        entity_upsert_payload = {}
+                        for entity_name, remaining in entity_chunk_updates.items():
+                            if not remaining:
+                                # Empty entities are deleted alongside graph nodes later
+                                continue
+                            entity_upsert_payload[entity_name] = {
+                                "chunk_ids": remaining,
+                                "count": len(remaining),
+                                "updated_at": current_time,
+                            }
+                        if entity_upsert_payload:
+                            await self.entity_chunks.upsert(entity_upsert_payload)
+
+                    if relation_chunk_updates and self.relation_chunks:
+                        relation_upsert_payload = {}
+                        for edge_tuple, remaining in relation_chunk_updates.items():
+                            if not remaining:
+                                # Empty relations are deleted alongside graph edges later
+                                continue
+                            storage_key = make_relation_chunk_key(*edge_tuple)
+                            relation_upsert_payload[storage_key] = {
+                                "chunk_ids": remaining,
+                                "count": len(remaining),
+                                "updated_at": current_time,
+                            }
+
+                        if relation_upsert_payload:
+                            await self.relation_chunks.upsert(relation_upsert_payload)
+
+                except Exception as e:
+                    logger.error(f"Failed to process graph analysis results: {e}")
+                    raise Exception(f"Failed to process graph dependencies: {e}") from e
 
             # Data integrity is ensured by allowing only one process to hold pipeline at a time（no graph db lock is needed anymore)
 
@@ -4329,12 +4326,21 @@ class LightRAG:
                     raise Exception(f"Failed to delete entities: {e}") from e
 
             # Persist changes to graph database before entity and relationship rebuild
-            try:
-                deletion_stage = "persist_pre_rebuild_changes"
-                await self._insert_done()
-            except Exception as e:
-                logger.error(f"Failed to persist pre-rebuild changes: {e}")
-                raise Exception(f"Failed to persist pre-rebuild changes: {e}") from e
+            if (
+                chunk_ids
+                or entities_to_delete
+                or relationships_to_delete
+                or entity_chunk_updates
+                or relation_chunk_updates
+            ):
+                try:
+                    deletion_stage = "persist_pre_rebuild_changes"
+                    await self._insert_done()
+                except Exception as e:
+                    logger.error(f"Failed to persist pre-rebuild changes: {e}")
+                    raise Exception(
+                        f"Failed to persist pre-rebuild changes: {e}"
+                    ) from e
 
             # 8. Rebuild entities and relationships from remaining chunks
             if entities_to_rebuild or relationships_to_rebuild:
@@ -4361,7 +4367,10 @@ class LightRAG:
 
             # 9. Delete LLM cache while the document status still exists so a failure
             # remains retryable via the same doc_id.
-            log_message = f"Document {doc_id} successfully deleted"
+            if deleting_chunkless_doc:
+                log_message = f"Document {doc_id} deleted without associated chunks"
+            else:
+                log_message = f"Document {doc_id} successfully deleted"
             if delete_llm_cache and doc_llm_cache_ids:
                 if not self.llm_response_cache:
                     log_message = (
@@ -4406,15 +4415,18 @@ class LightRAG:
                     raise Exception(log_message) from cache_delete_error
 
             # 10. Delete from full_entities and full_relations storage
-            try:
-                deletion_stage = "delete_doc_graph_metadata"
-                await self.full_entities.delete([doc_id])
-                await self.full_relations.delete([doc_id])
-            except Exception as e:
-                logger.error(f"Failed to delete from full_entities/full_relations: {e}")
-                raise Exception(
-                    f"Failed to delete from full_entities/full_relations: {e}"
-                ) from e
+            if chunk_ids:
+                try:
+                    deletion_stage = "delete_doc_graph_metadata"
+                    await self.full_entities.delete([doc_id])
+                    await self.full_relations.delete([doc_id])
+                except Exception as e:
+                    logger.error(
+                        f"Failed to delete from full_entities/full_relations: {e}"
+                    )
+                    raise Exception(
+                        f"Failed to delete from full_entities/full_relations: {e}"
+                    ) from e
 
             # 11. Delete original document and status.
             # doc_status is deleted first so that if full_docs.delete fails, a retry
