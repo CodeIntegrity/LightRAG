@@ -408,104 +408,136 @@ class TestPathNormalization:
         assert response.status_code in (200, 307, 404)
 
 
-class TestCheckWebuiBuildPrefix:
-    """Direct tests for check_webui_build_prefix.
+class TestRuntimeConfigInjection:
+    """End-to-end tests for the WebUI runtime-config injection.
 
-    These exercise an isolated index.html written to a temp dir, with the
-    function's baked-in path patched, so the test does not depend on
-    whatever prefix the committed `lightrag/api/webui/` happens to carry.
+    The browser-visible URL prefixes are no longer baked into the bundle.
+    Instead, the server replaces a placeholder comment in index.html with
+    a `<script>window.__LIGHTRAG_CONFIG__ = {...}</script>` snippet on
+    every HTML response, so one build can serve any reverse-proxy mount.
+
+    These tests stage a minimal index.html in a tmp dir, patch
+    `lightrag_server.__file__` so both `check_frontend_build()` and the
+    static-files mount resolve to it, then drive the app via TestClient
+    and assert that the body contains the expected injected JSON.
     """
 
-    def _stage_index_html(self, tmp_path, baked_prefix):
-        """Stage a minimal index.html under tmp_path/webui/ mimicking Vite
-        output. The check function reads `Path(__file__).parent / "webui"
-        / "index.html"`, so callers must also patch `lightrag_server.__file__`
-        to point inside tmp_path."""
-        prefix_no_slash = baked_prefix.rstrip("/")
+    PLACEHOLDER = "<!-- __LIGHTRAG_RUNTIME_CONFIG__ -->"
+
+    def _stage_index_html(self, tmp_path, *, with_placeholder=True):
+        """Mirror what Vite emits: a tiny index.html with the runtime-config
+        placeholder in <head> plus a hashed asset reference.
+
+        with_placeholder=False simulates a stale build that pre-dates this
+        feature — the server should serve it untouched, not crash.
+        """
         webui_dir = tmp_path / "webui"
         webui_dir.mkdir()
+        placeholder = self.PLACEHOLDER if with_placeholder else ""
         (webui_dir / "index.html").write_text(
             "<!doctype html><html><head>"
-            f'<script type="module" crossorigin src="{prefix_no_slash}/assets/index-X.js"></script>'
-            f'<link rel="stylesheet" href="{prefix_no_slash}/assets/index-X.css">'
-            "</head><body></body></html>",
+            f"{placeholder}"
+            '<script type="module" crossorigin src="./assets/index-X.js"></script>'
+            '<link rel="stylesheet" href="./assets/index-X.css">'
+            "</head><body><div id=root></div></body></html>",
             encoding="utf-8",
         )
 
-    def test_match_emits_info_log_and_no_warning(self, tmp_path, monkeypatch, caplog):
-        import logging
-
-        # Importing lightrag.api.lightrag_server eagerly evaluates
-        # `global_args.whitelist_paths` in utils_api at module top, which
-        # calls parse_args() against the current sys.argv. Under pytest
-        # that's the pytest invocation argv → argparse exits 2. Force a
-        # benign argv before the (potentially-fresh) module import.
-        monkeypatch.setattr(sys, "argv", ["lightrag-server"])
+    def _build_app(self, tmp_path, monkeypatch, *cli_args):
+        # Force benign argv before the (potentially fresh) module import —
+        # see TestPathNormalization._build for the rationale.
+        monkeypatch.setattr(sys, "argv", ["lightrag-server", *cli_args])
+        from lightrag.api.config import parse_args
         from lightrag.api import lightrag_server
+        from lightrag.api.lightrag_server import create_app
 
-        self._stage_index_html(tmp_path, "/site01/webui/")
+        # Redirect both check_frontend_build() and the StaticFiles mount to
+        # our staged tmp directory.
         monkeypatch.setattr(
             lightrag_server, "__file__", str(tmp_path / "lightrag_server.py")
         )
 
-        # The lightrag logger has propagate=False; caplog attaches its
-        # handler at the root, so without re-enabling propagation we can't
-        # observe records here. Restore on teardown via monkeypatch.
-        lightrag_logger = logging.getLogger("lightrag")
-        monkeypatch.setattr(lightrag_logger, "propagate", True)
-        with caplog.at_level(logging.INFO, logger="lightrag"):
-            lightrag_server.check_webui_build_prefix(
-                api_prefix="/site01", webui_path="/webui"
-            )
+        args = parse_args()
+        with patch("lightrag.api.lightrag_server.LightRAG") as mock_rag:
+            mock_rag.return_value = MagicMock()
+            return create_app(args)
 
-        # Match path: only an info log, no warning record.
-        assert "matches server config" in caplog.text
-        assert not any(
-            r.levelno >= logging.WARNING for r in caplog.records
-        ), "match path must not emit a warning"
-
-    def test_mismatch_emits_warning_with_rebuild_command(
-        self, tmp_path, monkeypatch, caplog
+    def test_injection_populates_window_config_with_prefix(
+        self, tmp_path, monkeypatch
     ):
-        import logging
+        """With api_prefix=/site01, the injected script must carry both the
+        api prefix and the composed webui prefix the browser will see."""
+        self._stage_index_html(tmp_path)
+        app = self._build_app(
+            tmp_path, monkeypatch, "--api-prefix", "/site01", "--webui-path", "/webui"
+        )
+        client = TestClient(app)
 
-        monkeypatch.setattr(sys, "argv", ["lightrag-server"])
-        from lightrag.api import lightrag_server
+        response = client.get("/site01/webui/")
+        assert response.status_code == 200
+        body = response.text
 
-        # Build was made with /webui/ but admin reconfigures the server
-        # for site01 — classic "reused image, new prefix" failure mode.
-        self._stage_index_html(tmp_path, "/webui/")
-        monkeypatch.setattr(
-            lightrag_server, "__file__", str(tmp_path / "lightrag_server.py")
+        # Placeholder must be gone and replaced with the runtime config.
+        assert self.PLACEHOLDER not in body
+        assert "window.__LIGHTRAG_CONFIG__" in body
+        assert '"apiPrefix": "/site01"' in body or '"apiPrefix":"/site01"' in body
+        assert (
+            '"webuiPrefix": "/site01/webui/"' in body
+            or '"webuiPrefix":"/site01/webui/"' in body
         )
 
-        lightrag_logger = logging.getLogger("lightrag")
-        monkeypatch.setattr(lightrag_logger, "propagate", True)
-        with caplog.at_level(logging.WARNING, logger="lightrag"):
-            lightrag_server.check_webui_build_prefix(
-                api_prefix="/site01", webui_path="/webui"
-            )
+    def test_injection_default_prefixes_when_unconfigured(self, tmp_path, monkeypatch):
+        """No CLI flags → empty api prefix and the default webui mount.
+        The injected JSON must reflect this so the SPA falls through to
+        same-origin requests."""
+        self._stage_index_html(tmp_path)
+        app = self._build_app(tmp_path, monkeypatch)
+        client = TestClient(app)
 
-        warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
-        assert warning_records, "mismatch must emit a WARNING-level record"
-        msg = warning_records[0].getMessage()
-        # Show the actual baked vs expected values so admin can act.
-        assert "/webui/" in msg
-        assert "/site01/webui/" in msg
-        # Suggest a runnable rebuild command with the corrected env vars.
-        assert "VITE_WEBUI_PREFIX=/site01/webui/" in msg
-        assert "VITE_API_PREFIX=/site01" in msg
+        response = client.get("/webui/")
+        assert response.status_code == 200
+        body = response.text
 
-    def test_missing_build_does_not_raise(self, tmp_path, monkeypatch):
-        """When index.html is absent (no build yet), the function returns
-        silently — `check_frontend_build` already emits the build warning."""
-        monkeypatch.setattr(sys, "argv", ["lightrag-server"])
-        from lightrag.api import lightrag_server
+        assert '"apiPrefix": ""' in body or '"apiPrefix":""' in body
+        assert '"webuiPrefix": "/webui/"' in body or '"webuiPrefix":"/webui/"' in body
 
-        monkeypatch.setattr(
-            lightrag_server, "__file__", str(tmp_path / "lightrag_server.py")
-        )
-        # No webui/ subdir under tmp_path — index.html does not exist.
-        lightrag_server.check_webui_build_prefix(
-            api_prefix="/site01", webui_path="/webui"
-        )
+    def test_missing_placeholder_serves_original_html(self, tmp_path, monkeypatch):
+        """Older builds without the placeholder must still serve cleanly —
+        no 500, no partial replacement, just the original HTML. Avoids
+        breaking anyone whose pre-built bundle is in use during an upgrade."""
+        self._stage_index_html(tmp_path, with_placeholder=False)
+        app = self._build_app(tmp_path, monkeypatch)
+        client = TestClient(app)
+
+        response = client.get("/webui/")
+        assert response.status_code == 200
+        # No placeholder was present, so no injected script either.
+        assert "window.__LIGHTRAG_CONFIG__" not in response.text
+
+    def test_injection_idempotent_across_requests(self, tmp_path, monkeypatch):
+        """Each request reads the file fresh; the placeholder must be
+        present in the *file* even after replies (we don't mutate it)."""
+        self._stage_index_html(tmp_path)
+        app = self._build_app(tmp_path, monkeypatch, "--api-prefix", "/abc")
+        client = TestClient(app)
+
+        first = client.get("/abc/webui/").text
+        second = client.get("/abc/webui/").text
+        assert first == second
+        # Source file untouched.
+        on_disk = (tmp_path / "webui" / "index.html").read_text(encoding="utf-8")
+        assert self.PLACEHOLDER in on_disk
+
+    def test_html_response_keeps_no_cache_headers(self, tmp_path, monkeypatch):
+        """Injection must not regress the existing no-cache behaviour for
+        HTML — otherwise an updated runtime config could be cached client-
+        side and never picked up."""
+        self._stage_index_html(tmp_path)
+        app = self._build_app(tmp_path, monkeypatch, "--api-prefix", "/x")
+        client = TestClient(app)
+
+        response = client.get("/x/webui/")
+        assert response.status_code == 200
+        cache_control = response.headers.get("cache-control", "")
+        assert "no-cache" in cache_control
+        assert "no-store" in cache_control
