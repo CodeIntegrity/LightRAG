@@ -269,23 +269,61 @@ Backends still set `LIGHTRAG_API_PREFIX=/site01` / `=/site02`.
 
 ---
 
-## Local development with prefix simulation
+## Local development with `bun run dev`
 
-`bun run dev` mirrors production injection so the SPA reads the same
-`window.__LIGHTRAG_CONFIG__` mechanism in dev. There are two modes:
+The dev server mirrors production injection: it serves `index.html` via
+the same `transformIndexHtml` mechanism the FastAPI server uses at request
+time, so the SPA reads `window.__LIGHTRAG_CONFIG__` in dev exactly the
+way it does in prod. Only **two** environment variables matter:
 
-### A — default (no prefix)
+| Variable | Purpose | Where it lives |
+| --- | --- | --- |
+| `VITE_BACKEND_URL` | Where the dev server forwards proxied API calls. | `lightrag_webui/.env*` |
+| `VITE_DEV_API_PREFIX` | Prefix to **simulate** (matches the production `LIGHTRAG_API_PREFIX`). Empty → no prefix. | `lightrag_webui/.env*` |
 
-Just run `bun run dev`. The injected config is empty (`apiPrefix=""`,
-`webuiPrefix="/webui/"`), and `server.proxy` forwards relative paths like
-`/documents/...` to `http://localhost:9621` exactly as before.
+`VITE_DEV_WEBUI_PREFIX` is also accepted but only affects the home/logo
+`<a href>` link inside the SPA — set it to `${VITE_DEV_API_PREFIX}/webui/`
+if you care about that link in dev, otherwise leave it empty.
 
-### B — simulate a site prefix
+Three scenarios cover everything you'll hit:
 
-Useful when iterating on UI while a real prefixed backend is running.
+### Scenario 1 — single-instance dev (no prefix, no proxy)
 
-`lightrag_webui/.env.local` (gitignored):
+The default. Don't set anything beyond the existing `.env.development`.
+
+```
+Browser ──► localhost:5173 (Vite) ──► localhost:9621 (backend, no prefix)
+```
+
 ```bash
+# lightrag_webui/.env.development (already in repo as sample)
+VITE_BACKEND_URL=http://localhost:9621
+VITE_API_PROXY=true
+VITE_API_ENDPOINTS=/api,/documents,/graphs,/graph,/health,/query,/docs,/redoc,/openapi.json,/login,/auth-status,/static
+# VITE_DEV_API_PREFIX=          ← leave empty
+```
+
+Run:
+```bash
+lightrag-server                  # in one terminal, no LIGHTRAG_API_PREFIX
+cd lightrag_webui && bun run dev # in another; open http://localhost:5173/
+```
+
+### Scenario 2 — simulate the production prefix WITHOUT running nginx (recommended)
+
+You want to develop against a prefix-configured backend, but don't want
+to install / configure nginx locally just to debug. **The Vite dev
+server's built-in proxy plays the role of the reverse proxy.**
+
+```
+Browser ──► localhost:5173 (Vite, simulates /site01) ──► localhost:9621 (backend, root_path=/site01)
+                                                          (no nginx in this picture)
+```
+
+Setup:
+
+```bash
+# lightrag_webui/.env.local  (gitignored — your personal dev config)
 VITE_BACKEND_URL=http://localhost:9621
 VITE_API_PROXY=true
 VITE_API_ENDPOINTS=/api,/documents,/graphs,/graph,/health,/query,/docs,/redoc,/openapi.json,/login,/auth-status,/static
@@ -293,15 +331,77 @@ VITE_DEV_API_PREFIX=/site01
 VITE_DEV_WEBUI_PREFIX=/site01/webui/
 ```
 
-Backend started with `LIGHTRAG_API_PREFIX=/site01`. Now `bun run dev`:
+```bash
+# Terminal 1 — start the backend with the matching prefix
+LIGHTRAG_API_PREFIX=/site01 lightrag-server
 
-- Injects `window.__LIGHTRAG_CONFIG__ = { apiPrefix: "/site01", … }` into
-  the dev `index.html`.
-- Prefixes every entry of `VITE_API_ENDPOINTS` with `/site01` when
-  registering proxy targets, so requests to `/site01/documents/...` are
-  forwarded to `http://localhost:9621/site01/documents/...`.
+# Terminal 2 — start the dev server
+cd lightrag_webui && bun run dev
+```
 
-HMR continues to work unchanged.
+Then open **`http://localhost:5173/`** (root, NOT `/site01/`). Vite serves
+the SPA at `/`; the SPA generates prefixed API URLs at runtime.
+
+What happens:
+
+- `vite.config.ts` injects `window.__LIGHTRAG_CONFIG__ = { apiPrefix: "/site01", … }` into the dev `index.html`.
+- The SPA emits requests like `fetch("/site01/documents/foo")`.
+- `server.proxy` matches `/site01/documents` and forwards verbatim to `http://localhost:9621/site01/documents/foo`.
+- The backend (`root_path=/site01`) accepts the prefixed path and serves it.
+
+HMR continues to work unchanged. **No nginx, no Docker — just two
+processes on localhost.**
+
+### Scenario 3 — debug through your real production reverse proxy
+
+You already have nginx (or Traefik / Caddy) running locally with the
+exact rules from the deployment guide, and you want HMR to flow through
+it so you're testing the actual deploy path.
+
+```
+Browser ──► localhost:80 (nginx) ──► localhost:5173 (Vite) ──► localhost:9621 (backend)
+                  │
+                  └── strips /site01/ before forwarding to Vite
+```
+
+This requires three things:
+
+1. **Backend with the prefix:** `LIGHTRAG_API_PREFIX=/site01 lightrag-server`.
+2. **Dev server config (`.env.local`):**
+   ```bash
+   VITE_BACKEND_URL=http://localhost:9621      # Vite still forwards directly to backend
+   VITE_API_PROXY=true
+   VITE_API_ENDPOINTS=/api,/documents,/graphs,/graph,/health,/query,/docs,/redoc,/openapi.json,/login,/auth-status,/static
+   VITE_DEV_API_PREFIX=/site01
+   VITE_DEV_WEBUI_PREFIX=/site01/webui/
+   ```
+3. **nginx route the WebUI to Vite, not to the backend:**
+   ```nginx
+   location /site01/ {
+       # Forward EVERYTHING to Vite — Vite's proxy handles API forwarding
+       proxy_pass http://127.0.0.1:5173/;
+       proxy_http_version 1.1;
+       proxy_set_header Upgrade $http_upgrade;        # required for HMR
+       proxy_set_header Connection "upgrade";
+       proxy_set_header Host $host;
+       proxy_set_header X-Forwarded-Prefix /site01;
+   }
+   ```
+
+Open **`http://localhost/site01/`**. The HMR websocket upgrades through
+nginx → Vite, API calls flow Vite → backend.
+
+> Most contributors should prefer Scenario 2. Scenario 3 is only useful
+> when you suspect a bug specific to the reverse-proxy path (e.g. a
+> header-rewriting rule, a redirect mismatch).
+
+### Quick decision matrix
+
+| You want to… | Backend `LIGHTRAG_API_PREFIX` | `VITE_DEV_API_PREFIX` | Reverse proxy? | Open in browser |
+| --- | --- | --- | --- | --- |
+| Default single-instance dev | unset | unset | no | `http://localhost:5173/` |
+| Reproduce a multi-site bug locally | `/site01` | `/site01` | no (Vite proxy is enough) | `http://localhost:5173/` |
+| Validate the actual nginx rules | `/site01` | `/site01` | yes (nginx → Vite) | `http://localhost/site01/` |
 
 ---
 
