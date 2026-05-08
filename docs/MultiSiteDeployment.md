@@ -339,9 +339,7 @@ The key insight: the production nginx is **already** doing the prefix strip. Vit
 **Setup:**
 
 1. **Production nginx + backend:** unchanged. Whatever your real deploy already runs.
-   
 2. **Dev server (`.env.local`):**
-   
    ```bash
    # Point at the production reverse proxy — NOT the backend port.
    VITE_BACKEND_URL=https://prod.example.com     # or http://10.0.0.5
@@ -350,7 +348,6 @@ The key insight: the production nginx is **already** doing the prefix strip. Vit
    VITE_DEV_API_PREFIX=/site01
    VITE_DEV_WEBUI_PREFIX=/site01/webui/
    ```
-   
 3. Run `bun run dev` and open **`http://localhost:5173/`**.
 
 What happens for an API call:
