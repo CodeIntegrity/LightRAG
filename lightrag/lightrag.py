@@ -4286,6 +4286,34 @@ class LightRAG:
                     logger.error(f"Failed to process graph analysis results: {e}")
                     raise Exception(f"Failed to process graph dependencies: {e}") from e
 
+            elif deleting_chunkless_doc:
+                # Reaching here implies preserve_chunkless_artifacts is False:
+                # no other chunk references the document's entities or
+                # relationships. Mark every owned node/edge for outright
+                # deletion so chunkless docs (e.g. relationship-only custom KG)
+                # do not leave orphan graph metadata behind.
+                try:
+                    deletion_stage = "analyze_graph_dependencies"
+                    doc_entities_data = await self.full_entities.get_by_id(doc_id)
+                    doc_relations_data = await self.full_relations.get_by_id(doc_id)
+                    if doc_entities_data and "entity_names" in doc_entities_data:
+                        for entity_name in doc_entities_data["entity_names"]:
+                            entities_to_delete.add(entity_name)
+                            entity_chunk_updates[entity_name] = []
+                    if doc_relations_data and "relation_pairs" in doc_relations_data:
+                        for pair in doc_relations_data["relation_pairs"]:
+                            src, tgt = pair[0], pair[1]
+                            edge_tuple = tuple(sorted((src, tgt)))
+                            relationships_to_delete.add(edge_tuple)
+                            relation_chunk_updates[edge_tuple] = []
+                except Exception as e:
+                    logger.error(
+                        f"Failed to analyze chunkless graph dependencies: {e}"
+                    )
+                    raise Exception(
+                        f"Failed to analyze chunkless graph dependencies: {e}"
+                    ) from e
+
             # Data integrity is ensured by allowing only one process to hold pipeline at a time（no graph db lock is needed anymore)
 
             # 5. Delete chunks from storage
@@ -4532,7 +4560,10 @@ class LightRAG:
                     raise Exception(log_message) from cache_delete_error
 
             # 10. Delete from full_entities and full_relations storage
-            if chunk_ids:
+            # Note: chunkless documents (e.g. relationship-only custom KG) still
+            # have entries in these indexes via ainsert_custom_kg, so clean up
+            # whenever there is anything to remove from the document set.
+            if chunk_ids or deleting_chunkless_doc:
                 try:
                     deletion_stage = "delete_doc_graph_metadata"
                     await self.full_entities.delete([doc_id])

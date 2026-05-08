@@ -789,7 +789,7 @@ name = "colorlog"
 version = "6.10.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "(python_full_version < '3.14' and sys_platform == 'win32') or (python_full_version >= '4' and sys_platform == 'win32')" },
+    { name = "colorama", marker = "python_full_version < '3.14' and sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a2/61/f083b5ac52e505dfc1c624eafbf8c7589a0d7f32daa398d2e7590efa5fda/colorlog-6.10.1.tar.gz", hash = "sha256:eb4ae5cb65fe7fec7773c2306061a8e63e02efc2c72eba9d27b0fa23c94f1321", size = 17162, upload-time = "2025-10-16T16:14:11.978Z" }
 wheels = [
@@ -2751,6 +2751,7 @@ pytest = [
 test = [
     { name = "aiofiles" },
     { name = "aiohttp" },
+    { name = "anthropic" },
     { name = "ascii-colors" },
     { name = "bcrypt" },
     { name = "configparser" },
@@ -2792,6 +2793,8 @@ test = [
     { name = "tenacity" },
     { name = "tiktoken" },
     { name = "uvicorn" },
+    { name = "voyageai", version = "0.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.13.*' or python_full_version >= '4'" },
+    { name = "voyageai", version = "0.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13' or (python_full_version >= '3.14' and python_full_version < '4')" },
     { name = "xlsxwriter" },
 ]
 
@@ -2802,6 +2805,7 @@ requires-dist = [
     { name = "aiohttp" },
     { name = "aiohttp", marker = "extra == 'api'" },
     { name = "anthropic", marker = "extra == 'offline-llm'", specifier = ">=0.18.0,<1.0.0" },
+    { name = "anthropic", marker = "extra == 'test'", specifier = ">=0.18.0,<1.0.0" },
     { name = "ascii-colors", marker = "extra == 'api'" },
     { name = "asyncpg", marker = "extra == 'offline-storage'", specifier = ">=0.31.0,<1.0.0" },
     { name = "bcrypt", marker = "extra == 'api'", specifier = ">=4.0.0" },
@@ -2884,6 +2888,7 @@ requires-dist = [
     { name = "tiktoken", marker = "extra == 'api'" },
     { name = "uvicorn", marker = "extra == 'api'" },
     { name = "voyageai", marker = "extra == 'offline-llm'", specifier = ">=0.2.0,<1.0.0" },
+    { name = "voyageai", marker = "extra == 'test'", specifier = ">=0.2.0,<1.0.0" },
     { name = "xlsxwriter", specifier = ">=3.1.0" },
     { name = "xlsxwriter", marker = "extra == 'api'", specifier = ">=3.1.0" },
     { name = "zhipuai", marker = "extra == 'offline-llm'", specifier = ">=2.0.0,<3.0.0" },
@@ -3989,8 +3994,8 @@ name = "omegaconf"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "antlr4-python3-runtime", marker = "(python_full_version < '3.14' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
-    { name = "pyyaml", marker = "(python_full_version < '3.14' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
+    { name = "antlr4-python3-runtime", marker = "python_full_version < '3.14' and sys_platform != 'darwin'" },
+    { name = "pyyaml", marker = "python_full_version < '3.14' and sys_platform != 'darwin'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/09/48/6388f1bb9da707110532cb70ec4d2822858ddfb44f1cdf1233c20a80ea4b/omegaconf-2.3.0.tar.gz", hash = "sha256:d5d4b6d29955cc50ad50c46dc269bcd92c6e00f5f90d23ab5fee7bfca4ba4cc7", size = 3298120, upload-time = "2022-12-08T20:59:22.753Z" }
 wheels = [
@@ -4022,7 +4027,7 @@ version = "4.11.0.86"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13' and sys_platform != 'darwin'" },
-    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.13.*' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.13.*' and sys_platform != 'darwin'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/17/06/68c27a523103dad5837dc5b87e71285280c4f098c60e4fe8a8db6486ab09/opencv-python-4.11.0.86.tar.gz", hash = "sha256:03d60ccae62304860d232272e4a4fda93c39d595780cb40b161b310244b736a4", size = 95171956, upload-time = "2025-01-16T13:52:24.737Z" }
 wheels = [
@@ -5546,18 +5551,18 @@ name = "rapidocr"
 version = "3.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorlog", marker = "(python_full_version < '3.14' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
+    { name = "colorlog", marker = "python_full_version < '3.14' and sys_platform != 'darwin'" },
     { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13' and sys_platform != 'darwin'" },
-    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.13.*' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
-    { name = "omegaconf", marker = "(python_full_version < '3.14' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
-    { name = "opencv-python", marker = "(python_full_version < '3.14' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
-    { name = "pillow", marker = "(python_full_version < '3.14' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
-    { name = "pyclipper", marker = "(python_full_version < '3.14' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
-    { name = "pyyaml", marker = "(python_full_version < '3.14' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
-    { name = "requests", marker = "(python_full_version < '3.14' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
-    { name = "shapely", marker = "(python_full_version < '3.14' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
-    { name = "six", marker = "(python_full_version < '3.14' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
-    { name = "tqdm", marker = "(python_full_version < '3.14' and sys_platform != 'darwin') or (python_full_version >= '4' and sys_platform != 'darwin')" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.13.*' and sys_platform != 'darwin'" },
+    { name = "omegaconf", marker = "python_full_version < '3.14' and sys_platform != 'darwin'" },
+    { name = "opencv-python", marker = "python_full_version < '3.14' and sys_platform != 'darwin'" },
+    { name = "pillow", marker = "python_full_version < '3.14' and sys_platform != 'darwin'" },
+    { name = "pyclipper", marker = "python_full_version < '3.14' and sys_platform != 'darwin'" },
+    { name = "pyyaml", marker = "python_full_version < '3.14' and sys_platform != 'darwin'" },
+    { name = "requests", marker = "python_full_version < '3.14' and sys_platform != 'darwin'" },
+    { name = "shapely", marker = "python_full_version < '3.14' and sys_platform != 'darwin'" },
+    { name = "six", marker = "python_full_version < '3.14' and sys_platform != 'darwin'" },
+    { name = "tqdm", marker = "python_full_version < '3.14' and sys_platform != 'darwin'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3c/83/5b8c8075954c5b61d938b8954710d986134c4ca7c32a841ad7d8c844cf6c/rapidocr-3.4.2-py3-none-any.whl", hash = "sha256:17845fa8cc9a20a935111e59482f2214598bba1547000cfd960d8924dd4522a5", size = 15056674, upload-time = "2025-10-11T14:43:00.296Z" },
@@ -6183,7 +6188,7 @@ version = "2.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13' and sys_platform != 'darwin'" },
-    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13' and sys_platform != 'darwin'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13' and python_full_version < '4' and sys_platform != 'darwin'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/4d/bc/0989043118a27cccb4e906a46b7565ce36ca7b57f5a18b78f4f1b0f72d9d/shapely-2.1.2.tar.gz", hash = "sha256:2ed4ecb28320a433db18a5bf029986aa8afcfd740745e78847e330d5d94922a9", size = 315489, upload-time = "2025-09-24T13:51:41.432Z" }
 wheels = [

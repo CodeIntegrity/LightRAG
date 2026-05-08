@@ -6,9 +6,8 @@ import os
 import argparse
 import logging
 from dotenv import load_dotenv
-from lightrag.utils import get_env_value
-from lightrag.api.workspace_registry import sanitize_workspace_identifier
 from lightrag.utils import get_env_value, logger
+from lightrag.api.workspace_registry import sanitize_workspace_identifier
 from lightrag.llm.binding_options import (
     GeminiEmbeddingOptions,
     GeminiLLMOptions,
@@ -82,6 +81,7 @@ def get_default_host(binding_type: str) -> str:
         binding_type, os.getenv("LLM_BINDING_HOST", "http://localhost:11434")
     )  # fallback to ollama if unknown
 
+
 def resolve_asymmetric_embedding_opt_in(
     *,
     binding: str,
@@ -150,6 +150,8 @@ def get_embedding_prefix_config(env_key: str) -> tuple[str | None, bool]:
             "no prefix, or remove the variable to leave it unconfigured."
         )
     return value, True
+
+
 def validate_auth_configuration(args: argparse.Namespace) -> None:
     """Reject insecure JWT auth settings before the API starts."""
     auth_accounts = (getattr(args, "auth_accounts", "") or "").strip()
@@ -626,6 +628,29 @@ def parse_args() -> argparse.Namespace:
 
     if args.workspace_registry_path:
         args.workspace_registry_path = os.path.abspath(args.workspace_registry_path)
+
+    # Migration notice: the default registry path moved from
+    # ./workspaces/registry.sqlite3 (relative to CWD) to
+    # {working_dir}/workspaces/registry.sqlite3. Warn when the active default
+    # is empty but a legacy registry sits at the old location, so users do not
+    # silently lose workspace metadata after upgrading.
+    if not workspace_registry_path:
+        legacy_registry = os.path.abspath(
+            os.path.join("workspaces", "registry.sqlite3")
+        )
+        if (
+            legacy_registry != args.workspace_registry_path
+            and os.path.exists(legacy_registry)
+            and not os.path.exists(args.workspace_registry_path)
+        ):
+            logger.warning(
+                "Workspace registry default path changed: an existing registry "
+                f"was found at the legacy location '{legacy_registry}', but the "
+                f"current default is '{args.workspace_registry_path}' (derived "
+                "from working_dir). Move the file or set "
+                "LIGHTRAG_WORKSPACE_REGISTRY_PATH to preserve workspace metadata."
+            )
+
     validate_auth_configuration(args)
     return args
 

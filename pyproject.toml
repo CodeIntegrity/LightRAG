@@ -140,6 +140,12 @@ test = [
     "pytest-asyncio>=1.2.0",
     "pre-commit",
     "ruff",
+    # Provider SDKs covered by offline test modules. Pinned to the same range
+    # as the offline-llm extra so a developer running just `--extra test` can
+    # execute tests/test_voyageai_embed.py and the anthropic deprecation shim
+    # without falling back to the heavier offline-llm bundle.
+    "anthropic>=0.18.0,<1.0.0",
+    "voyageai>=0.2.0,<1.0.0",
 ]
 
 evaluation = [

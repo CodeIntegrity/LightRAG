@@ -71,6 +71,7 @@ def _build_test_client(
     enable_guest_login_entry: bool = False,
     guest_visible_tabs: list[str] | None = None,
     summary_language: str | None = None,
+    auth_accounts: dict[str, str] | None = None,
 ):
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
 
@@ -114,7 +115,18 @@ def _build_test_client(
 
     monkeypatch.setattr(lightrag_server, "get_namespace_data", _fake_get_namespace_data)
 
+    # Isolate the global auth_handler from any AUTH_ACCOUNTS leaked via .env.
+    # lightrag_server.create_app() invokes _sync_auth_handler(args), which
+    # rebuilds auth_handler.accounts from args.auth_accounts. So we:
+    #   1. Clear args.auth_accounts to force an empty rebuild.
+    #   2. After create_app finishes, set auth_handler.accounts to whatever
+    #      shape the test asked for (default empty for guest-only flows).
+    from lightrag.api.auth import auth_handler
+
+    target_accounts = dict(auth_accounts) if auth_accounts else {}
+
     args = api_config.parse_args()
+    args.auth_accounts = ""
     args.working_dir = str(tmp_path)
     args.input_dir = str(tmp_path / "inputs")
     args.workspace_registry_path = str(tmp_path / "workspaces" / "registry.sqlite3")
@@ -130,6 +142,8 @@ def _build_test_client(
     if summary_language is not None:
         args.summary_language = summary_language
     app = lightrag_server.create_app(args)
+    # Apply the test's desired account state after _sync_auth_handler reset it.
+    auth_handler.accounts = target_accounts
     return TestClient(app)
 
 
@@ -359,23 +373,17 @@ def test_health_exposes_workspace_create_capability_for_guest_when_enabled(
 
 
 def test_health_exposes_guest_login_capability_when_enabled(monkeypatch, tmp_path):
-    from lightrag.api.auth import auth_handler
+    with _build_test_client(
+        monkeypatch,
+        tmp_path,
+        allow_guest_workspace_create=False,
+        enable_guest_login_entry=True,
+        auth_accounts={"alice": "secret"},
+    ) as client:
+        response = client.get("/health")
 
-    original_accounts = auth_handler.accounts.copy()
-    auth_handler.accounts = {"alice": "secret"}
-    try:
-        with _build_test_client(
-            monkeypatch,
-            tmp_path,
-            allow_guest_workspace_create=False,
-            enable_guest_login_entry=True,
-        ) as client:
-            response = client.get("/health")
-
-        assert response.status_code == 200
-        assert response.json()["capabilities"]["guest_login"] is True
-    finally:
-        auth_handler.accounts = original_accounts
+    assert response.status_code == 200
+    assert response.json()["capabilities"]["guest_login"] is True
 
 
 def test_health_exposes_guest_login_capability_when_disabled(monkeypatch, tmp_path):
@@ -479,58 +487,48 @@ def test_health_rejects_invalid_authorization_header(monkeypatch, tmp_path):
 def test_health_reports_workspace_create_false_for_guest_token_when_auth_is_configured(
     monkeypatch, tmp_path
 ):
-    from lightrag.api.auth import auth_handler
+    with _build_test_client(
+        monkeypatch,
+        tmp_path,
+        allow_guest_workspace_create=True,
+        auth_accounts={"alice": "secret"},
+    ) as client:
+        response = client.get(
+            "/health",
+            headers={"Authorization": f"Bearer {_build_token('guest', 'guest')}"},
+        )
 
-    original_accounts = auth_handler.accounts.copy()
-    auth_handler.accounts = {"alice": "secret"}
-    try:
-        with _build_test_client(
-            monkeypatch, tmp_path, allow_guest_workspace_create=True
-        ) as client:
-            response = client.get(
-                "/health",
-                headers={"Authorization": f"Bearer {_build_token('guest', 'guest')}"},
-            )
-
-        assert response.status_code == 200
-        assert response.json()["capabilities"]["workspace_create"] is False
-    finally:
-        auth_handler.accounts = original_accounts
+    assert response.status_code == 200
+    assert response.json()["capabilities"]["workspace_create"] is False
 
 
 def test_login_guest_returns_guest_token_when_entry_enabled(monkeypatch, tmp_path):
     from lightrag.api.auth import auth_handler
 
-    original_accounts = auth_handler.accounts.copy()
-    auth_handler.accounts = {"alice": "secret"}
-    try:
-        with _build_test_client(
-            monkeypatch, tmp_path, enable_guest_login_entry=True
-        ) as client:
-            response = client.post("/login/guest")
+    with _build_test_client(
+        monkeypatch,
+        tmp_path,
+        enable_guest_login_entry=True,
+        auth_accounts={"alice": "secret"},
+    ) as client:
+        response = client.post("/login/guest")
 
-        assert response.status_code == 200
-        body = response.json()
-        assert body["auth_mode"] == "guest"
-        payload = auth_handler.validate_token(body["access_token"])
-        assert payload["role"] == "guest"
-        assert payload["username"] == "guest"
-    finally:
-        auth_handler.accounts = original_accounts
+    assert response.status_code == 200
+    body = response.json()
+    assert body["auth_mode"] == "guest"
+    payload = auth_handler.validate_token(body["access_token"])
+    assert payload["role"] == "guest"
+    assert payload["username"] == "guest"
 
 
 def test_login_guest_rejects_when_entry_disabled(monkeypatch, tmp_path):
-    from lightrag.api.auth import auth_handler
+    with _build_test_client(
+        monkeypatch,
+        tmp_path,
+        enable_guest_login_entry=False,
+        auth_accounts={"alice": "secret"},
+    ) as client:
+        response = client.post("/login/guest")
 
-    original_accounts = auth_handler.accounts.copy()
-    auth_handler.accounts = {"alice": "secret"}
-    try:
-        with _build_test_client(
-            monkeypatch, tmp_path, enable_guest_login_entry=False
-        ) as client:
-            response = client.post("/login/guest")
-
-        assert response.status_code == 403
-        assert response.json()["detail"] == "Guest login is disabled"
-    finally:
-        auth_handler.accounts = original_accounts
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Guest login is disabled"

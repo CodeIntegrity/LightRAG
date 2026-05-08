@@ -1969,6 +1969,18 @@ class ClientManager:
         config = configparser.ConfigParser()
         config.read("config.ini", "utf-8")
 
+        # Deprecation notice: POSTGRES_ENABLE_VECTOR was removed in favor of
+        # auto-deriving enable_vector from LIGHTRAG_VECTOR_STORAGE. Warn loudly
+        # so users who carry the legacy variable forward know it is ignored.
+        if "POSTGRES_ENABLE_VECTOR" in os.environ:
+            logger.warning(
+                "POSTGRES_ENABLE_VECTOR is deprecated and ignored; pgvector "
+                "support is now auto-detected from LIGHTRAG_VECTOR_STORAGE. "
+                "Set LIGHTRAG_VECTOR_STORAGE=PGVectorStorage to enable it, or "
+                "remove POSTGRES_ENABLE_VECTOR from your environment to clear "
+                "this warning."
+            )
+
         return {
             "host": os.environ.get(
                 "POSTGRES_HOST",
