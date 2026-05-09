@@ -268,12 +268,23 @@
         "fileName": "文件名",
         "summary": "摘要",
         "status": "状态",
+        "source": "来源",
         "length": "长度",
         "chunks": "分块",
         "created": "创建时间",
         "updated": "更新时间",
         "metadata": "元数据",
         "select": "选择"
+      },
+      "source": {
+        "customChunks": "自定义分块"
+      },
+      "customChunksRebuild": {
+        "button": "重建 Custom Chunks 图谱",
+        "tooltip": "重建所有 custom_chunks 文档的知识图谱",
+        "started": "已开始重建所有 custom_chunks 文档的图谱",
+        "busy": "当前有其他流水线任务正在运行",
+        "failed": "重建 custom_chunks 图谱失败\n{{error}}"
       },
       "status": {
         "all": "全部",

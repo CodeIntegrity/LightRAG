@@ -268,12 +268,23 @@
         "fileName": "File Name",
         "summary": "Summary",
         "status": "Status",
+        "source": "Source",
         "length": "Length",
         "chunks": "Chunks",
         "created": "Created",
         "updated": "Updated",
         "metadata": "Metadata",
         "select": "Select"
+      },
+      "source": {
+        "customChunks": "Custom Chunks"
+      },
+      "customChunksRebuild": {
+        "button": "Rebuild Custom Chunk Graphs",
+        "tooltip": "Rebuild the knowledge graph for all custom_chunks documents",
+        "started": "Started rebuilding graphs for all custom_chunks documents",
+        "busy": "Another pipeline job is already running",
+        "failed": "Failed to rebuild custom chunk graphs\n{{error}}"
       },
       "status": {
         "all": "All",

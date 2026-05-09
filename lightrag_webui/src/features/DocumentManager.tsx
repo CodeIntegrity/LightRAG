@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSettingsStore } from '@/stores/settings'
 import Button from '@/components/ui/Button'
+import Badge from '@/components/ui/Badge'
 import { cn } from '@/lib/utils'
 import {
   Table,
@@ -31,6 +32,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 import {
   scanNewDocuments,
+  rebuildCustomChunksGraph,
   getDocumentsPaginatedWithTimeout,
   DocsStatusesResponse,
   DocStatus,
@@ -44,7 +46,7 @@ import { toast } from 'sonner'
 import { useBackendState } from '@/stores/state'
 import { copyToClipboard } from '@/utils/clipboard'
 
-import { RefreshCwIcon, ActivityIcon, ArrowUpIcon, ArrowDownIcon, RotateCcwIcon, CheckSquareIcon, XIcon, AlertTriangle, Info, CopyIcon } from 'lucide-react'
+import { RefreshCwIcon, ActivityIcon, ArrowUpIcon, ArrowDownIcon, RotateCcwIcon, CheckSquareIcon, XIcon, AlertTriangle, Info, CopyIcon, BoxesIcon } from 'lucide-react'
 import PipelineStatusDialog from '@/components/documents/PipelineStatusDialog'
 
 type StatusFilter = DocStatus | 'all';
@@ -119,6 +121,9 @@ const hasDocumentDetails = (doc: DocStatusResponse): boolean => {
     (doc.metadata && Object.keys(doc.metadata).length > 0)
   )
 }
+
+const isCustomChunksDoc = (doc: DocStatusResponse): boolean =>
+  doc.metadata?.source === 'custom_chunks'
 
 const formatDocumentDetails = (doc: DocStatusResponse): string => {
   const details: string[] = []
@@ -1065,6 +1070,38 @@ export default function DocumentManager() {
     setPagination(prev => ({ ...prev, page: newPage }));
   }, [pagination.page, statusFilter]);
 
+  const handleRebuildCustomChunksGraph = useCallback(async () => {
+    try {
+      const response = await rebuildCustomChunksGraph()
+
+      if (response.status === 'busy') {
+        toast.error(
+          t(
+            'documentPanel.documentManager.customChunksRebuild.busy',
+            '当前有其他流水线任务正在运行'
+          )
+        )
+        return
+      }
+
+      toast.success(
+        t(
+          'documentPanel.documentManager.customChunksRebuild.started',
+          '已开始重建所有 custom_chunks 文档的图谱'
+        )
+      )
+      useBackendState.getState().check()
+      await handleIntelligentRefresh()
+    } catch (err) {
+      toast.error(
+        t('documentPanel.documentManager.customChunksRebuild.failed', {
+          defaultValue: '重建 custom_chunks 图谱失败\n{{error}}',
+          error: errorMessage(err)
+        })
+      )
+    }
+  }, [handleIntelligentRefresh, t])
+
   // Handle status filter change - only update state
   const handleStatusFilterChange = useCallback((newStatusFilter: StatusFilter) => {
     if (newStatusFilter === statusFilter) return;
@@ -1201,6 +1238,23 @@ export default function DocumentManager() {
               )}
             >
               <ActivityIcon /> {t('documentPanel.documentManager.pipelineStatusButton')}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void handleRebuildCustomChunksGraph()}
+              side="bottom"
+              tooltip={t(
+                'documentPanel.documentManager.customChunksRebuild.tooltip',
+                '重建所有 custom_chunks 文档的知识图谱'
+              )}
+              size="sm"
+              disabled={pipelineBusy}
+            >
+              <BoxesIcon />{' '}
+              {t(
+                'documentPanel.documentManager.customChunksRebuild.button',
+                '重建 Custom Chunks 图谱'
+              )}
             </Button>
             <CancelPipelineButton busy={pipelineBusy} />
           </div>
@@ -1401,6 +1455,7 @@ export default function DocumentManager() {
                           </TableHead>
                           <TableHead>{t('documentPanel.documentManager.columns.summary')}</TableHead>
                           <TableHead>{t('documentPanel.documentManager.columns.status')}</TableHead>
+                          <TableHead>{t('documentPanel.documentManager.columns.source')}</TableHead>
                           <TableHead>{t('documentPanel.documentManager.columns.length')}</TableHead>
                           <TableHead>{t('documentPanel.documentManager.columns.chunks')}</TableHead>
                           <TableHead
@@ -1497,6 +1552,18 @@ export default function DocumentManager() {
 
                                 {hasDocumentDetails(doc) && <DocumentStatusDetailsDialog doc={doc} />}
                               </div>
+                            </TableCell>
+                            <TableCell>
+                              {isCustomChunksDoc(doc) ? (
+                                <Badge variant="secondary" className="whitespace-nowrap">
+                                  {t(
+                                    'documentPanel.documentManager.source.customChunks',
+                                    'Custom Chunks'
+                                  )}
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
                             </TableCell>
                             <TableCell>{doc.content_length ?? '-'}</TableCell>
                             <TableCell>{doc.chunks_count ?? '-'}</TableCell>

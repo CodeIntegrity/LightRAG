@@ -1,4 +1,5 @@
 import importlib
+import asyncio
 import sys
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lightrag.base import DocProcessingStatus, DocStatus
+from lightrag.kg.shared_storage import initialize_pipeline_status, initialize_share_data
 
 
 pytestmark = pytest.mark.offline
@@ -16,6 +18,8 @@ class _DummyRAG:
     def __init__(self):
         self.last_custom_chunks_request: dict | None = None
         self.last_doc_ids_query: list[str] | None = None
+        self.custom_chunk_rebuild_calls = 0
+        self.workspace = "test-doc-routes"
 
     async def ainsert_custom_chunks(
         self, full_text: str, text_chunks: list[str], doc_id: str | None = None
@@ -60,9 +64,14 @@ class _DummyRAG:
             ),
         }
 
+    async def arebuild_all_custom_chunks_graphs(self) -> None:
+        self.custom_chunk_rebuild_calls += 1
+
 
 def _build_document_client(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+    initialize_share_data()
+    asyncio.run(initialize_pipeline_status(workspace="test-doc-routes"))
 
     document_routes = importlib.import_module("lightrag.api.routers.document_routes")
     document_routes = importlib.reload(document_routes)
@@ -122,3 +131,16 @@ def test_documents_by_ids_route_returns_serialized_docs_in_request_order(
     assert body["documents"][0]["status"] == "failed"
     assert body["documents"][1]["status"] == "processed"
     assert rag.last_doc_ids_query == ["doc-2", "doc-missing", "doc-1"]
+
+
+def test_rebuild_custom_chunks_graph_route_schedules_background_task(
+    tmp_path: Path, monkeypatch
+):
+    client, rag = _build_document_client(tmp_path, monkeypatch)
+
+    response = client.post("/documents/rebuild_custom_chunks_graph")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "rebuild_started"
+    assert rag.custom_chunk_rebuild_calls == 1

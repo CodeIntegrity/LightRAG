@@ -261,6 +261,27 @@ class RebuildDocumentsResponse(BaseModel):
     )
 
 
+class CustomChunksGraphRebuildResponse(BaseModel):
+    status: Literal["rebuild_started", "busy"] = Field(
+        description="Status of the custom chunk graph rebuild operation"
+    )
+    message: str = Field(description="Human-readable message describing the operation")
+    track_id: str = Field(
+        default="",
+        description="Reserved tracking ID field, empty for this operation",
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "status": "rebuild_started",
+                "message": "Custom chunk graph rebuild has been initiated in the background.",
+                "track_id": "",
+            }
+        }
+    )
+
+
 class InsertTextRequest(BaseModel):
     """Request model for inserting a single text document
 
@@ -2758,6 +2779,44 @@ def create_document_routes(
             )
         except Exception as e:
             logger.error(f"Error /documents/texts: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post(
+        "/rebuild_custom_chunks_graph",
+        response_model=CustomChunksGraphRebuildResponse,
+        dependencies=[Depends(combined_auth)],
+    )
+    async def rebuild_custom_chunks_graph(background_tasks: BackgroundTasks):
+        try:
+            from lightrag.kg.shared_storage import (
+                get_namespace_data,
+                get_namespace_lock,
+            )
+
+            current_rag, _ = _current_runtime_objects()
+            workspace = getattr(current_rag, "workspace", "")
+            pipeline_status = await get_namespace_data(
+                "pipeline_status", workspace=workspace
+            )
+            pipeline_status_lock = get_namespace_lock(
+                "pipeline_status", workspace=workspace
+            )
+
+            async with pipeline_status_lock:
+                if pipeline_status.get("busy", False):
+                    return CustomChunksGraphRebuildResponse(
+                        status="busy",
+                        message="Cannot rebuild custom chunk graphs while pipeline is busy.",
+                    )
+
+            background_tasks.add_task(current_rag.arebuild_all_custom_chunks_graphs)
+            return CustomChunksGraphRebuildResponse(
+                status="rebuild_started",
+                message="Custom chunk graph rebuild has been initiated in the background.",
+            )
+        except Exception as e:
+            logger.error(f"Error /documents/rebuild_custom_chunks_graph: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
 

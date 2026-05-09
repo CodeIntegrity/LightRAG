@@ -484,6 +484,12 @@ export type TrackStatusResponse = {
   status_summary: Record<string, number>
 }
 
+export type CustomChunksGraphRebuildResponse = {
+  status: 'rebuild_started' | 'busy'
+  message: string
+  track_id: string
+}
+
 export type DocumentsRequest = {
   status_filter?: DocStatus | null
   page: number
@@ -1048,6 +1054,11 @@ export const scanNewDocuments = async (): Promise<ScanResponse> => {
 
 export const reprocessFailedDocuments = async (): Promise<ReprocessFailedResponse> => {
   const response = await axiosInstance.post('/documents/reprocess_failed')
+  return response.data
+}
+
+export const rebuildCustomChunksGraph = async (): Promise<CustomChunksGraphRebuildResponse> => {
+  const response = await axiosInstance.post('/documents/rebuild_custom_chunks_graph')
   return response.data
 }
 
