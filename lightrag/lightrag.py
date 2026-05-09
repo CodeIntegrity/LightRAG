@@ -1355,11 +1355,15 @@ class LightRAG:
         self, full_text: str, text_chunks: list[str], doc_id: str | None = None
     ) -> None:
         update_storage = False
+        doc_status_initialized = False
+        doc_status_payload: dict[str, Any] | None = None
         try:
             # Clean input texts
             full_text = sanitize_text_for_encoding(full_text)
             text_chunks = [sanitize_text_for_encoding(chunk) for chunk in text_chunks]
             file_path = ""
+            track_id = generate_track_id("insert")
+            created_at_iso = datetime.now(timezone.utc).isoformat()
 
             # Process cleaned texts
             if doc_id is None:
@@ -1398,6 +1402,23 @@ class LightRAG:
                 logger.warning("All chunks are already in the storage.")
                 return
 
+            doc_status_payload = {
+                "status": DocStatus.PROCESSING,
+                "content_summary": get_content_summary(full_text),
+                "content_length": len(full_text),
+                "chunks_count": len(inserting_chunks),
+                "chunks_list": list(inserting_chunks.keys()),
+                "created_at": created_at_iso,
+                "updated_at": created_at_iso,
+                "file_path": file_path,
+                "track_id": track_id,
+                "metadata": {
+                    "source": "custom_chunks",
+                },
+            }
+            await self.doc_status.upsert({doc_key: doc_status_payload})
+            doc_status_initialized = True
+
             tasks = [
                 self.chunks_vdb.upsert(inserting_chunks),
                 self._process_extract_entities(inserting_chunks),
@@ -1405,6 +1426,30 @@ class LightRAG:
                 self.text_chunks.upsert(inserting_chunks),
             ]
             await asyncio.gather(*tasks)
+
+            await self.doc_status.upsert(
+                {
+                    doc_key: {
+                        **doc_status_payload,
+                        "status": DocStatus.PROCESSED,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                }
+            )
+
+        except Exception:
+            if doc_status_initialized and doc_status_payload is not None:
+                await self.doc_status.upsert(
+                    {
+                        doc_key: {
+                            **doc_status_payload,
+                            "status": DocStatus.FAILED,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                            "error_msg": traceback.format_exc(limit=1).strip(),
+                        }
+                    }
+                )
+            raise
 
         finally:
             if update_storage:

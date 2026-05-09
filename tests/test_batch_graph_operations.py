@@ -791,6 +791,81 @@ class TestAinsertCustomKgBatchPath:
 
     @pytest.mark.offline
     @pytest.mark.asyncio
+    async def test_ainsert_custom_chunks_writes_doc_status_for_webui_visibility(self):
+        """ainsert_custom_chunks must write doc_status so /documents/paginated can see it."""
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            await rag.ainsert_custom_chunks(
+                full_text="first chunk second chunk",
+                text_chunks=["first chunk", "second chunk"],
+                doc_id="doc-custom-chunks-1",
+            )
+
+            status = await rag.doc_status.get_by_id("doc-custom-chunks-1")
+            assert status is not None
+            assert status["status"] == DocStatus.PROCESSED
+            assert status["chunks_count"] == 2
+            assert isinstance(status["chunks_list"], list)
+            assert len(status["chunks_list"]) == 2
+            assert isinstance(status["track_id"], str) and status["track_id"]
+
+            (documents, total_count) = await rag.doc_status.get_docs_paginated(
+                status_filter=None,
+                page=1,
+                page_size=10,
+                sort_field="updated_at",
+                sort_direction="desc",
+            )
+            visible_ids = [doc_id for doc_id, _ in documents]
+
+            assert total_count == 1
+            assert visible_ids == ["doc-custom-chunks-1"]
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_chunks_marks_doc_status_failed_on_error(self):
+        """ainsert_custom_chunks must keep a FAILED doc_status record when storage write fails."""
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            rag.chunks_vdb.upsert = AsyncMock(side_effect=RuntimeError("kaboom"))
+
+            with pytest.raises(RuntimeError, match="kaboom"):
+                await rag.ainsert_custom_chunks(
+                    full_text="broken chunk import",
+                    text_chunks=["broken", "chunk"],
+                    doc_id="doc-custom-chunks-fail-1",
+                )
+
+            status = await rag.doc_status.get_by_id("doc-custom-chunks-fail-1")
+            assert status is not None
+            assert status["status"] == DocStatus.FAILED
+            assert status["chunks_count"] == 2
+            assert "kaboom" in (status.get("error_msg") or "")
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
     async def test_ainsert_custom_kg_marks_doc_status_failed_on_error(self):
         """When the graph upsert blows up, doc_status must be flipped to FAILED."""
         from lightrag import LightRAG
