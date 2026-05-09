@@ -29,13 +29,10 @@ import {
   DialogTitle,
   DialogTrigger
 } from '@/components/ui/Dialog'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip'
 
 import {
-  DocumentChunkResponse,
   scanNewDocuments,
-  getDocumentChunks,
   getDocumentsPaginatedWithTimeout,
   DocsStatusesResponse,
   DocStatus,
@@ -48,7 +45,6 @@ import { errorMessage } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useBackendState } from '@/stores/state'
 import { copyToClipboard } from '@/utils/clipboard'
-import { formatDocumentChunksForCopy } from './documentChunks'
 
 import { RefreshCwIcon, ActivityIcon, ArrowUpIcon, ArrowDownIcon, RotateCcwIcon, CheckSquareIcon, XIcon, AlertTriangle, Info, CopyIcon } from 'lucide-react'
 import PipelineStatusDialog from '@/components/documents/PipelineStatusDialog'
@@ -152,14 +148,7 @@ const DocumentStatusDetailsDialog = ({ doc }: { doc: DocStatusResponse }) => {
   const { t } = useTranslation()
   const details = formatDocumentDetails(doc)
   const hasDetailsContent = details.trim().length > 0
-  const hasChunks = (doc.chunks_count ?? 0) > 0
   const [open, setOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'details' | 'chunks'>(
-    hasDetailsContent ? 'details' : 'chunks'
-  )
-  const [chunks, setChunks] = useState<DocumentChunkResponse[]>([])
-  const [isLoadingChunks, setIsLoadingChunks] = useState(false)
-  const [chunksError, setChunksError] = useState<string | null>(null)
 
   const openLabel = t('documentPanel.documentManager.details.openTooltip', {
     defaultValue: 'View document details'
@@ -167,55 +156,6 @@ const DocumentStatusDetailsDialog = ({ doc }: { doc: DocStatusResponse }) => {
   const detailsCopyLabel = t('documentPanel.documentManager.details.copyTooltip', {
     defaultValue: 'Copy details'
   })
-  const chunksCopyLabel = t('documentPanel.documentManager.details.copyChunksTooltip', {
-    defaultValue: 'Copy chunks'
-  })
-  const copyLabel = activeTab === 'chunks' ? chunksCopyLabel : detailsCopyLabel
-
-  useEffect(() => {
-    if (!open) {
-      setActiveTab(hasDetailsContent ? 'details' : 'chunks')
-      return
-    }
-
-    if (!hasChunks || activeTab !== 'chunks' || chunks.length > 0 || isLoadingChunks) {
-      return
-    }
-
-    let cancelled = false
-    setIsLoadingChunks(true)
-    setChunksError(null)
-
-    getDocumentChunks(doc.id)
-      .then((response) => {
-        if (cancelled) {
-          return
-        }
-        setChunks(response.chunks)
-      })
-      .catch((error: unknown) => {
-        if (cancelled) {
-          return
-        }
-        const message = errorMessage(error)
-        setChunksError(message)
-        toast.error(
-          t('documentPanel.documentManager.details.chunksLoadFailed', {
-            error: message,
-            defaultValue: `Failed to load document chunks\n${message}`
-          })
-        )
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingChunks(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeTab, chunks.length, doc.id, hasChunks, hasDetailsContent, isLoadingChunks, open, t])
 
   const copyFeedback = async (
     text: string,
@@ -234,17 +174,6 @@ const DocumentStatusDetailsDialog = ({ doc }: { doc: DocStatusResponse }) => {
   }
 
   const handleCopy = async () => {
-    if (activeTab === 'chunks') {
-      await copyFeedback(
-        formatDocumentChunksForCopy(chunks),
-        'documentPanel.documentManager.details.copyChunksSuccess',
-        'documentPanel.documentManager.details.copyChunksFailed',
-        'Chunk content copied',
-        'Failed to copy chunk content'
-      )
-      return
-    }
-
     await copyFeedback(
       details,
       'documentPanel.documentManager.details.copySuccess',
@@ -262,45 +191,6 @@ const DocumentStatusDetailsDialog = ({ doc }: { doc: DocStatusResponse }) => {
         <p className="text-sm text-muted-foreground">
           {t('documentPanel.documentManager.details.noDetails', {
             defaultValue: 'No status details available.'
-          })}
-        </p>
-      )}
-    </div>
-  )
-
-  const renderChunksPanel = () => (
-    <div className="max-h-[60vh] overflow-y-auto p-3 pr-12">
-      {isLoadingChunks ? (
-        <p className="text-sm text-muted-foreground">
-          {t('documentPanel.documentManager.details.loadingChunks', {
-            defaultValue: 'Loading chunks...'
-          })}
-        </p>
-      ) : chunksError ? (
-        <p className="whitespace-pre-wrap break-words text-sm text-red-600 dark:text-red-400">
-          {chunksError}
-        </p>
-      ) : chunks.length > 0 ? (
-        <div className="space-y-3">
-          {chunks.map((chunk, index) => (
-            <div key={chunk.id} className="rounded-md border bg-background p-3">
-              <div className="mb-2 min-w-0">
-                <div className="truncate font-mono text-xs text-muted-foreground">{chunk.id}</div>
-                <div className="text-sm font-medium">
-                  {t('documentPanel.documentManager.details.chunkLabel', {
-                    index: index + 1,
-                    defaultValue: `Chunk ${index + 1}`
-                  })}
-                </div>
-              </div>
-              <pre className="whitespace-pre-wrap break-words text-sm">{chunk.content}</pre>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          {t('documentPanel.documentManager.details.noChunks', {
-            defaultValue: 'No chunk content available.'
           })}
         </p>
       )}
@@ -352,42 +242,14 @@ const DocumentStatusDetailsDialog = ({ doc }: { doc: DocStatusResponse }) => {
             size="icon"
             className="absolute top-2 right-2 z-10 size-7 bg-background/80 hover:bg-accent"
             onClick={handleCopy}
-            tooltip={copyLabel}
+            tooltip={detailsCopyLabel}
             side="left"
-            aria-label={copyLabel}
-            disabled={
-              activeTab === 'chunks'
-                ? isLoadingChunks || chunks.length === 0
-                : !hasDetailsContent
-            }
+            aria-label={detailsCopyLabel}
+            disabled={!hasDetailsContent}
           >
             <CopyIcon className="h-4 w-4" />
           </Button>
-          {hasDetailsContent && hasChunks ? (
-            <Tabs
-              value={activeTab}
-              onValueChange={(value) => setActiveTab(value as 'details' | 'chunks')}
-            >
-              <TabsList className="m-3 grid h-9 grid-cols-2">
-                <TabsTrigger value="details">
-                  {t('documentPanel.documentManager.details.tabs.details', {
-                    defaultValue: 'Details'
-                  })}
-                </TabsTrigger>
-                <TabsTrigger value="chunks">
-                  {t('documentPanel.documentManager.details.tabs.chunks', {
-                    defaultValue: 'Chunks'
-                  })}
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="details">{renderDetailsPanel()}</TabsContent>
-              <TabsContent value="chunks">{renderChunksPanel()}</TabsContent>
-            </Tabs>
-          ) : hasChunks ? (
-            renderChunksPanel()
-          ) : (
-            renderDetailsPanel()
-          )}
+          {renderDetailsPanel()}
         </div>
       </DialogContent>
     </Dialog>
