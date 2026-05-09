@@ -1451,7 +1451,31 @@ class LightRAG:
                 self.full_docs.upsert(new_docs),
                 self.text_chunks.upsert(inserting_chunks),
             )
-            await self._process_extract_entities(inserting_chunks)
+            chunk_results = await self._process_extract_entities(inserting_chunks)
+            merge_pipeline_status = {
+                "latest_message": "",
+                "history_messages": [],
+                "cancellation_requested": False,
+            }
+            merge_pipeline_status_lock = asyncio.Lock()
+            await merge_nodes_and_edges(
+                chunk_results=chunk_results,
+                knowledge_graph_inst=self.chunk_entity_relation_graph,
+                entity_vdb=self.entities_vdb,
+                relationships_vdb=self.relationships_vdb,
+                global_config=self._build_runtime_global_config(),
+                full_entities_storage=self.full_entities,
+                full_relations_storage=self.full_relations,
+                doc_id=doc_key,
+                pipeline_status=merge_pipeline_status,
+                pipeline_status_lock=merge_pipeline_status_lock,
+                llm_response_cache=self.llm_response_cache,
+                entity_chunks_storage=self.entity_chunks,
+                relation_chunks_storage=self.relation_chunks,
+                current_file_number=1,
+                total_files=1,
+                file_path=file_path or "unknown_source",
+            )
 
             await self.doc_status.upsert(
                 {
@@ -1481,13 +1505,21 @@ class LightRAG:
             if update_storage:
                 await self._insert_done()
 
-    async def arebuild_all_custom_chunks_graphs(self) -> dict[str, int]:
+    async def arebuild_all_custom_chunks_graphs(
+        self, doc_ids: list[str] | None = None
+    ) -> dict[str, int]:
         pipeline_status = await get_namespace_data(
             "pipeline_status", workspace=self.workspace
         )
         pipeline_status_lock = get_namespace_lock(
             "pipeline_status", workspace=self.workspace
         )
+        normalized_doc_ids = [
+            doc_id.strip()
+            for doc_id in (doc_ids or [])
+            if isinstance(doc_id, str) and doc_id.strip()
+        ]
+        requested_doc_ids = set(normalized_doc_ids)
         statuses_to_scan = [
             DocStatus.PROCESSED,
             DocStatus.FAILED,
@@ -1501,12 +1533,19 @@ class LightRAG:
                 raise RuntimeError("Pipeline is busy")
 
             docs_by_status = await self.doc_status.get_docs_by_statuses(statuses_to_scan)
-            custom_docs = {
-                doc_id: status_doc
-                for doc_id, status_doc in docs_by_status.items()
-                if isinstance(status_doc.metadata, dict)
-                and status_doc.metadata.get("source") == "custom_chunks"
-            }
+            if requested_doc_ids:
+                custom_docs = {
+                    doc_id: status_doc
+                    for doc_id, status_doc in docs_by_status.items()
+                    if doc_id in requested_doc_ids
+                }
+            else:
+                custom_docs = {
+                    doc_id: status_doc
+                    for doc_id, status_doc in docs_by_status.items()
+                    if isinstance(status_doc.metadata, dict)
+                    and status_doc.metadata.get("source") == "custom_chunks"
+                }
 
             pipeline_status.update(
                 {
@@ -1550,6 +1589,7 @@ class LightRAG:
                     if isinstance(status_doc.metadata, dict)
                     else {}
                 )
+                preserve_source = metadata.get("source")
                 file_path = status_doc.file_path or ""
                 processing_start_time = int(time.time())
 
@@ -1620,7 +1660,11 @@ class LightRAG:
                                 "track_id": status_doc.track_id,
                                 "metadata": {
                                     **metadata,
-                                    "source": "custom_chunks",
+                                    **(
+                                        {"source": preserve_source}
+                                        if preserve_source is not None
+                                        else {}
+                                    ),
                                     "processing_start_time": processing_start_time,
                                 },
                             }
@@ -1664,7 +1708,11 @@ class LightRAG:
                                 "track_id": status_doc.track_id,
                                 "metadata": {
                                     **metadata,
-                                    "source": "custom_chunks",
+                                    **(
+                                        {"source": preserve_source}
+                                        if preserve_source is not None
+                                        else {}
+                                    ),
                                     "processing_start_time": processing_start_time,
                                     "processing_end_time": processing_end_time,
                                 },
@@ -1689,7 +1737,11 @@ class LightRAG:
                                 "track_id": status_doc.track_id,
                                 "metadata": {
                                     **metadata,
-                                    "source": "custom_chunks",
+                                    **(
+                                        {"source": preserve_source}
+                                        if preserve_source is not None
+                                        else {}
+                                    ),
                                     "processing_start_time": processing_start_time,
                                 },
                                 "error_msg": traceback.format_exc(limit=1).strip(),

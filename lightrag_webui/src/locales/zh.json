@@ -280,11 +280,16 @@
         "customChunks": "自定义分块"
       },
       "customChunksRebuild": {
-        "button": "重建 Custom Chunks 图谱",
-        "tooltip": "重建所有 custom_chunks 文档的知识图谱",
-        "started": "已开始重建所有 custom_chunks 文档的图谱",
+        "button": "重建图谱",
+        "tooltip": "重建图谱",
+        "confirmTitle": "确认重建图谱",
+        "confirmSelected": "将重建选中的 {{count}} 个文件图谱",
+        "confirmAll": "将重建全部图谱",
+        "confirmButton": "确认重建",
+        "started": "已开始重建全部图谱",
+        "startedSelected": "已开始重建选中的 {{count}} 个文件图谱",
         "busy": "当前有其他流水线任务正在运行",
-        "failed": "重建 custom_chunks 图谱失败\n{{error}}"
+        "failed": "重建图谱失败\n{{error}}"
       },
       "status": {
         "all": "全部",

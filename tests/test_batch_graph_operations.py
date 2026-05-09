@@ -582,6 +582,7 @@ class TestAinsertCustomKgBatchPath:
         with tempfile.TemporaryDirectory() as tmp:
             rag = LightRAG(
                 working_dir=tmp,
+                workspace=f"custom-status-{time.time_ns()}",
                 llm_model_func=AsyncMock(return_value=""),
                 embedding_func=mock_embedding_func,
             )
@@ -664,6 +665,7 @@ class TestAinsertCustomKgBatchPath:
         with tempfile.TemporaryDirectory() as tmp:
             rag = LightRAG(
                 working_dir=tmp,
+                workspace=f"custom-unknown-source-{time.time_ns()}",
                 llm_model_func=AsyncMock(return_value=""),
                 embedding_func=mock_embedding_func,
             )
@@ -729,6 +731,7 @@ class TestAinsertCustomKgBatchPath:
         with tempfile.TemporaryDirectory() as tmp:
             rag = LightRAG(
                 working_dir=tmp,
+                workspace=f"custom-status-{time.time_ns()}",
                 llm_model_func=AsyncMock(return_value=""),
                 embedding_func=mock_embedding_func,
             )
@@ -804,14 +807,16 @@ class TestAinsertCustomKgBatchPath:
         with tempfile.TemporaryDirectory() as tmp:
             rag = LightRAG(
                 working_dir=tmp,
+                workspace=f"custom-unknown-source-{time.time_ns()}",
                 llm_model_func=AsyncMock(return_value=""),
                 embedding_func=mock_embedding_func,
             )
             await rag.initialize_storages()
+            suffix = str(time.time_ns())
 
             await rag.ainsert_custom_chunks(
-                full_text="first chunk second chunk",
-                text_chunks=["first chunk", "second chunk"],
+                full_text=f"first chunk {suffix} second chunk {suffix}",
+                text_chunks=[f"first chunk {suffix}", f"second chunk {suffix}"],
                 doc_id="doc-custom-chunks-1",
                 file_path="custom/path/doc-custom-chunks-1.md",
             )
@@ -935,6 +940,62 @@ class TestAinsertCustomKgBatchPath:
 
     @pytest.mark.offline
     @pytest.mark.asyncio
+    async def test_ainsert_custom_chunks_auto_builds_graph_for_unknown_source(
+        self, monkeypatch
+    ):
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+            suffix = str(time.time_ns())
+
+            merge_calls: list[dict] = []
+
+            async def fake_extract(self, chunks, *_args):
+                return [("nodes", "edges", list(chunks.keys()))]
+
+            async def fake_merge(**kwargs):
+                merge_calls.append(
+                    {
+                        "doc_id": kwargs["doc_id"],
+                        "file_path": kwargs["file_path"],
+                        "chunk_results": kwargs["chunk_results"],
+                    }
+                )
+
+            monkeypatch.setattr(
+                rag,
+                "_process_extract_entities",
+                MethodType(fake_extract, rag),
+            )
+            monkeypatch.setattr("lightrag.lightrag.merge_nodes_and_edges", fake_merge)
+
+            await rag.ainsert_custom_chunks(
+                full_text=f"unknown source custom chunk full text {suffix}",
+                text_chunks=[f"chunk one {suffix}", f"chunk two {suffix}"],
+                doc_id="doc-custom-unknown-source-1",
+                file_path="unknown_source",
+            )
+
+            status = await rag.doc_status.get_by_id("doc-custom-unknown-source-1")
+            assert status is not None
+            assert status["status"] == DocStatus.PROCESSED
+            assert status["metadata"]["source"] == "custom_chunks"
+            assert len(merge_calls) == 1
+            assert merge_calls[0]["doc_id"] == "doc-custom-unknown-source-1"
+            assert merge_calls[0]["file_path"] == "unknown_source"
+            assert len(merge_calls[0]["chunk_results"]) == 1
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
     async def test_arebuild_all_custom_chunks_graphs_only_processes_custom_chunk_docs(
         self, monkeypatch
     ):
@@ -1042,6 +1103,118 @@ class TestAinsertCustomKgBatchPath:
             assert custom_status["metadata"]["source"] == "custom_chunks"
             assert normal_status is not None
             assert normal_status["metadata"]["source"] == "upload"
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_arebuild_all_custom_chunks_graphs_rebuilds_only_selected_doc_ids(
+        self, monkeypatch
+    ):
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        workspace = f"selected-rebuild-{time.time_ns()}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            selected_doc_id = "doc-selected-rebuild-1"
+            skipped_doc_id = "doc-skipped-rebuild-1"
+            selected_chunk_id = "chunk-selected-rebuild-1"
+            skipped_chunk_id = "chunk-skipped-rebuild-1"
+
+            await rag.full_docs.upsert(
+                {
+                    selected_doc_id: {"content": "selected full text", "file_path": "selected.md"},
+                    skipped_doc_id: {"content": "skipped full text", "file_path": "skipped.md"},
+                }
+            )
+            await rag.text_chunks.upsert(
+                {
+                    selected_chunk_id: {
+                        "content": "selected chunk text",
+                        "full_doc_id": selected_doc_id,
+                        "tokens": 3,
+                        "chunk_order_index": 0,
+                        "file_path": "selected.md",
+                    },
+                    skipped_chunk_id: {
+                        "content": "skipped chunk text",
+                        "full_doc_id": skipped_doc_id,
+                        "tokens": 3,
+                        "chunk_order_index": 0,
+                        "file_path": "skipped.md",
+                    },
+                }
+            )
+            await rag.doc_status.upsert(
+                {
+                    selected_doc_id: {
+                        "status": DocStatus.PROCESSED,
+                        "content_summary": "selected summary",
+                        "content_length": 16,
+                        "chunks_count": 1,
+                        "chunks_list": [selected_chunk_id],
+                        "created_at": "2026-05-09T00:00:00+00:00",
+                        "updated_at": "2026-05-09T00:00:00+00:00",
+                        "file_path": "selected.md",
+                        "track_id": "track-selected",
+                        "metadata": {"source": "upload"},
+                    },
+                    skipped_doc_id: {
+                        "status": DocStatus.PROCESSED,
+                        "content_summary": "skipped summary",
+                        "content_length": 16,
+                        "chunks_count": 1,
+                        "chunks_list": [skipped_chunk_id],
+                        "created_at": "2026-05-09T00:00:00+00:00",
+                        "updated_at": "2026-05-09T00:00:00+00:00",
+                        "file_path": "skipped.md",
+                        "track_id": "track-skipped",
+                        "metadata": {"source": "custom_chunks"},
+                    },
+                }
+            )
+
+            extract_calls: list[list[str]] = []
+            merge_calls: list[str] = []
+
+            async def fake_extract(self, chunks, *_args):
+                extract_calls.append(list(chunks.keys()))
+                return [("nodes", "edges")]
+
+            async def fake_merge(**kwargs):
+                merge_calls.append(kwargs["doc_id"])
+
+            monkeypatch.setattr(
+                rag,
+                "_process_extract_entities",
+                MethodType(fake_extract, rag),
+            )
+            monkeypatch.setattr("lightrag.lightrag.merge_nodes_and_edges", fake_merge)
+
+            summary = await rag.arebuild_all_custom_chunks_graphs([selected_doc_id])
+
+            assert summary["total_candidates"] == 1
+            assert summary["rebuilt"] == 1
+            assert summary["failed"] == 0
+            assert summary["skipped"] == 0
+            assert extract_calls == [[selected_chunk_id]]
+            assert merge_calls == [selected_doc_id]
+
+            selected_status = await rag.doc_status.get_by_id(selected_doc_id)
+            skipped_status = await rag.doc_status.get_by_id(skipped_doc_id)
+            assert selected_status is not None
+            assert selected_status["metadata"]["source"] == "upload"
+            assert skipped_status is not None
+            assert skipped_status["updated_at"] == "2026-05-09T00:00:00+00:00"
 
             await rag.finalize_storages()
 

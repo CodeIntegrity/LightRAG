@@ -282,6 +282,31 @@ class CustomChunksGraphRebuildResponse(BaseModel):
     )
 
 
+class RebuildGraphsRequest(BaseModel):
+    doc_ids: Optional[list[str]] = Field(
+        default=None,
+        description="Optional list of document IDs to rebuild. When omitted, rebuild all custom chunk graphs.",
+    )
+
+    @field_validator("doc_ids", mode="after")
+    @classmethod
+    def validate_doc_ids(
+        cls, doc_ids: Optional[list[str]]
+    ) -> Optional[list[str]]:
+        if doc_ids is None:
+            return None
+
+        validated_ids: list[str] = []
+        for doc_id in doc_ids:
+            if not isinstance(doc_id, str) or not doc_id.strip():
+                raise ValueError("Document ID cannot be empty")
+            normalized = doc_id.strip()
+            if normalized not in validated_ids:
+                validated_ids.append(normalized)
+
+        return validated_ids
+
+
 class InsertTextRequest(BaseModel):
     """Request model for inserting a single text document
 
@@ -2816,7 +2841,10 @@ def create_document_routes(
         response_model=CustomChunksGraphRebuildResponse,
         dependencies=[Depends(combined_auth)],
     )
-    async def rebuild_custom_chunks_graph(background_tasks: BackgroundTasks):
+    async def rebuild_custom_chunks_graph(
+        background_tasks: BackgroundTasks,
+        request: Optional[RebuildGraphsRequest] = None,
+    ):
         try:
             from lightrag.kg.shared_storage import (
                 get_namespace_data,
@@ -2839,7 +2867,10 @@ def create_document_routes(
                         message="Cannot rebuild custom chunk graphs while pipeline is busy.",
                     )
 
-            background_tasks.add_task(current_rag.arebuild_all_custom_chunks_graphs)
+            background_tasks.add_task(
+                current_rag.arebuild_all_custom_chunks_graphs,
+                request.doc_ids if request and request.doc_ids else None,
+            )
             return CustomChunksGraphRebuildResponse(
                 status="rebuild_started",
                 message="Custom chunk graph rebuild has been initiated in the background.",
@@ -2908,7 +2939,7 @@ def create_document_routes(
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.get(
-        "/{doc_id}/chunks",
+        "/{doc_id:path}/chunks",
         response_model=DocumentChunksResponse,
         dependencies=[Depends(combined_auth)],
     )

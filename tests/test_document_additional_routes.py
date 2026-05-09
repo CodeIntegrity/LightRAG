@@ -19,6 +19,7 @@ class _DummyRAG:
         self.last_custom_chunks_request: dict | None = None
         self.last_doc_ids_query: list[str] | None = None
         self.custom_chunk_rebuild_calls = 0
+        self.last_rebuild_doc_ids: list[str] | None = None
         self.workspace = "test-doc-routes"
         self.doc_status = _DummyDocStatusStorage()
         self.text_chunks = _DummyTextChunkStorage()
@@ -71,8 +72,11 @@ class _DummyRAG:
             ),
         }
 
-    async def arebuild_all_custom_chunks_graphs(self) -> None:
+    async def arebuild_all_custom_chunks_graphs(
+        self, doc_ids: list[str] | None = None
+    ) -> None:
         self.custom_chunk_rebuild_calls += 1
+        self.last_rebuild_doc_ids = doc_ids
 
 
 class _DummyDocStatusStorage:
@@ -101,6 +105,18 @@ class _DummyDocStatusStorage:
                 "chunks_list": ["chunk-b", "chunk-a"],
                 "metadata": {"source": "custom_chunks"},
             }
+        if doc_id == "folder/doc-custom-2":
+            return DocProcessingStatus(
+                content_summary="Custom chunk document with slash id",
+                content_length=100,
+                file_path="folder/doc-custom-2.md",
+                status=DocStatus.PROCESSED,
+                created_at="2026-03-31T12:00:00",
+                updated_at="2026-03-31T12:01:00",
+                chunks_count=2,
+                chunks_list=["chunk-b", "chunk-a"],
+                metadata={"source": "custom_chunks"},
+            )
         return None
 
 
@@ -199,6 +215,24 @@ def test_rebuild_custom_chunks_graph_route_schedules_background_task(
     body = response.json()
     assert body["status"] == "rebuild_started"
     assert rag.custom_chunk_rebuild_calls == 1
+    assert rag.last_rebuild_doc_ids is None
+
+
+def test_rebuild_custom_chunks_graph_route_accepts_selected_doc_ids(
+    tmp_path: Path, monkeypatch
+):
+    client, rag = _build_document_client(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/documents/rebuild_custom_chunks_graph",
+        json={"doc_ids": ["doc-custom-1", " doc-custom-dict ", "doc-custom-1"]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "rebuild_started"
+    assert rag.custom_chunk_rebuild_calls == 1
+    assert rag.last_rebuild_doc_ids == ["doc-custom-1", "doc-custom-dict"]
 
 
 def test_document_chunks_route_returns_chunk_content_in_doc_order(
@@ -238,5 +272,19 @@ def test_document_chunks_route_accepts_dict_doc_status(
     assert response.status_code == 200
     body = response.json()
     assert body["doc_id"] == "doc-custom-dict"
+    assert body["chunk_count"] == 2
+    assert [chunk["id"] for chunk in body["chunks"]] == ["chunk-b", "chunk-a"]
+
+
+def test_document_chunks_route_supports_doc_ids_with_slashes(
+    tmp_path: Path, monkeypatch
+):
+    client, _ = _build_document_client(tmp_path, monkeypatch)
+
+    response = client.get("/documents/folder%2Fdoc-custom-2/chunks")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["doc_id"] == "folder/doc-custom-2"
     assert body["chunk_count"] == 2
     assert [chunk["id"] for chunk in body["chunks"]] == ["chunk-b", "chunk-a"]

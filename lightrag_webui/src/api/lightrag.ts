@@ -503,6 +503,10 @@ export type CustomChunksGraphRebuildResponse = {
   track_id: string
 }
 
+export type RebuildGraphsRequest = {
+  doc_ids?: string[]
+}
+
 export type DocumentsRequest = {
   status_filter?: DocStatus | null
   page: number
@@ -1094,8 +1098,12 @@ export const reprocessFailedDocuments = async (): Promise<ReprocessFailedRespons
   return response.data
 }
 
-export const rebuildCustomChunksGraph = async (): Promise<CustomChunksGraphRebuildResponse> => {
-  const response = await axiosInstance.post('/documents/rebuild_custom_chunks_graph')
+export const rebuildCustomChunksGraph = async (
+  docIds?: string[]
+): Promise<CustomChunksGraphRebuildResponse> => {
+  const payload: RebuildGraphsRequest | undefined =
+    docIds && docIds.length > 0 ? { doc_ids: docIds } : undefined
+  const response = await axiosInstance.post('/documents/rebuild_custom_chunks_graph', payload)
   return response.data
 }
 

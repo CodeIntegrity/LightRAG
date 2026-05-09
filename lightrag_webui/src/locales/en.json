@@ -280,11 +280,16 @@
         "customChunks": "Custom Chunks"
       },
       "customChunksRebuild": {
-        "button": "Rebuild Custom Chunk Graphs",
-        "tooltip": "Rebuild the knowledge graph for all custom_chunks documents",
-        "started": "Started rebuilding graphs for all custom_chunks documents",
+        "button": "Rebuild Graphs",
+        "tooltip": "Rebuild graphs",
+        "confirmTitle": "Confirm graph rebuild",
+        "confirmSelected": "This will rebuild graphs for {{count}} selected documents",
+        "confirmAll": "This will rebuild all graphs",
+        "confirmButton": "Confirm Rebuild",
+        "started": "Started rebuilding all graphs",
+        "startedSelected": "Started rebuilding graphs for {{count}} selected documents",
         "busy": "Another pipeline job is already running",
-        "failed": "Failed to rebuild custom chunk graphs\n{{error}}"
+        "failed": "Failed to rebuild graphs\n{{error}}"
       },
       "status": {
         "all": "All",
