@@ -72,6 +72,10 @@ from lightrag.kg.shared_storage import (
     get_storage_keyed_lock,
 )
 
+_MIGRATION_PROBE_TIMEOUT_SECONDS = float(
+    os.getenv("LIGHTRAG_MIGRATION_PROBE_TIMEOUT_SECONDS", "5")
+)
+
 from lightrag.base import (
     BaseGraphStorage,
     BaseKVStorage,
@@ -1051,13 +1055,31 @@ class LightRAG:
         need_relation_migration = False
 
         try:
-            need_entity_migration = await self.entity_chunks.is_empty()
+            need_entity_migration = await asyncio.wait_for(
+                self.entity_chunks.is_empty(),
+                timeout=_MIGRATION_PROBE_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Skipping chunk_tracking migration: entity_chunks.is_empty() timed out after "
+                f"{_MIGRATION_PROBE_TIMEOUT_SECONDS}s"
+            )
+            return
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.error(f"Failed to check entity chunks storage: {exc}")
             raise exc
 
         try:
-            need_relation_migration = await self.relation_chunks.is_empty()
+            need_relation_migration = await asyncio.wait_for(
+                self.relation_chunks.is_empty(),
+                timeout=_MIGRATION_PROBE_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Skipping chunk_tracking migration: relation_chunks.is_empty() timed out after "
+                f"{_MIGRATION_PROBE_TIMEOUT_SECONDS}s"
+            )
+            return
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.error(f"Failed to check relation chunks storage: {exc}")
             raise exc

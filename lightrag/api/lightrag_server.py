@@ -673,6 +673,7 @@ def create_app(args):
     async def lifespan(app: FastAPI):
         """Lifespan context manager for startup and shutdown events"""
         app.state.background_tasks = set()
+        prune_task: asyncio.Task[None] | None = None
 
         async def _periodic_prune_idle_runtimes():
             while True:
@@ -698,11 +699,12 @@ def create_app(args):
             yield
 
         finally:
-            prune_task.cancel()
-            try:
-                await prune_task
-            except asyncio.CancelledError:
-                pass
+            if prune_task is not None:
+                prune_task.cancel()
+                try:
+                    await prune_task
+                except asyncio.CancelledError:
+                    pass
 
             await rag.finalize_storages()
 

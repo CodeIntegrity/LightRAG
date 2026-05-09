@@ -72,6 +72,11 @@ class _DummyRAG:
         }
 
 
+class _FailingStartupRAG(_DummyRAG):
+    async def initialize_storages(self):
+        raise ImportError("nebula3-python is required for NebulaGraphStorage")
+
+
 class _DummyOllamaAPI:
     def __init__(self, rag, top_k=60, api_key=None):
         self.router = APIRouter()
@@ -326,3 +331,55 @@ def test_create_app_does_not_require_bound_runtime_for_ollama_startup(
       response = client.get("/api/version")
 
     assert response.status_code == 200
+
+
+def test_create_app_preserves_startup_error_without_prune_task_unbound(
+    monkeypatch, tmp_path
+):
+    _DummyRAG.instances.clear()
+    _DummyRAG.finalized_instance_ids.clear()
+    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+
+    from lightrag.api import config as api_config
+    from lightrag.api import lightrag_server
+
+    monkeypatch.setattr(lightrag_server, "LightRAG", _FailingStartupRAG)
+    monkeypatch.setattr(lightrag_server, "OllamaAPI", _DummyOllamaAPI)
+    monkeypatch.setattr(
+        lightrag_server, "create_document_routes", lambda *args, **kwargs: APIRouter()
+    )
+    monkeypatch.setattr(
+        lightrag_server, "create_query_routes", lambda *args, **kwargs: APIRouter()
+    )
+    monkeypatch.setattr(
+        lightrag_server, "create_graph_routes", lambda *args, **kwargs: APIRouter()
+    )
+    monkeypatch.setattr(lightrag_server, "check_frontend_build", lambda: (False, False))
+    monkeypatch.setattr(
+        lightrag_server, "get_combined_auth_dependency", lambda *_: (lambda: None)
+    )
+    monkeypatch.setattr(
+        lightrag_server, "global_args", SimpleNamespace(cors_origins="*")
+    )
+    monkeypatch.setattr(lightrag_server, "cleanup_keyed_lock", lambda: {})
+    monkeypatch.setattr(lightrag_server, "get_default_workspace", lambda: "")
+
+    async def _fake_get_namespace_data(*args, **kwargs):
+        return {"busy": False}
+
+    monkeypatch.setattr(lightrag_server, "get_namespace_data", _fake_get_namespace_data)
+
+    args = api_config.parse_args()
+    args.working_dir = str(tmp_path / "rag_storage")
+    args.input_dir = str(tmp_path / "inputs")
+    args.workspace = ""
+    args.workspace_registry_path = str(tmp_path / "workspaces" / "registry.sqlite3")
+
+    app = lightrag_server.create_app(args)
+
+    with pytest.raises(ImportError, match="nebula3-python is required"):
+        with TestClient(app):
+            pass
+
+    assert len(_DummyRAG.instances) == 1
+    assert _DummyRAG.finalized_instance_ids == [id(_DummyRAG.instances[0])]
