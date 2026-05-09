@@ -473,6 +473,19 @@ export type DocStatusResponse = {
   file_path: string
 }
 
+export type DocumentChunkResponse = {
+  id: string
+  content: string
+  tokens?: number | null
+  order: number
+}
+
+export type DocumentChunksResponse = {
+  doc_id: string
+  chunk_count: number
+  chunks: DocumentChunkResponse[]
+}
+
 export type DocsStatusesResponse = {
   statuses: Record<DocStatus, DocStatusResponse[]>
 }
@@ -560,6 +573,20 @@ const isPaginatedDocsResponse = (value: unknown): value is PaginatedDocsResponse
   isPaginationInfo(value.pagination) &&
   isRecord(value.status_counts)
 
+const isDocumentChunkResponse = (value: unknown): value is DocumentChunkResponse =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.content === 'string' &&
+  typeof value.order === 'number' &&
+  (value.tokens === undefined || value.tokens === null || typeof value.tokens === 'number')
+
+const isDocumentChunksResponse = (value: unknown): value is DocumentChunksResponse =>
+  isRecord(value) &&
+  typeof value.doc_id === 'string' &&
+  typeof value.chunk_count === 'number' &&
+  Array.isArray(value.chunks) &&
+  value.chunks.every(isDocumentChunkResponse)
+
 const normalizePaginatedDocumentsResponse = (
   payload: unknown
 ): PaginatedDocsResponse => {
@@ -568,6 +595,16 @@ const normalizePaginatedDocumentsResponse = (
   }
 
   throw new Error('Unexpected paginated documents response format')
+}
+
+const normalizeDocumentChunksResponse = (
+  payload: unknown
+): DocumentChunksResponse => {
+  if (isDocumentChunksResponse(payload)) {
+    return payload
+  }
+
+  throw new Error('Unexpected document chunks response format')
 }
 
 export type AuthStatusResponse = {
@@ -1060,6 +1097,11 @@ export const reprocessFailedDocuments = async (): Promise<ReprocessFailedRespons
 export const rebuildCustomChunksGraph = async (): Promise<CustomChunksGraphRebuildResponse> => {
   const response = await axiosInstance.post('/documents/rebuild_custom_chunks_graph')
   return response.data
+}
+
+export const getDocumentChunks = async (docId: string): Promise<DocumentChunksResponse> => {
+  const response = await axiosInstance.get(`/documents/${encodeURIComponent(docId)}/chunks`)
+  return normalizeDocumentChunksResponse(response.data)
 }
 
 export const rebuildDocumentsFromIndexingVersion = async (

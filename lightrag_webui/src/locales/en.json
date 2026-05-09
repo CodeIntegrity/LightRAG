@@ -307,7 +307,29 @@
       "showButton": "Show",
       "hideButton": "Hide",
       "showFileNameTooltip": "Show file name",
-      "hideFileNameTooltip": "Hide file name"
+      "hideFileNameTooltip": "Hide file name",
+      "details": {
+        "title": "Document details",
+        "openTooltip": "View document details",
+        "copyTooltip": "Copy details",
+        "copySuccess": "Status details copied",
+        "copyFailed": "Failed to copy status details",
+        "copyChunksTooltip": "Copy chunks",
+        "copyChunksSuccess": "Chunk content copied",
+        "copyChunksFailed": "Failed to copy chunk content",
+        "copyChunkTooltip": "Copy chunk text",
+        "copyChunkSuccess": "Chunk text copied",
+        "copyChunkFailed": "Failed to copy chunk text",
+        "loadingChunks": "Loading chunks...",
+        "noChunks": "No chunk content available.",
+        "noDetails": "No status details available.",
+        "chunksLoadFailed": "Failed to load document chunks\n{{error}}",
+        "chunkLabel": "Chunk {{index}}",
+        "tabs": {
+          "details": "Details",
+          "chunks": "Chunks"
+        }
+      }
     },
     "pipelineStatus": {
       "title": "Pipeline Status",

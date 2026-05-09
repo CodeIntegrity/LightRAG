@@ -813,15 +813,26 @@ class TestAinsertCustomKgBatchPath:
                 full_text="first chunk second chunk",
                 text_chunks=["first chunk", "second chunk"],
                 doc_id="doc-custom-chunks-1",
+                file_path="custom/path/doc-custom-chunks-1.md",
             )
 
             status = await rag.doc_status.get_by_id("doc-custom-chunks-1")
             assert status is not None
             assert status["status"] == DocStatus.PROCESSED
             assert status["chunks_count"] == 2
+            assert status["file_path"] == "custom/path/doc-custom-chunks-1.md"
             assert isinstance(status["chunks_list"], list)
             assert len(status["chunks_list"]) == 2
             assert isinstance(status["track_id"], str) and status["track_id"]
+
+            stored_doc = await rag.full_docs.get_by_id("doc-custom-chunks-1")
+            assert stored_doc is not None
+            assert stored_doc["file_path"] == "custom/path/doc-custom-chunks-1.md"
+
+            for chunk_id in status["chunks_list"]:
+                chunk = await rag.text_chunks.get_by_id(chunk_id)
+                assert chunk is not None
+                assert chunk["file_path"] == "custom/path/doc-custom-chunks-1.md"
 
             (documents, total_count) = await rag.doc_status.get_docs_paginated(
                 status_filter=None,

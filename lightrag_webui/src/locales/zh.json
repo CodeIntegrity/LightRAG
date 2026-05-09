@@ -307,7 +307,29 @@
       "showButton": "显示",
       "hideButton": "隐藏",
       "showFileNameTooltip": "显示文件名",
-      "hideFileNameTooltip": "隐藏文件名"
+      "hideFileNameTooltip": "隐藏文件名",
+      "details": {
+        "title": "文档详情",
+        "openTooltip": "查看文档详情",
+        "copyTooltip": "复制详情",
+        "copySuccess": "状态详情已复制",
+        "copyFailed": "复制状态详情失败",
+        "copyChunksTooltip": "复制全部分块",
+        "copyChunksSuccess": "分块内容已复制",
+        "copyChunksFailed": "复制分块内容失败",
+        "copyChunkTooltip": "复制分块文本",
+        "copyChunkSuccess": "分块文本已复制",
+        "copyChunkFailed": "复制分块文本失败",
+        "loadingChunks": "正在加载分块...",
+        "noChunks": "暂无分块内容",
+        "noDetails": "暂无状态详情",
+        "chunksLoadFailed": "加载文档分块失败\n{{error}}",
+        "chunkLabel": "分块 {{index}}",
+        "tabs": {
+          "details": "详情",
+          "chunks": "分块"
+        }
+      }
     },
     "pipelineStatus": {
       "title": "流水线状态",

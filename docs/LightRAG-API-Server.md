@@ -713,6 +713,103 @@ The document processing pipeline in LightRAG is somewhat complex and is divided 
 
 Large files should be divided into smaller segments to enable incremental processing. Reprocessing of failed files can be initiated by pressing the "Scan" button on the web UI.
 
+### Custom Chunk Imports and Graph Rebuilds
+
+LightRAG exposes a dedicated document API for callers that already own chunk boundaries:
+
+- `POST /documents/import/custom-chunks`
+- `POST /documents/rebuild_custom_chunks_graph`
+
+#### `POST /documents/import/custom-chunks`
+
+Use this endpoint when an upstream system has already split the source text into chunks and you want LightRAG to index those exact chunk boundaries.
+
+Contract:
+
+- Request body includes `full_text`, `text_chunks`, optional `doc_id`, and optional `file_path`
+- The server stores a document status record with `metadata.source = "custom_chunks"`
+- When `file_path` is provided, the same path is stored in `doc_status`, `full_docs`, and persisted chunk metadata
+- Chunk persistence happens before entity and relationship extraction
+- Extraction and graph merge run inline in the same request
+- The endpoint does not create a background `track_id`
+
+Important behavior:
+
+- This path preserves caller-supplied chunk boundaries
+- It is different from `/documents/text`, `/documents/texts`, and `/documents/upload`, which enqueue the standard document pipeline and may re-chunk content with `chunking_func`
+- `file_path` is metadata only; it does not participate in `doc_id` generation or deduplication
+
+Example request:
+
+```json
+{
+  "doc_id": "custom-doc-1",
+  "file_path": "docs/custom/custom-doc-1.md",
+  "full_text": "Tesla is an electric vehicle company founded in the United States.",
+  "text_chunks": [
+    "Tesla is an electric vehicle company.",
+    "Tesla was founded in the United States."
+  ]
+}
+```
+
+#### `GET /documents/{doc_id}/chunks`
+
+Use this endpoint to inspect the persisted chunk content for a document in document order.
+
+Contract:
+
+- Looks up the document by `doc_id`
+- Reuses the stored `chunks_list` from `doc_status`
+- Returns chunk payloads in original document order
+- Intended for document detail inspection and debugging
+
+Example response:
+
+```json
+{
+  "doc_id": "custom-doc-1",
+  "chunk_count": 2,
+  "chunks": [
+    {
+      "id": "chunk-aaa",
+      "content": "Tesla is an electric vehicle company.",
+      "tokens": 7,
+      "order": 0
+    },
+    {
+      "id": "chunk-bbb",
+      "content": "Tesla was founded in the United States.",
+      "tokens": 8,
+      "order": 1
+    }
+  ]
+}
+```
+
+#### `POST /documents/rebuild_custom_chunks_graph`
+
+Use this endpoint when you need to rebuild graph data for all previously imported custom-chunk documents.
+
+Contract:
+
+- The server scans `doc_status` records where `metadata.source == "custom_chunks"`
+- Each candidate document reuses the stored `text_chunks` referenced by `chunks_list`
+- The rebuild path does **not** call the standard document chunker again
+- The job runs in the background and participates in the shared pipeline busy-state
+- If another pipeline job is already running, the endpoint returns `status="busy"`
+
+This distinction matters: custom chunk graph rebuild must reuse stored chunks, otherwise caller-defined chunk boundaries would be lost during reconstruction.
+
+#### Web UI Behavior
+
+The Document Management page now exposes this contract directly:
+
+- A global "Rebuild Custom Chunk Graphs" button triggers `POST /documents/rebuild_custom_chunks_graph`
+- The document table shows a `Source` column
+- Documents imported through `/documents/import/custom-chunks` are labeled `Custom Chunks`
+- The document details dialog can load and display persisted chunk content via `GET /documents/{doc_id}/chunks`
+
 ## API Endpoints
 
 All servers (LoLLMs, Ollama, OpenAI and Azure OpenAI) provide the same REST API endpoints for RAG functionality. When the API Server is running, visit:

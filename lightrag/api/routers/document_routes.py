@@ -824,6 +824,10 @@ class CustomChunksImportRequest(BaseModel):
         default=None,
         description="Optional document ID. If omitted, it will be derived from full_text.",
     )
+    file_path: Optional[str] = Field(
+        default=None,
+        description="Optional source file path for display and metadata.",
+    )
 
     @field_validator("full_text", mode="after")
     @classmethod
@@ -846,12 +850,37 @@ class CustomChunksImportRequest(BaseModel):
         normalized = doc_id.strip()
         return normalized or None
 
+    @field_validator("file_path", mode="before")
+    @classmethod
+    def normalize_file_path_before(cls, file_path: Optional[str]) -> Optional[str]:
+        if file_path is None:
+            return None
+        normalized = file_path.strip()
+        return normalized or None
+
 
 class CustomChunksImportResponse(BaseModel):
     status: Literal["success"] = Field(description="Import status")
     message: str = Field(description="Result message")
     doc_id: str = Field(description="Resolved document ID used for import")
     requested_chunk_count: int = Field(description="Number of chunks submitted")
+
+
+class DocumentChunkResponse(BaseModel):
+    id: str = Field(description="Chunk identifier")
+    content: str = Field(description="Chunk text content")
+    tokens: Optional[int] = Field(
+        default=None, description="Token count for the chunk if available"
+    )
+    order: int = Field(description="Original chunk order within the document")
+
+
+class DocumentChunksResponse(BaseModel):
+    doc_id: str = Field(description="Document identifier")
+    chunk_count: int = Field(description="Number of chunks returned")
+    chunks: list[DocumentChunkResponse] = Field(
+        default_factory=list, description="Chunk payloads in document order"
+    )
 
 
 class DocumentsByIdsRequest(BaseModel):
@@ -2835,6 +2864,7 @@ def create_document_routes(
                 request.full_text,
                 request.text_chunks,
                 resolved_doc_id,
+                request.file_path,
             )
             return CustomChunksImportResponse(
                 status="success",
@@ -2874,6 +2904,74 @@ def create_document_routes(
             )
         except Exception as e:
             logger.error(f"Error /documents/by-ids: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get(
+        "/{doc_id}/chunks",
+        response_model=DocumentChunksResponse,
+        dependencies=[Depends(combined_auth)],
+    )
+    async def get_document_chunks(doc_id: str) -> DocumentChunksResponse:
+        try:
+            normalized_doc_id = doc_id.strip()
+            if not normalized_doc_id:
+                raise HTTPException(status_code=400, detail="Document ID cannot be empty")
+
+            current_rag, _ = _current_runtime_objects()
+            doc_status = await current_rag.doc_status.get_by_id(normalized_doc_id)
+            if doc_status is None:
+                raise HTTPException(status_code=404, detail="Document not found")
+
+            raw_chunks_list = (
+                doc_status.get("chunks_list", [])
+                if isinstance(doc_status, dict)
+                else getattr(doc_status, "chunks_list", [])
+            )
+            chunk_ids = [
+                chunk_id.strip()
+                for chunk_id in (raw_chunks_list or [])
+                if isinstance(chunk_id, str) and chunk_id.strip()
+            ]
+            if not chunk_ids:
+                return DocumentChunksResponse(
+                    doc_id=normalized_doc_id,
+                    chunk_count=0,
+                    chunks=[],
+                )
+
+            chunk_payloads = await current_rag.text_chunks.get_by_ids(chunk_ids)
+            chunks: list[DocumentChunkResponse] = []
+            for fallback_order, (chunk_id, chunk_data) in enumerate(
+                zip(chunk_ids, chunk_payloads)
+            ):
+                if not isinstance(chunk_data, dict):
+                    continue
+
+                content = chunk_data.get("content")
+                if not isinstance(content, str):
+                    continue
+
+                tokens = chunk_data.get("tokens")
+                order = chunk_data.get("chunk_order_index")
+                chunks.append(
+                    DocumentChunkResponse(
+                        id=chunk_id,
+                        content=content,
+                        tokens=tokens if isinstance(tokens, int) else None,
+                        order=order if isinstance(order, int) else fallback_order,
+                    )
+                )
+
+            return DocumentChunksResponse(
+                doc_id=normalized_doc_id,
+                chunk_count=len(chunks),
+                chunks=chunks,
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error /documents/{doc_id}/chunks: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
 

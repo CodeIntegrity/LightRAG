@@ -20,14 +20,21 @@ class _DummyRAG:
         self.last_doc_ids_query: list[str] | None = None
         self.custom_chunk_rebuild_calls = 0
         self.workspace = "test-doc-routes"
+        self.doc_status = _DummyDocStatusStorage()
+        self.text_chunks = _DummyTextChunkStorage()
 
     async def ainsert_custom_chunks(
-        self, full_text: str, text_chunks: list[str], doc_id: str | None = None
+        self,
+        full_text: str,
+        text_chunks: list[str],
+        doc_id: str | None = None,
+        file_path: str | None = None,
     ) -> None:
         self.last_custom_chunks_request = {
             "full_text": full_text,
             "text_chunks": list(text_chunks),
             "doc_id": doc_id,
+            "file_path": file_path,
         }
 
     async def aget_docs_by_ids(
@@ -68,6 +75,52 @@ class _DummyRAG:
         self.custom_chunk_rebuild_calls += 1
 
 
+class _DummyDocStatusStorage:
+    async def get_by_id(self, doc_id: str) -> DocProcessingStatus | dict | None:
+        if doc_id == "doc-custom-1":
+            return DocProcessingStatus(
+                content_summary="Custom chunk document",
+                content_length=100,
+                file_path="",
+                status=DocStatus.PROCESSED,
+                created_at="2026-03-31T12:00:00",
+                updated_at="2026-03-31T12:01:00",
+                chunks_count=2,
+                chunks_list=["chunk-b", "chunk-a"],
+                metadata={"source": "custom_chunks"},
+            )
+        if doc_id == "doc-custom-dict":
+            return {
+                "content_summary": "Custom chunk document",
+                "content_length": 100,
+                "file_path": "",
+                "status": "processed",
+                "created_at": "2026-03-31T12:00:00",
+                "updated_at": "2026-03-31T12:01:00",
+                "chunks_count": 2,
+                "chunks_list": ["chunk-b", "chunk-a"],
+                "metadata": {"source": "custom_chunks"},
+            }
+        return None
+
+
+class _DummyTextChunkStorage:
+    async def get_by_ids(self, ids: list[str]) -> list[dict | None]:
+        chunks_by_id = {
+            "chunk-a": {
+                "content": "Alpha chunk body",
+                "tokens": 12,
+                "chunk_order_index": 1,
+            },
+            "chunk-b": {
+                "content": "Beta chunk body",
+                "tokens": 9,
+                "chunk_order_index": 0,
+            },
+        }
+        return [chunks_by_id.get(chunk_id) for chunk_id in ids]
+
+
 def _build_document_client(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
     initialize_share_data()
@@ -98,6 +151,7 @@ def test_import_custom_chunks_route_calls_core_method(tmp_path: Path, monkeypatc
             "full_text": "Alpha Beta",
             "text_chunks": ["Alpha", "Beta"],
             "doc_id": "doc-custom-1",
+            "file_path": "docs/custom/doc-custom-1.md",
         },
     )
 
@@ -110,6 +164,7 @@ def test_import_custom_chunks_route_calls_core_method(tmp_path: Path, monkeypatc
         "full_text": "Alpha Beta",
         "text_chunks": ["Alpha", "Beta"],
         "doc_id": "doc-custom-1",
+        "file_path": "docs/custom/doc-custom-1.md",
     }
 
 
@@ -144,3 +199,44 @@ def test_rebuild_custom_chunks_graph_route_schedules_background_task(
     body = response.json()
     assert body["status"] == "rebuild_started"
     assert rag.custom_chunk_rebuild_calls == 1
+
+
+def test_document_chunks_route_returns_chunk_content_in_doc_order(
+    tmp_path: Path, monkeypatch
+):
+    client, _ = _build_document_client(tmp_path, monkeypatch)
+
+    response = client.get("/documents/doc-custom-1/chunks")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["doc_id"] == "doc-custom-1"
+    assert body["chunk_count"] == 2
+    assert body["chunks"] == [
+        {
+            "id": "chunk-b",
+            "content": "Beta chunk body",
+            "tokens": 9,
+            "order": 0,
+        },
+        {
+            "id": "chunk-a",
+            "content": "Alpha chunk body",
+            "tokens": 12,
+            "order": 1,
+        },
+    ]
+
+
+def test_document_chunks_route_accepts_dict_doc_status(
+    tmp_path: Path, monkeypatch
+):
+    client, _ = _build_document_client(tmp_path, monkeypatch)
+
+    response = client.get("/documents/doc-custom-dict/chunks")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["doc_id"] == "doc-custom-dict"
+    assert body["chunk_count"] == 2
+    assert [chunk["id"] for chunk in body["chunks"]] == ["chunk-b", "chunk-a"]
