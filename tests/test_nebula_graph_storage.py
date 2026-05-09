@@ -15,6 +15,8 @@ from lightrag.kg import (
 )
 from lightrag.kg.nebula_impl import (
     _canonical_edge_pair,
+    _nebula_edge_vids,
+    _nebula_vid,
     _ngql_escape_string,
     _normalize_space_name,
     _parse_nebula_hosts,
@@ -1003,9 +1005,10 @@ async def test_nebula_upsert_and_get_node_roundtrip():
     assert "truncate" in upsert_sql
     assert "custom_properties_json" in upsert_sql
     assert "INSERT VERTEX entity" in upsert_sql
-    assert 'VALUES "A"' in upsert_sql
+    assert f'VALUES "{_nebula_vid("A")}"' in upsert_sql
     get_sql = execute_in_space.await_args_list[1].args[0]
-    assert "FETCH PROP ON entity" in get_sql
+    assert "MATCH (v:entity)" in get_sql
+    assert "v.entity.entity_id ==" in get_sql
     assert '"A"' in get_sql
 
 
@@ -1051,7 +1054,7 @@ async def test_nebula_upsert_node_writes_empty_name_when_missing():
     assert node["entity_id"] == "A"
     assert node["name"] == ""
     upsert_sql = execute_in_space.await_args_list[0].args[0]
-    assert 'VALUES "A"' in upsert_sql
+    assert f'VALUES "{_nebula_vid("A")}"' in upsert_sql
     assert ', "", "TypeX"' in upsert_sql
     assert '"A", "A", "TypeX"' not in upsert_sql
 
@@ -1081,6 +1084,110 @@ async def test_nebula_upsert_node_coerces_numeric_created_at_string():
     assert "INSERT VERTEX entity" in upsert_sql
     assert ', 123, ""' in upsert_sql
     assert '"123"' not in upsert_sql
+
+
+@pytest.mark.asyncio
+async def test_nebula_long_entity_id_uses_internal_vid_and_property_lookup():
+    storage = build_storage(workspace="finance")
+    entity_id = "拆采油树，组装防喷器组、试提原井生产管柱、LCC切割，起出切割后生产管柱、套铣、冲砂、打捞对接密封筒、打捞丢手管柱"
+    internal_vid = _nebula_vid(entity_id)
+    execute_in_space = AsyncMock(
+        side_effect=[
+            object(),
+            [
+                {
+                    "entity_id": entity_id,
+                    "name": entity_id,
+                    "entity_type": "TypeX",
+                    "description": "desc",
+                    "keywords": "k1,k2",
+                    "source_id": "src-1",
+                    "file_path": "doc/a.md",
+                    "created_at": 123,
+                    "truncate": "",
+                }
+            ],
+        ]
+    )
+
+    with patch.object(storage, "_execute_in_space", execute_in_space):
+        await storage.upsert_node(
+            entity_id,
+            {
+                "entity_id": entity_id,
+                "name": entity_id,
+                "entity_type": "TypeX",
+                "description": "desc",
+                "keywords": "k1,k2",
+                "source_id": "src-1",
+                "file_path": "doc/a.md",
+                "created_at": 123,
+                "truncate": "",
+            },
+        )
+        node = await storage.get_node(entity_id)
+
+    assert node is not None
+    assert node["entity_id"] == entity_id
+    upsert_sql = execute_in_space.await_args_list[0].args[0]
+    assert f'VALUES "{internal_vid}"' in upsert_sql
+    assert f'VALUES "{entity_id}"' not in upsert_sql
+    get_sql = execute_in_space.await_args_list[1].args[0]
+    assert "FETCH PROP ON entity" not in get_sql
+    assert "v.entity.entity_id ==" in get_sql
+    assert entity_id in get_sql
+
+
+@pytest.mark.asyncio
+async def test_nebula_long_entity_ids_use_internal_vids_for_edges_and_property_filters():
+    storage = build_storage(workspace="finance")
+    source_id = "拆采油树，组装防喷器组、试提原井生产管柱"
+    target_id = "下入生产管柱、拆BOP，安装采油树"
+    src_vid, tgt_vid = _nebula_edge_vids(source_id, target_id)
+    execute_in_space = AsyncMock(
+        side_effect=[
+            object(),
+            [
+                {
+                    "source": source_id,
+                    "target": target_id,
+                    "source_id": "chunk1",
+                    "target_id": "chunk2",
+                    "relationship": "rel",
+                    "description": "d",
+                    "keywords": "k1,k2",
+                    "weight": 1.0,
+                    "file_path": "doc/a.md",
+                }
+            ],
+        ]
+    )
+
+    with patch.object(storage, "_execute_in_space", execute_in_space):
+        await storage.upsert_edge(
+            source_id,
+            target_id,
+            {
+                "source_id": "chunk1",
+                "target_id": "chunk2",
+                "relationship": "rel",
+                "description": "d",
+                "keywords": "k1,k2",
+                "weight": 1.0,
+                "file_path": "doc/a.md",
+            },
+        )
+        edge = await storage.get_edge(source_id, target_id)
+
+    assert edge is not None
+    assert edge["source"] == source_id
+    assert edge["target"] == target_id
+    upsert_sql = execute_in_space.await_args_list[0].args[0]
+    assert f'"{src_vid}"->"{tgt_vid}"' in upsert_sql
+    assert f'"{source_id}"->"{target_id}"' not in upsert_sql
+    fetch_sql = execute_in_space.await_args_list[1].args[0]
+    assert "a.entity.entity_id ==" in fetch_sql
+    assert "b.entity.entity_id ==" in fetch_sql
 
 
 @pytest.mark.asyncio
@@ -1143,11 +1250,12 @@ async def test_nebula_edge_reads_are_undirected():
     assert "keywords" in upsert_sql
     assert "file_path" in upsert_sql
     assert "custom_properties_json" in upsert_sql
-    assert 'VALUES "A"->"B"' in upsert_sql
+    src_vid, tgt_vid = _nebula_edge_vids("A", "B")
+    assert f'VALUES "{src_vid}"->"{tgt_vid}"' in upsert_sql
     fetch_sql_1 = execute_in_space.await_args_list[1].args[0]
     fetch_sql_2 = execute_in_space.await_args_list[2].args[0]
-    assert 'WHERE id(a) == "A" AND id(b) == "B"' in fetch_sql_1
-    assert 'WHERE id(a) == "A" AND id(b) == "B"' in fetch_sql_2
+    assert 'WHERE a.entity.entity_id == "A" AND b.entity.entity_id == "B"' in fetch_sql_1
+    assert 'WHERE a.entity.entity_id == "A" AND b.entity.entity_id == "B"' in fetch_sql_2
 
 
 @pytest.mark.asyncio
@@ -1195,12 +1303,15 @@ async def test_nebula_upsert_edge_forces_canonical_source_target_properties():
     assert edge["keywords"] == "k1,k2"
     assert edge["file_path"] == "doc/a.md"
     upsert_sql = execute_in_space.await_args_list[0].args[0]
-    assert 'VALUES "A"->"B":("chunk1<SEP>chunk2", "meta-target"' in upsert_sql
+    src_vid, tgt_vid = _nebula_edge_vids("A", "B")
+    assert (
+        f'VALUES "{src_vid}"->"{tgt_vid}":("chunk1<SEP>chunk2", "meta-target"' in upsert_sql
+    )
     assert "keywords" in upsert_sql
     assert "file_path" in upsert_sql
     fetch_sql = execute_in_space.await_args_list[1].args[0]
-    assert "id(a) AS source" in fetch_sql
-    assert "id(b) AS target" in fetch_sql
+    assert "a.entity.entity_id AS source" in fetch_sql
+    assert "b.entity.entity_id AS target" in fetch_sql
 
 
 @pytest.mark.asyncio
@@ -1212,7 +1323,7 @@ async def test_nebula_delete_node_executes_delete_vertex():
 
     sql = execute_in_space.await_args_list[0].args[0]
     assert "DELETE VERTEX" in sql
-    assert '"A"' in sql
+    assert f'"{_nebula_vid("A")}"' in sql
 
 
 @pytest.mark.asyncio
@@ -1224,8 +1335,8 @@ async def test_nebula_remove_nodes_deletes_each_vertex_with_edges():
 
     sql_calls = [call.args[0] for call in execute_in_space.await_args_list]
     assert len(sql_calls) == 2
-    assert any('DELETE VERTEX "A" WITH EDGE;' == sql for sql in sql_calls)
-    assert any('DELETE VERTEX "B" WITH EDGE;' == sql for sql in sql_calls)
+    assert any(f'DELETE VERTEX "{_nebula_vid("A")}" WITH EDGE;' == sql for sql in sql_calls)
+    assert any(f'DELETE VERTEX "{_nebula_vid("B")}" WITH EDGE;' == sql for sql in sql_calls)
 
 
 @pytest.mark.asyncio
@@ -1236,10 +1347,10 @@ async def test_nebula_remove_edges_canonicalizes_pairs():
         await storage.remove_edges([("B", "A"), ("D", "C")])
 
     sql_calls = [call.args[0] for call in execute_in_space.await_args_list]
-    assert any('"A"->"B"' in sql for sql in sql_calls)
-    assert any('"C"->"D"' in sql for sql in sql_calls)
-    assert not any('"B"->"A"' in sql for sql in sql_calls)
-    assert not any('"D"->"C"' in sql for sql in sql_calls)
+    ab_vids = _nebula_edge_vids("A", "B")
+    cd_vids = _nebula_edge_vids("C", "D")
+    assert any(f'"{ab_vids[0]}"->"{ab_vids[1]}"' in sql for sql in sql_calls)
+    assert any(f'"{cd_vids[0]}"->"{cd_vids[1]}"' in sql for sql in sql_calls)
 
 
 @pytest.mark.asyncio
@@ -1342,7 +1453,7 @@ async def test_nebula_get_nodes_batch_uses_single_lookup_query():
     assert "v.entity.file_path AS file_path" in sql
     assert "v.entity.created_at AS created_at" in sql
     assert "v.entity.truncate AS truncate" in sql
-    assert "id(v) AS entity_id" in sql
+    assert "v.entity.entity_id AS entity_id" in sql
 
 
 @pytest.mark.asyncio
@@ -1420,8 +1531,8 @@ async def test_nebula_node_degrees_batch_aggregates_with_single_query():
             "MATCH (a:entity)-[e:relation]->(b:entity) RETURN id(a) AS source, id(b) AS target;",
         ],
     )
-    assert "id(a) AS source" in sql
-    assert "id(b) AS target" in sql
+    assert "a.entity.entity_id AS source" in sql
+    assert "b.entity.entity_id AS target" in sql
 
 
 @pytest.mark.asyncio
@@ -1513,8 +1624,8 @@ async def test_nebula_get_edges_batch_uses_canonical_pairs_and_preserves_keys():
             "MATCH (a:entity)-[e:relation]->(b:entity) RETURN id(a) AS source, id(b) AS target, e.source_id AS source_id, e.target_id AS target_id, e.relationship AS relationship, e.description AS description, e.weight AS weight;",
         ],
     )
-    assert "id(a) AS source" in sql
-    assert "id(b) AS target" in sql
+    assert "a.entity.entity_id AS source" in sql
+    assert "b.entity.entity_id AS target" in sql
     assert "e.keywords AS keywords" in sql
     assert "e.file_path AS file_path" in sql
 
@@ -1597,8 +1708,8 @@ async def test_nebula_get_nodes_edges_batch_returns_adjacency_mapping():
             "MATCH (a:entity)-[e:relation]->(b:entity) RETURN id(a) AS source, id(b) AS target;",
         ],
     )
-    assert "id(a) AS source" in sql
-    assert "id(b) AS target" in sql
+    assert "a.entity.entity_id AS source" in sql
+    assert "b.entity.entity_id AS target" in sql
 
 
 @pytest.mark.asyncio
@@ -1705,7 +1816,7 @@ async def test_nebula_get_all_labels_returns_sorted_entity_ids():
     assert execute_in_space.await_count == 1
     sql = execute_in_space.await_args_list[0].args[0]
     assert "MATCH (v:entity)" in sql
-    assert "id(v) AS entity_id" in sql
+    assert "v.entity.entity_id AS entity_id" in sql
 
 
 @pytest.mark.asyncio
