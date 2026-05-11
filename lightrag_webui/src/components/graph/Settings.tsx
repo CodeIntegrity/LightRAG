@@ -8,6 +8,7 @@ import Input from '@/components/ui/Input'
 import { controlButtonVariant } from '@/lib/constants'
 import { useSettingsStore } from '@/stores/settings'
 import { useGraphStore } from '@/stores/graph'
+import { saveGraphView, buildGraphViewKey } from '@/utils/graphViewPersistence'
 
 import { SettingsIcon, Undo2, Shuffle } from 'lucide-react'
 import { useTranslation } from 'react-i18next';
@@ -49,7 +50,8 @@ const LabeledNumberInput = ({
   label,
   min,
   max,
-  defaultValue
+  defaultValue,
+  step
 }: {
   value: number
   onEditFinished: (value: number) => void
@@ -57,6 +59,7 @@ const LabeledNumberInput = ({
   min: number
   max?: number
   defaultValue?: number
+  step?: number
 }) => {
   const { t } = useTranslation();
   const [currentValue, setCurrentValue] = useState<number | null>(value)
@@ -74,7 +77,7 @@ const LabeledNumberInput = ({
         setCurrentValue(null)
         return
       }
-      const newValue = Number.parseInt(text)
+      const newValue = step ? parseFloat(text) : Number.parseInt(text)
       if (!isNaN(newValue) && newValue !== currentValue) {
         if (min !== undefined && newValue < min) {
           return
@@ -161,6 +164,9 @@ export default function Settings() {
   const graphMaxNodes = useSettingsStore.use.graphMaxNodes()
   const backendMaxGraphNodes = useSettingsStore.use.backendMaxGraphNodes()
   const graphLayoutMaxIterations = useSettingsStore.use.graphLayoutMaxIterations()
+  const graphLayoutRepulsion = useSettingsStore.use.graphLayoutRepulsion()
+  const graphLayoutGravity = useSettingsStore.use.graphLayoutGravity()
+  const graphLayoutMargin = useSettingsStore.use.graphLayoutMargin()
 
   const enableHealthCheck = useSettingsStore.use.enableHealthCheck()
 
@@ -233,9 +239,40 @@ export default function Settings() {
     useSettingsStore.setState({ graphLayoutMaxIterations: iterations })
   }, [])
 
+  const setGraphLayoutRepulsion = useCallback((repulsion: number) => {
+    if (repulsion < 0.001) return
+    useSettingsStore.setState({ graphLayoutRepulsion: repulsion })
+  }, [])
+
+  const setGraphLayoutGravity = useCallback((gravity: number) => {
+    if (gravity < 0.001) return
+    useSettingsStore.setState({ graphLayoutGravity: gravity })
+  }, [])
+
+  const setGraphLayoutMargin = useCallback((margin: number) => {
+    if (margin < 1) return
+    useSettingsStore.setState({ graphLayoutMargin: margin })
+  }, [])
+
   const { t } = useTranslation();
 
-  const saveSettings = () => setOpened(false);
+  const saveSettings = () => {
+    const state = useSettingsStore.getState()
+    const graphState = useGraphStore.getState()
+    const viewKey = buildGraphViewKey(
+      state.currentWorkspace,
+      graphState.lastSuccessfulQueryLabel || '*'
+    )
+    saveGraphView(viewKey, {
+      layoutParams: {
+        repulsion: state.graphLayoutRepulsion,
+        gravity: state.graphLayoutGravity,
+        margin: state.graphLayoutMargin,
+        maxIterations: state.graphLayoutMaxIterations
+      }
+    })
+    setOpened(false)
+  }
 
   return (
     <>
@@ -380,6 +417,33 @@ export default function Settings() {
               value={graphLayoutMaxIterations}
               defaultValue={15}
               onEditFinished={setGraphLayoutMaxIterations}
+            />
+            <Separator />
+            <LabeledNumberInput
+              label={t('graphPanel.sideBar.settings.layoutRepulsion')}
+              min={0.001}
+              max={1}
+              value={graphLayoutRepulsion}
+              defaultValue={0.02}
+              step={0.001}
+              onEditFinished={setGraphLayoutRepulsion}
+            />
+            <LabeledNumberInput
+              label={t('graphPanel.sideBar.settings.layoutGravity')}
+              min={0.001}
+              max={1}
+              value={graphLayoutGravity}
+              defaultValue={0.02}
+              step={0.001}
+              onEditFinished={setGraphLayoutGravity}
+            />
+            <LabeledNumberInput
+              label={t('graphPanel.sideBar.settings.layoutMargin')}
+              min={1}
+              max={100}
+              value={graphLayoutMargin}
+              defaultValue={5}
+              onEditFinished={setGraphLayoutMargin}
             />
             {/* Development/Testing Section - Only visible in development mode */}
             {import.meta.env.DEV && (

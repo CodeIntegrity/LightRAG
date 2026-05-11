@@ -14,6 +14,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/Popover
 import { Command, CommandGroup, CommandItem, CommandList } from '@/components/ui/Command'
 import { controlButtonVariant } from '@/lib/constants'
 import { useSettingsStore } from '@/stores/settings'
+import { useGraphStore } from '@/stores/graph'
+import { saveGraphView, buildGraphViewKey } from '@/utils/graphViewPersistence'
 
 import { GripIcon, PlayIcon, PauseIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -199,6 +201,9 @@ const LayoutsControl = () => {
   const [opened, setOpened] = useState<boolean>(false)
 
   const maxIterations = useSettingsStore.use.graphLayoutMaxIterations()
+  const repulsion = useSettingsStore.use.graphLayoutRepulsion()
+  const gravity = useSettingsStore.use.graphLayoutGravity()
+  const margin = useSettingsStore.use.graphLayoutMargin()
 
   const layoutCircular = useLayoutCircular()
   const layoutCirclepack = useLayoutCirclepack()
@@ -206,7 +211,7 @@ const LayoutsControl = () => {
   const layoutNoverlap = useLayoutNoverlap({
     maxIterations: maxIterations,
     settings: {
-      margin: 5,
+      margin: margin,
       expansion: 1.1,
       gridSize: 1,
       ratio: 1,
@@ -217,11 +222,11 @@ const LayoutsControl = () => {
   const layoutForce = useLayoutForce({
     maxIterations: maxIterations,
     settings: {
-      attraction: 0.0003,  // Lower attraction force to reduce oscillation
-      repulsion: 0.02,     // Lower repulsion force to reduce oscillation
-      gravity: 0.02,      // Increase gravity to make nodes converge to center faster
-      inertia: 0.4,        // Lower inertia to add damping effect
-      maxMove: 100         // Limit maximum movement per step to prevent large jumps
+      attraction: 0.0003,
+      repulsion: repulsion,
+      gravity: gravity,
+      inertia: 0.4,
+      maxMove: 100
     }
   })
   const layoutForceAtlas2 = useLayoutForceAtlas2({ iterations: maxIterations })
@@ -260,6 +265,10 @@ const LayoutsControl = () => {
     layoutForceAtlas2,
     layoutNoverlap,
     layoutRandom,
+    repulsion,
+    gravity,
+    margin,
+    maxIterations,
     workerForce,
     workerNoverlap,
     workerForceAtlas2
@@ -281,6 +290,22 @@ const LayoutsControl = () => {
         console.log('Positions calculated, animating nodes')
         animateNodes(graph, pos, { duration: 400 })
         setLayout(newLayout)
+
+        const settings = useSettingsStore.getState()
+        const graphState = useGraphStore.getState()
+        const viewKey = buildGraphViewKey(
+          settings.currentWorkspace,
+          graphState.lastSuccessfulQueryLabel || '*'
+        )
+        saveGraphView(viewKey, {
+          layoutType: newLayout,
+          layoutParams: {
+            repulsion: repulsion,
+            gravity: gravity,
+            margin: margin,
+            maxIterations: maxIterations
+          }
+        })
       } catch (error) {
         console.error('Error running layout:', error)
       }

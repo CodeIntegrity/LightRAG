@@ -58,6 +58,15 @@ interface SettingsState {
   graphLayoutMaxIterations: number
   setGraphLayoutMaxIterations: (iterations: number) => void
 
+  graphLayoutRepulsion: number
+  setGraphLayoutRepulsion: (repulsion: number) => void
+
+  graphLayoutGravity: number
+  setGraphLayoutGravity: (gravity: number) => void
+
+  graphLayoutMargin: number
+  setGraphLayoutMargin: (margin: number) => void
+
   // Retrieval settings
   queryLabel: string
   setQueryLabel: (queryLabel: string) => void
@@ -121,6 +130,9 @@ const useSettingsStoreBase = create<SettingsState>()(
       graphMaxNodes: 10000,
       backendMaxGraphNodes: null,
       graphLayoutMaxIterations: 15,
+      graphLayoutRepulsion: 0.02,
+      graphLayoutGravity: 0.02,
+      graphLayoutMargin: 5,
 
       queryLabel: defaultQueryLabel,
 
@@ -168,6 +180,21 @@ const useSettingsStoreBase = create<SettingsState>()(
       setGraphLayoutMaxIterations: (iterations: number) =>
         set({
           graphLayoutMaxIterations: iterations
+        }),
+
+      setGraphLayoutRepulsion: (repulsion: number) =>
+        set({
+          graphLayoutRepulsion: repulsion
+        }),
+
+      setGraphLayoutGravity: (gravity: number) =>
+        set({
+          graphLayoutGravity: gravity
+        }),
+
+      setGraphLayoutMargin: (margin: number) =>
+        set({
+          graphLayoutMargin: margin
         }),
 
       setQueryLabel: (queryLabel: string) =>
@@ -286,7 +313,7 @@ const useSettingsStoreBase = create<SettingsState>()(
     {
       name: 'settings-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 25,
+      version: 26,
       migrate: (state: any, version: number) => {
         if (version < 2) {
           state.showEdgeLabel = false
@@ -417,6 +444,11 @@ const useSettingsStoreBase = create<SettingsState>()(
             include_references: state.querySettings?.include_references ?? true,
             include_chunk_content: state.querySettings?.include_chunk_content ?? false
           }
+        }
+        if (version < 26) {
+          state.graphLayoutRepulsion = 0.02
+          state.graphLayoutGravity = 0.02
+          state.graphLayoutMargin = 5
         }
         return state
       }

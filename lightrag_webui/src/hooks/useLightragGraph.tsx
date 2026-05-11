@@ -22,6 +22,7 @@ import seedrandom from 'seedrandom'
 import { resolveNodeColor, DEFAULT_NODE_COLOR } from '@/utils/graphColor'
 import { resolveNodeDisplayName } from '@/utils/graphLabel'
 import { normalizeGraphEdgePayload, normalizeGraphNodePayload } from '@/utils/graphPayload'
+import { loadGraphView, buildGraphViewKey } from '@/utils/graphViewPersistence'
 
 // Select color based on node type
 const getNodeColorByType = (nodeType: string | undefined): string => {
@@ -232,16 +233,11 @@ const createSigmaGraph = (rawGraph: RawGraph | null) => {
 
   // Add nodes from raw graph data
   for (const rawNode of rawGraph?.nodes ?? []) {
-    // Use local PRNG to avoid polluting global Math.random
-    const rng = seedrandom(rawNode.id + Date.now().toString())
-    const x = rng()
-    const y = rng()
-
     graph.addNode(rawNode.id, {
       label: resolveNodeDisplayName(rawNode),
       color: rawNode.color,
-      x: x,
-      y: y,
+      x: rawNode.x,
+      y: rawNode.y,
       size: rawNode.size,
       // for node-border
       borderColor: Constants.nodeBorderColor,
@@ -441,6 +437,38 @@ const useLightrangeGraph = () => {
           nextState.setViewState('empty')
           nextState.setLastSuccessfulQueryLabel('')
         } else {
+          const currentWorkspace = useSettingsStore.getState().currentWorkspace
+          const viewKey = buildGraphViewKey(currentWorkspace, currentQueryLabel || '*')
+          const persistedView = loadGraphView(viewKey)
+
+          if (persistedView) {
+            if (persistedView.nodePositions) {
+              for (const node of data.nodes) {
+                const pos = persistedView.nodePositions[node.id]
+                if (pos) {
+                  node.x = pos.x
+                  node.y = pos.y
+                }
+              }
+            }
+
+            if (persistedView.layoutParams) {
+              const settings = useSettingsStore.getState()
+              if (persistedView.layoutParams.repulsion !== undefined) {
+                settings.setGraphLayoutRepulsion(persistedView.layoutParams.repulsion)
+              }
+              if (persistedView.layoutParams.gravity !== undefined) {
+                settings.setGraphLayoutGravity(persistedView.layoutParams.gravity)
+              }
+              if (persistedView.layoutParams.margin !== undefined) {
+                settings.setGraphLayoutMargin(persistedView.layoutParams.margin)
+              }
+              if (persistedView.layoutParams.maxIterations !== undefined) {
+                settings.setGraphLayoutMaxIterations(persistedView.layoutParams.maxIterations)
+              }
+            }
+          }
+
           const newSigmaGraph = createSigmaGraph(data)
           data.buildDynamicMap()
           nextState.setSigmaGraph(newSigmaGraph)

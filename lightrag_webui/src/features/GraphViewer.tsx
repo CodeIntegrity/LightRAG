@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 // import { MiniMap } from '@react-sigma/minimap'
-import { SigmaContainer, useRegisterEvents, useSigma } from '@react-sigma/core'
+import { SigmaContainer } from '@react-sigma/core'
 import { Settings as SigmaSettings } from 'sigma/settings'
 import { GraphSearchOption, OptionItem } from '@react-sigma/graph-search'
 import { EdgeArrowProgram, NodePointProgram, NodeCircleProgram } from 'sigma/rendering'
@@ -69,43 +69,6 @@ const createSigmaSettings = (isDarkTheme: boolean): Partial<SigmaSettings> => ({
   // labelFont: 'Lato, sans-serif'
 })
 
-const GraphEvents = () => {
-  const registerEvents = useRegisterEvents()
-  const sigma = useSigma()
-  const [draggedNode, setDraggedNode] = useState<string | null>(null)
-
-  useEffect(() => {
-    registerEvents({
-      downNode: (e) => {
-        setDraggedNode(e.node)
-        sigma.getGraph().setNodeAttribute(e.node, 'highlighted', true)
-      },
-      mousemovebody: (e) => {
-        if (!draggedNode) return
-        const pos = sigma.viewportToGraph(e)
-        sigma.getGraph().setNodeAttribute(draggedNode, 'x', pos.x)
-        sigma.getGraph().setNodeAttribute(draggedNode, 'y', pos.y)
-        e.preventSigmaDefault()
-        e.original.preventDefault()
-        e.original.stopPropagation()
-      },
-      mouseup: () => {
-        if (draggedNode) {
-          setDraggedNode(null)
-          sigma.getGraph().removeNodeAttribute(draggedNode, 'highlighted')
-        }
-      },
-      mousedown: () => {
-        if (!sigma.getCustomBBox()) {
-          sigma.setCustomBBox(sigma.getBBox())
-        }
-      }
-    })
-  }, [registerEvents, sigma, draggedNode])
-
-  return null
-}
-
 const GraphViewer = () => {
   useLightragGraph()
   const { t } = useTranslation()
@@ -123,7 +86,6 @@ const GraphViewer = () => {
 
   const showPropertyPanel = useSettingsStore.use.showPropertyPanel()
   const showNodeSearchBar = useSettingsStore.use.showNodeSearchBar()
-  const enableNodeDrag = useSettingsStore.use.enableNodeDrag()
   const showLegend = useSettingsStore.use.showLegend()
   const theme = useSettingsStore.use.theme()
 
@@ -228,8 +190,6 @@ const GraphViewer = () => {
             ref={sigmaRef}
           >
             <GraphControl />
-
-            {enableNodeDrag && <GraphEvents />}
 
             <FocusOnNode node={autoFocusedNode} move={moveToSelectedNode} />
 

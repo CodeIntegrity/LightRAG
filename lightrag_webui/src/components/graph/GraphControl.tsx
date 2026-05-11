@@ -2,7 +2,7 @@ import { useRegisterEvents, useSetSettings, useSigma } from '@react-sigma/core'
 import { AbstractGraph } from 'graphology-types'
 // import { useLayoutCircular } from '@react-sigma/layout-circular'
 import { useLayoutForceAtlas2 } from '@react-sigma/layout-forceatlas2'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // import useRandomGraph, { EdgeType, NodeType } from '@/hooks/useRandomGraph'
 import { EdgeType, NodeType } from '@/hooks/useLightragGraph'
@@ -11,6 +11,7 @@ import * as Constants from '@/lib/constants'
 
 import { useSettingsStore } from '@/stores/settings'
 import { useGraphStore } from '@/stores/graph'
+import { saveGraphView, buildGraphViewKey } from '@/utils/graphViewPersistence'
 
 const isButtonPressed = (ev: MouseEvent | TouchEvent) => {
   if (ev.type.startsWith('mouse')) {
@@ -36,6 +37,7 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
   const enableEdgeEvents = useSettingsStore.use.enableEdgeEvents()
   const renderEdgeLabels = useSettingsStore.use.showEdgeLabel()
   const renderLabels = useSettingsStore.use.showNodeLabel()
+  const enableNodeDrag = useSettingsStore.use.enableNodeDrag()
   const minEdgeSize = useSettingsStore.use.minEdgeSize()
   const maxEdgeSize = useSettingsStore.use.maxEdgeSize()
   const selectedNode = useGraphStore.use.selectedNode()
@@ -43,6 +45,10 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
   const selectedEdge = useGraphStore.use.selectedEdge()
   const focusedEdge = useGraphStore.use.focusedEdge()
   const sigmaGraph = useGraphStore.use.sigmaGraph()
+  const rawGraph = useGraphStore.use.rawGraph()
+
+  const draggedNodeRef = useRef<string | null>(null)
+  const wasDraggingRef = useRef(false)
 
   // Track system theme changes when theme is set to 'system'
   const [systemThemeIsDark, setSystemThemeIsDark] = useState(() =>
@@ -126,6 +132,10 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
         }
       },
       clickNode: (event: NodeEvent) => {
+        if (wasDraggingRef.current) {
+          wasDraggingRef.current = false
+          return
+        }
         const graph = sigma.getGraph()
         if (graph.hasNode(event.node)) {
           setSelectedNode(event.node)
@@ -163,6 +173,82 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
       // cleanup placeholder
     }
   }, [registerEvents, enableEdgeEvents, sigma])
+
+  useEffect(() => {
+    if (!enableNodeDrag) {
+      return
+    }
+
+    const { setSelectedNode } = useGraphStore.getState()
+
+    const dragEvents: Record<string, any> = {
+      downNode: (event: NodeEvent) => {
+        const graph = sigma.getGraph()
+        if (graph.hasNode(event.node)) {
+          draggedNodeRef.current = event.node
+          graph.setNodeAttribute(event.node, 'highlighted', true)
+        }
+      },
+      mousemovebody: (event: any) => {
+        if (!draggedNodeRef.current) return
+        const pos = sigma.viewportToGraph(event)
+        const graph = sigma.getGraph()
+        if (!graph.hasNode(draggedNodeRef.current)) return
+        graph.setNodeAttribute(draggedNodeRef.current, 'x', pos.x)
+        graph.setNodeAttribute(draggedNodeRef.current, 'y', pos.y)
+        wasDraggingRef.current = true
+        event.preventSigmaDefault()
+        event.original.preventDefault()
+        event.original.stopPropagation()
+      },
+      mouseup: () => {
+        if (draggedNodeRef.current) {
+          const nodeId = draggedNodeRef.current
+          const graph = sigma.getGraph()
+          if (graph.hasNode(nodeId)) {
+            graph.removeNodeAttribute(nodeId, 'highlighted')
+            const state = useGraphStore.getState()
+            const rg = state.rawGraph
+            if (rg) {
+              const idx = rg.nodeIdMap[nodeId]
+              if (idx !== undefined && rg.nodes[idx]) {
+                rg.nodes[idx].x = graph.getNodeAttribute(nodeId, 'x') as number
+                rg.nodes[idx].y = graph.getNodeAttribute(nodeId, 'y') as number
+              }
+
+              const settings = useSettingsStore.getState()
+              const viewKey = buildGraphViewKey(
+                settings.currentWorkspace,
+                state.lastSuccessfulQueryLabel || '*'
+              )
+              saveGraphView(viewKey, {
+                nodePositions: {
+                  [nodeId]: {
+                    x: graph.getNodeAttribute(nodeId, 'x') as number,
+                    y: graph.getNodeAttribute(nodeId, 'y') as number
+                  }
+                }
+              })
+            }
+          }
+          draggedNodeRef.current = null
+        }
+      },
+      mousedown: () => {
+        wasDraggingRef.current = false
+        if (!sigma.getCustomBBox()) {
+          sigma.setCustomBBox(sigma.getBBox())
+        }
+      }
+    }
+
+    registerEvents(dragEvents)
+
+    return () => {
+      draggedNodeRef.current = null
+      wasDraggingRef.current = false
+    }
+  }, [registerEvents, sigma, enableNodeDrag])
 
   /**
    * When edge size settings change, recalculate edge sizes and refresh the sigma instance
