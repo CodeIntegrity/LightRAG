@@ -19,8 +19,6 @@ from lightrag.constants import DEFAULT_MAX_GRAPH_NODES
 from lightrag.utils import logger
 from ..utils_api import get_combined_auth_dependency
 
-router = APIRouter(tags=["graph"])
-
 class EntityUpdateRequest(BaseModel):
     entity_name: str
     updated_data: Dict[str, Any]
@@ -449,6 +447,10 @@ def _cleanup_export_file(path: str) -> None:
 
 
 def create_graph_routes(rag, api_key: Optional[str] = None):
+    # Fresh router per call. A module-level instance would accumulate
+    # duplicate routes when the factory is invoked more than once in the
+    # same process (e.g. across tests), which triggers FastAPI's
+    # "Duplicate Operation ID" warnings.
     router = APIRouter(tags=["graph"])
     combined_auth = get_combined_auth_dependency(api_key)
 

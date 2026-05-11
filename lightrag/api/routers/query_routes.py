@@ -11,6 +11,9 @@ from lightrag.prompt import validate_prompt_config
 from lightrag.utils import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+# Compatibility shim for tests that clear module-level routes before
+# reloading the factory. Real route registration happens inside
+# `create_query_routes`.
 router = APIRouter(tags=["query"])
 QUERY_ROUTE_PROMPT_OVERRIDE_FAMILIES = {"query", "keywords"}
 
@@ -36,7 +39,6 @@ class QueryPromptOverridesPayload(BaseModel):
 
     query: Optional[QueryPromptQueryOverrides] = Field(default=None)
     keywords: Optional[QueryPromptKeywordsOverrides] = Field(default=None)
-
 
 class QueryRequest(BaseModel):
     query: str = Field(
@@ -236,13 +238,16 @@ class StreamChunkResponse(BaseModel):
         default=None, description="Error message if processing fails"
     )
 
-
 def create_query_routes(
     rag,
     api_key: Optional[str] = None,
     top_k: int = 60,
     allow_prompt_overrides_via_api: bool = False,
 ):
+    # Fresh router per call. A module-level instance would accumulate
+    # duplicate routes when the factory is invoked more than once in the
+    # same process (e.g. across tests), which triggers FastAPI's
+    # "Duplicate Operation ID" warnings.
     router = APIRouter(tags=["query"])
     combined_auth = get_combined_auth_dependency(api_key)
 
