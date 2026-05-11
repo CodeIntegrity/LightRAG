@@ -82,7 +82,7 @@ from lightrag.utils import logger, set_verbose_debug
 from lightrag.kg.shared_storage import (
     get_namespace_data,
     get_default_workspace,
-    # set_default_workspace,
+    set_default_workspace,
     cleanup_keyed_lock,
     finalize_share_data,
 )
@@ -423,6 +423,7 @@ def create_app(args):
         args.workspace_registry_path,
         busy_timeout_ms=args.workspace_registry_busy_timeout_ms,
     )
+    set_default_workspace(args.workspace)
     # Keep default workspace metadata available even before ASGI lifespan runs.
     # Some tests instantiate `TestClient` without an explicit context manager,
     # which means startup may not have initialized the registry yet.
