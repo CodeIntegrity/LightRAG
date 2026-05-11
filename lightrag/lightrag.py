@@ -1198,10 +1198,12 @@ class LightRAG:
                 )
 
     async def get_graph_labels(self):
+        await self.initialize_storages()
         text = await self.chunk_entity_relation_graph.get_all_labels()
         return text
 
     async def get_graph_entity_types(self) -> list[str]:
+        await self.initialize_storages()
         labels = await self.chunk_entity_relation_graph.get_all_labels()
         if not labels:
             return []
@@ -1385,6 +1387,8 @@ class LightRAG:
         doc_status_initialized = False
         doc_status_payload: dict[str, Any] | None = None
         try:
+            await self.initialize_storages()
+
             # Clean input texts
             full_text = sanitize_text_for_encoding(full_text)
             text_chunks = [sanitize_text_for_encoding(chunk) for chunk in text_chunks]
@@ -1508,6 +1512,8 @@ class LightRAG:
     async def arebuild_all_custom_chunks_graphs(
         self, doc_ids: list[str] | None = None
     ) -> dict[str, int]:
+        await self.initialize_storages()
+
         pipeline_status = await get_namespace_data(
             "pipeline_status", workspace=self.workspace
         )
@@ -2837,6 +2843,8 @@ class LightRAG:
                 return tuple(_sanitize_metadata(item) for item in value)
             return value
 
+        await self.initialize_storages()
+
         track_id = generate_track_id("custom_kg")
         update_storage = False
         full_doc_id_resolved: str | None = None
@@ -3978,6 +3986,8 @@ class LightRAG:
             and values are the corresponding DocProcessingStatus objects. IDs that
             are not found in the storage will be omitted from the result dictionary.
         """
+        await self.initialize_storages()
+
         if isinstance(ids, str):
             # Ensure input is always a list of IDs for uniform processing
             id_list = [ids]

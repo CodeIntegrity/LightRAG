@@ -349,6 +349,160 @@ class TestAinsertCustomKgBatchPath:
 
     @pytest.mark.offline
     @pytest.mark.asyncio
+    async def test_get_graph_labels_initializes_storages_on_demand(self):
+        from lightrag import LightRAG
+        from lightrag.base import StoragesStatus
+
+        workspace = f"graph-labels-lazy-init-{time.time_ns()}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            seed_rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await seed_rag.initialize_storages()
+            await seed_rag.chunk_entity_relation_graph.upsert_node(
+                "LabelEntityA",
+                node_data=_make_node("LabelEntityA", "CONCEPT"),
+            )
+            await seed_rag.chunk_entity_relation_graph.upsert_node(
+                "LabelEntityB",
+                node_data=_make_node("LabelEntityB", "TOPIC"),
+            )
+            await seed_rag.chunk_entity_relation_graph.index_done_callback()
+            await seed_rag.finalize_storages()
+
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            assert rag._storages_status == StoragesStatus.CREATED
+
+            labels = await rag.get_graph_labels()
+
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+            assert set(labels) >= {"LabelEntityA", "LabelEntityB"}
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_get_graph_entity_types_initializes_storages_on_demand(self):
+        from lightrag import LightRAG
+        from lightrag.base import StoragesStatus
+
+        workspace = f"graph-types-lazy-init-{time.time_ns()}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            seed_rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await seed_rag.initialize_storages()
+            await seed_rag.chunk_entity_relation_graph.upsert_node(
+                "TypeEntityA",
+                node_data=_make_node("TypeEntityA", "CONCEPT"),
+            )
+            await seed_rag.chunk_entity_relation_graph.upsert_node(
+                "TypeEntityB",
+                node_data=_make_node("TypeEntityB", "TOPIC"),
+            )
+            await seed_rag.chunk_entity_relation_graph.index_done_callback()
+            await seed_rag.finalize_storages()
+
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            assert rag._storages_status == StoragesStatus.CREATED
+
+            entity_types = await rag.get_graph_entity_types()
+
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+            assert set(entity_types) >= {"CONCEPT", "TOPIC"}
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_aget_docs_by_ids_initializes_storages_on_demand(self):
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus, StoragesStatus
+
+        workspace = f"docs-by-id-lazy-init-{time.time_ns()}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            seed_rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await seed_rag.initialize_storages()
+            await seed_rag.ainsert_custom_chunks(
+                full_text="docs by id lazy init full text",
+                text_chunks=["docs by id chunk"],
+                doc_id="doc-lazy-docs-by-id-1",
+                file_path="docs/by-id.md",
+            )
+            await seed_rag.finalize_storages()
+
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            assert rag._storages_status == StoragesStatus.CREATED
+
+            docs = await rag.aget_docs_by_ids("doc-lazy-docs-by-id-1")
+
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+            assert "doc-lazy-docs-by-id-1" in docs
+            assert docs["doc-lazy-docs-by-id-1"]["status"] == DocStatus.PROCESSED
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_initializes_storages_on_demand(self):
+        """ainsert_custom_kg should initialize storages when caller skipped setup."""
+        from lightrag import LightRAG
+        from lightrag.base import StoragesStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=f"custom-kg-lazy-init-{time.time_ns()}",
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            assert rag._storages_status == StoragesStatus.CREATED
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+            rag.text_chunks.upsert = AsyncMock()
+            rag.doc_status.upsert = AsyncMock(wraps=rag.doc_status.upsert)
+
+            result = await rag.ainsert_custom_kg(self._make_custom_kg())
+
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+            assert result["entity_count"] == 2
+            assert result["relationship_count"] == 1
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
     async def test_ainsert_custom_kg_calls_batch_methods(self):
         """upsert_nodes_batch, has_nodes_batch, upsert_edges_batch must all be called."""
         from lightrag import LightRAG
@@ -799,6 +953,36 @@ class TestAinsertCustomKgBatchPath:
 
     @pytest.mark.offline
     @pytest.mark.asyncio
+    async def test_ainsert_custom_chunks_initializes_storages_on_demand(self):
+        """ainsert_custom_chunks should initialize storages when caller skipped setup."""
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus, StoragesStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=f"custom-lazy-init-{time.time_ns()}",
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            assert rag._storages_status == StoragesStatus.CREATED
+
+            await rag.ainsert_custom_chunks(
+                full_text="lazy init chunk full text",
+                text_chunks=["lazy init chunk one", "lazy init chunk two"],
+                doc_id="doc-custom-lazy-init-1",
+                file_path="custom/path/doc-custom-lazy-init-1.md",
+            )
+
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+            status = await rag.doc_status.get_by_id("doc-custom-lazy-init-1")
+            assert status is not None
+            assert status["status"] == DocStatus.PROCESSED
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
     async def test_ainsert_custom_chunks_writes_doc_status_for_webui_visibility(self):
         """ainsert_custom_chunks must write doc_status so /documents/paginated can see it."""
         from lightrag import LightRAG
@@ -991,6 +1175,70 @@ class TestAinsertCustomKgBatchPath:
             assert merge_calls[0]["doc_id"] == "doc-custom-unknown-source-1"
             assert merge_calls[0]["file_path"] == "unknown_source"
             assert len(merge_calls[0]["chunk_results"]) == 1
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_arebuild_all_custom_chunks_graphs_initializes_storages_on_demand(
+        self, monkeypatch
+    ):
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus, StoragesStatus
+
+        workspace = f"custom-rebuild-lazy-init-{time.time_ns()}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            seed_rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await seed_rag.initialize_storages()
+            await seed_rag.ainsert_custom_chunks(
+                full_text="lazy rebuild full text",
+                text_chunks=["lazy rebuild chunk"],
+                doc_id="doc-custom-rebuild-lazy-init-1",
+                file_path="custom/path/doc-custom-rebuild-lazy-init-1.md",
+            )
+            await seed_rag.finalize_storages()
+
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            assert rag._storages_status == StoragesStatus.CREATED
+
+            extract_calls: list[list[str]] = []
+            merge_calls: list[str] = []
+
+            async def fake_extract(self, chunks, *_args):
+                extract_calls.append(list(chunks.keys()))
+                return [("nodes", "edges")]
+
+            async def fake_merge(**kwargs):
+                merge_calls.append(kwargs["doc_id"])
+
+            monkeypatch.setattr(
+                rag,
+                "_process_extract_entities",
+                MethodType(fake_extract, rag),
+            )
+            monkeypatch.setattr("lightrag.lightrag.merge_nodes_and_edges", fake_merge)
+
+            summary = await rag.arebuild_all_custom_chunks_graphs()
+
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+            assert summary["rebuilt"] == 1
+            assert extract_calls
+            assert merge_calls == ["doc-custom-rebuild-lazy-init-1"]
+
+            status = await rag.doc_status.get_by_id("doc-custom-rebuild-lazy-init-1")
+            assert status is not None
+            assert status["status"] == DocStatus.PROCESSED
 
             await rag.finalize_storages()
 
