@@ -71,11 +71,6 @@ from lightrag.kg.shared_storage import (
     get_namespace_lock,
     get_storage_keyed_lock,
 )
-
-_MIGRATION_PROBE_TIMEOUT_SECONDS = float(
-    os.getenv("LIGHTRAG_MIGRATION_PROBE_TIMEOUT_SECONDS", "5")
-)
-
 from lightrag.base import (
     BaseGraphStorage,
     BaseKVStorage,
@@ -121,6 +116,10 @@ from lightrag.utils import (
 )
 from lightrag.types import KnowledgeGraph
 from dotenv import load_dotenv
+
+_MIGRATION_PROBE_TIMEOUT_SECONDS = float(
+    os.getenv("LIGHTRAG_MIGRATION_PROBE_TIMEOUT_SECONDS", "5")
+)
 
 # use the .env that is inside the current folder
 # allows to use different .env file for each lightrag instance
@@ -790,9 +789,45 @@ class LightRAG:
             global_config["embedding_func"] = self.embedding_func
         return global_config
 
+    def _managed_storages(self) -> tuple[Any, ...]:
+        return (
+            self.full_docs,
+            self.text_chunks,
+            self.full_entities,
+            self.full_relations,
+            self.entity_chunks,
+            self.relation_chunks,
+            self.entities_vdb,
+            self.relationships_vdb,
+            self.chunks_vdb,
+            self.chunk_entity_relation_graph,
+            self.llm_response_cache,
+            self.doc_status,
+        )
+
+    def _storage_needs_reinitialize(self, storage: Any) -> bool:
+        if storage is None:
+            return False
+
+        explicit_initialized = getattr(storage, "_initialized", None)
+        if explicit_initialized is False:
+            return True
+
+        for resource_attr in ("_connection_pool", "_driver", "_client", "db"):
+            if hasattr(storage, resource_attr) and getattr(storage, resource_attr) is None:
+                return True
+
+        return False
+
+    def _needs_storage_reinitialize(self, storages: tuple[Any, ...]) -> bool:
+        if self._storages_status != StoragesStatus.INITIALIZED:
+            return True
+        return any(self._storage_needs_reinitialize(storage) for storage in storages)
+
     async def initialize_storages(self):
         """Storage initialization must be called one by one to prevent deadlock"""
-        if self._storages_status == StoragesStatus.CREATED:
+        storages = self._managed_storages()
+        if self._needs_storage_reinitialize(storages):
             # Set the first initialized workspace will set the default workspace
             # Allows namespace operation without specifying workspace for backward compatibility
             default_workspace = get_default_workspace()
@@ -809,20 +844,13 @@ class LightRAG:
 
             await initialize_pipeline_status(workspace=self.workspace)
 
-            for storage in (
-                self.full_docs,
-                self.text_chunks,
-                self.full_entities,
-                self.full_relations,
-                self.entity_chunks,
-                self.relation_chunks,
-                self.entities_vdb,
-                self.relationships_vdb,
-                self.chunks_vdb,
-                self.chunk_entity_relation_graph,
-                self.llm_response_cache,
-                self.doc_status,
-            ):
+            if self._storages_status == StoragesStatus.INITIALIZED:
+                logger.warning(
+                    "[%s] Detected storage lifecycle drift; reinitializing storages",
+                    self.workspace,
+                )
+
+            for storage in storages:
                 if storage:
                     # logger.debug(f"Initializing storage: {storage}")
                     await storage.initialize()

@@ -44,6 +44,24 @@ mock_embedding_func = EmbeddingFunc(
 )
 
 
+class _DriftedStorage:
+    def __init__(self) -> None:
+        self.namespace = "drifted_graph"
+        self.workspace = "test_ws"
+        self._initialized = False
+        self._connection_pool = None
+        self.initialize_calls = 0
+
+    async def initialize(self) -> None:
+        self.initialize_calls += 1
+        self._initialized = True
+        self._connection_pool = object()
+
+    async def finalize(self) -> None:
+        self._initialized = False
+        self._connection_pool = None
+
+
 def make_networkx_storage(tmp_dir: str) -> NetworkXStorage:
     config = dict(GLOBAL_CONFIG, working_dir=tmp_dir)
     initialize_share_data()
@@ -978,6 +996,35 @@ class TestAinsertCustomKgBatchPath:
             status = await rag.doc_status.get_by_id("doc-custom-lazy-init-1")
             assert status is not None
             assert status["status"] == DocStatus.PROCESSED
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_initialize_storages_recovers_drifted_graph_storage(self):
+        """initialize_storages should recover graph backends closed behind LightRAG's lifecycle state."""
+        from lightrag import LightRAG
+        from lightrag.base import StoragesStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=f"custom-drift-reinit-{time.time_ns()}",
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+
+            drifted_storage = _DriftedStorage()
+            rag.chunk_entity_relation_graph = drifted_storage
+
+            await rag.initialize_storages()
+
+            assert drifted_storage.initialize_calls == 1
+            assert drifted_storage._initialized is True
+            assert drifted_storage._connection_pool is not None
+            assert rag._storages_status == StoragesStatus.INITIALIZED
 
             await rag.finalize_storages()
 
