@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock
 
 from lightrag.kg.networkx_impl import NetworkXStorage
 from lightrag.kg.shared_storage import initialize_share_data
-from lightrag.utils import EmbeddingFunc, make_relation_vdb_ids
+from lightrag.utils import EmbeddingFunc, Tokenizer, make_relation_vdb_ids
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +42,17 @@ mock_embedding_func = EmbeddingFunc(
     max_token_size=512,
     func=_raw_embedding_func,
 )
+
+
+class _WhitespaceTokenizer:
+    def encode(self, content: str) -> list[int]:
+        stripped = content.strip()
+        if not stripped:
+            return []
+        return list(range(len(stripped.split())))
+
+    def decode(self, tokens: list[int]) -> str:
+        return " ".join(str(token) for token in tokens)
 
 
 class _DriftedStorage:
@@ -1166,6 +1177,48 @@ class TestAinsertCustomKgBatchPath:
             assert status["status"] == DocStatus.FAILED
             assert status["chunks_count"] == 2
             assert "kaboom" in (status.get("error_msg") or "")
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_chunks_rejects_chunk_over_embedding_limit(self):
+        """ainsert_custom_chunks must fail fast when a custom chunk exceeds embedding token limit."""
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        limited_embedding = EmbeddingFunc(
+            embedding_dim=10,
+            max_token_size=8,
+            func=_raw_embedding_func,
+        )
+        tokenizer = Tokenizer("whitespace-test", _WhitespaceTokenizer())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=limited_embedding,
+                tokenizer=tokenizer,
+            )
+            await rag.initialize_storages()
+
+            oversized_chunk = "one two three four five six seven eight nine"
+
+            with pytest.raises(ValueError, match="exceeds embedding token limit"):
+                await rag.ainsert_custom_chunks(
+                    full_text=oversized_chunk,
+                    text_chunks=[oversized_chunk],
+                    doc_id="doc-custom-chunks-limit-1",
+                )
+
+            status = await rag.doc_status.get_by_id("doc-custom-chunks-limit-1")
+            assert status is not None
+            assert status["status"] == DocStatus.FAILED
+            assert status["chunks_count"] == 1
+            assert "chunk index 0" in (status.get("error_msg") or "")
+            assert "9" in (status.get("error_msg") or "")
+            assert "8" in (status.get("error_msg") or "")
 
             await rag.finalize_storages()
 

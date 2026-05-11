@@ -1404,6 +1404,24 @@ class LightRAG:
             self.ainsert_custom_chunks(full_text, text_chunks, doc_id, file_path)
         )
 
+    def _validate_custom_chunks_against_embedding_limit(
+        self, inserting_chunks: dict[str, Any]
+    ) -> None:
+        embedding_token_limit = self.embedding_token_limit
+        if embedding_token_limit is None:
+            return
+
+        for chunk_data in inserting_chunks.values():
+            token_count = chunk_data["tokens"]
+            if token_count <= embedding_token_limit:
+                continue
+
+            raise ValueError(
+                "Custom chunk at chunk index "
+                f"{chunk_data['chunk_order_index']} exceeds embedding token limit "
+                f"({token_count} > {embedding_token_limit})"
+            )
+
     # TODO: deprecated, use ainsert instead
     async def ainsert_custom_chunks(
         self,
@@ -1478,6 +1496,8 @@ class LightRAG:
             }
             await self.doc_status.upsert({doc_key: doc_status_payload})
             doc_status_initialized = True
+
+            self._validate_custom_chunks_against_embedding_limit(inserting_chunks)
 
             await asyncio.gather(
                 self.chunks_vdb.upsert(inserting_chunks),

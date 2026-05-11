@@ -78,6 +78,20 @@ def format_datetime(dt: Any) -> Optional[str]:
     return dt.isoformat()
 
 
+def _map_custom_chunks_import_error(exc: Exception) -> HTTPException | None:
+    message = str(exc)
+    if "exceeds embedding token limit" not in message:
+        return None
+
+    return HTTPException(
+        status_code=400,
+        detail=(
+            "Custom chunk exceeds embedding token limit. "
+            f"Split oversized chunks and retry. Details: {message}"
+        ),
+    )
+
+
 # NOTE: the APIRouter instance is created INSIDE `create_document_routes`
 # (not at module scope). A module-level router is shared across processes,
 # and re-running the factory — which the test suite does to validate
@@ -2912,6 +2926,9 @@ def create_document_routes(
                 requested_chunk_count=len(request.text_chunks),
             )
         except Exception as e:
+            mapped_error = _map_custom_chunks_import_error(e)
+            if mapped_error is not None:
+                raise mapped_error
             logger.error(f"Error /documents/import/custom-chunks: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))

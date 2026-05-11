@@ -184,6 +184,33 @@ def test_import_custom_chunks_route_calls_core_method(tmp_path: Path, monkeypatc
     }
 
 
+def test_import_custom_chunks_route_returns_400_for_oversized_chunk(
+    tmp_path: Path, monkeypatch
+):
+    client, rag = _build_document_client(tmp_path, monkeypatch)
+
+    async def reject_oversized_chunk(*_args, **_kwargs):
+        raise ValueError(
+            "Custom chunk at chunk index 0 exceeds embedding token limit (9 > 8)"
+        )
+
+    rag.ainsert_custom_chunks = reject_oversized_chunk
+
+    response = client.post(
+        "/documents/import/custom-chunks",
+        json={
+            "full_text": "Alpha Beta",
+            "text_chunks": ["Alpha Beta"],
+            "doc_id": "doc-custom-oversized-1",
+        },
+    )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert "Custom chunk exceeds embedding token limit" in body["detail"]
+    assert "chunk index 0" in body["detail"]
+
+
 def test_documents_by_ids_route_returns_serialized_docs_in_request_order(
     tmp_path: Path, monkeypatch
 ):
