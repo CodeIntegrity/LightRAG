@@ -68,6 +68,7 @@ Accept: application/json
     "label": "{{LABEL}}",
     "max_depth": 2,
     "max_nodes": 200,
+    "direction": "both",
     "only_matched_neighborhood": false
   },
   "node_filters": {

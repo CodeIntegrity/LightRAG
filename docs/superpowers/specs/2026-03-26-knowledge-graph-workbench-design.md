@@ -213,6 +213,7 @@ Recommended request shape:
     "label": "Tesla",
     "max_depth": 2,
     "max_nodes": 800,
+    "direction": "both",
     "only_matched_neighborhood": true
   },
   "node_filters": {

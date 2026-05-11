@@ -606,6 +606,7 @@
           "startLabel": "起始标签",
           "maxDepth": "最大深度",
           "maxNodes": "最大节点数",
+          "direction": "检索方向",
           "onlyMatchedNeighborhood": "仅匹配邻域",
           "sourceIdQuery": "来源 ID 查询",
           "filePaths": "文件路径",
@@ -628,6 +629,11 @@
         "messages": {
           "noEntityTypeResults": "未找到匹配的实体类型。",
           "noLabelResults": "未找到匹配的标签。"
+        },
+        "direction": {
+          "both": "双向",
+          "outbound": "下级",
+          "inbound": "上级"
         },
         "actions": {
           "collapse": "收起筛选器",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
@@ -150,6 +151,13 @@ def _normalize_text(value: Any) -> str:
     if isinstance(value, str):
         return value.strip()
     return ""
+
+
+def _normalize_query_direction(value: Any) -> str:
+    normalized = _normalize_text(value).lower()
+    if normalized in {"both", "outbound", "inbound"}:
+        return normalized
+    return "both"
 
 
 def _to_int(value: Any, default: int, minimum: int = 1) -> int:
@@ -530,7 +538,96 @@ async def _fetch_base_graph(
         node_label=_normalize_text(scope.get("label")) or "*",
         max_depth=_to_int(scope.get("max_depth"), 3, 1),
         max_nodes=effective_max_nodes,
+        direction=_normalize_query_direction(scope.get("direction")),
     )
+
+
+def _node_matches_scope_label(node: Mapping[str, Any], scope_label: str) -> bool:
+    if not scope_label or scope_label == "*":
+        return False
+
+    graph_data = _record_graph_data(dict(node))
+    candidates = {
+        _normalize_text(node.get("id")),
+        _canonical_node_entity_id(dict(node)),
+        _normalize_text(graph_data.get("entity_id")),
+        _normalize_text(graph_data.get("name")),
+    }
+    candidates.discard("")
+    return scope_label in candidates
+
+
+def _edge_identity(edge: Mapping[str, Any]) -> str:
+    edge_id = _normalize_text(edge.get("id"))
+    if edge_id:
+        return edge_id
+    return (
+        f"{_normalize_text(edge.get('source'))}"
+        f"->{_normalize_text(edge.get('target'))}"
+        f":{_normalize_text(edge.get('type'))}"
+    )
+
+
+def _apply_directional_scope(
+    *,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    scope_label: str,
+    max_depth: int,
+    direction: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    normalized_direction = _normalize_query_direction(direction)
+    if normalized_direction == "both" or scope_label == "*":
+        return nodes, edges
+
+    root_ids = {
+        _normalize_text(node.get("id"))
+        for node in nodes
+        if _node_matches_scope_label(node, scope_label)
+    }
+    root_ids.discard("")
+    if not root_ids:
+        return nodes, edges
+
+    adjacency: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for edge in edges:
+        source = _normalize_text(edge.get("source"))
+        target = _normalize_text(edge.get("target"))
+        if not source or not target:
+            continue
+        if normalized_direction == "outbound":
+            adjacency.setdefault(source, []).append((target, edge))
+        else:
+            adjacency.setdefault(target, []).append((source, edge))
+
+    visited_ids = set(root_ids)
+    kept_edge_ids: set[str] = set()
+    queue: deque[tuple[str, int]] = deque((root_id, 0) for root_id in root_ids)
+
+    while queue:
+        current_id, depth = queue.popleft()
+        if depth >= max_depth:
+            continue
+        for neighbor_id, edge in adjacency.get(current_id, []):
+            kept_edge_ids.add(_edge_identity(edge))
+            if neighbor_id in visited_ids:
+                continue
+            visited_ids.add(neighbor_id)
+            queue.append((neighbor_id, depth + 1))
+
+    filtered_nodes = [
+        node for node in nodes if _normalize_text(node.get("id")) in visited_ids
+    ]
+    filtered_edges = []
+    for edge in edges:
+        if _edge_identity(edge) not in kept_edge_ids:
+            continue
+        source = _normalize_text(edge.get("source"))
+        target = _normalize_text(edge.get("target"))
+        if source in visited_ids and target in visited_ids:
+            filtered_edges.append(edge)
+
+    return filtered_nodes, filtered_edges
 
 
 async def query_graph_workbench(
@@ -601,6 +698,14 @@ async def query_graph_workbench(
         if revision_token is not None:
             normalized_edge["revision_token"] = revision_token
         normalized_edges.append(normalized_edge)
+
+    normalized_nodes, normalized_edges = _apply_directional_scope(
+        nodes=normalized_nodes,
+        edges=normalized_edges,
+        scope_label=_normalize_text(scope.get("label")) or "*",
+        max_depth=_to_int(scope.get("max_depth"), 3, 1),
+        direction=scope.get("direction"),
+    )
 
     degree_map = _build_degree_map(
         [str(node.get("id", "")).strip() for node in normalized_nodes], normalized_edges
@@ -713,6 +818,7 @@ async def get_legacy_graph_payload(
                 "label": label,
                 "max_depth": max_depth,
                 "max_nodes": max_nodes,
+                "direction": "both",
                 "only_matched_neighborhood": False,
             },
         },

@@ -2088,6 +2088,7 @@ class OpenSearchGraphStorage(BaseGraphStorage):
         node_label: str,
         max_depth: int = 3,
         max_nodes: int = None,
+        direction: str = "both",
     ) -> KnowledgeGraph:
         """Retrieve a subgraph via PPL graphlookup (if available) or client-side BFS."""
         if not self._indices_ready:

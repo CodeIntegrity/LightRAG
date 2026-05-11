@@ -606,6 +606,7 @@
           "startLabel": "Start Label",
           "maxDepth": "Max Depth",
           "maxNodes": "Max Nodes",
+          "direction": "Traversal Direction",
           "onlyMatchedNeighborhood": "Only Matched Neighborhood",
           "sourceIdQuery": "Source ID Query",
           "filePaths": "File Paths",
@@ -628,6 +629,11 @@
         "messages": {
           "noEntityTypeResults": "No matching entity types found.",
           "noLabelResults": "No matching labels found."
+        },
+        "direction": {
+          "both": "Both",
+          "outbound": "Downstream",
+          "inbound": "Upstream"
         },
         "actions": {
           "collapse": "Collapse Filters",

@@ -50,12 +50,17 @@ class _DummyRAG:
         self.chunk_entity_relation_graph = self
 
     async def get_knowledge_graph(
-        self, node_label: str, max_depth: int, max_nodes: int
+        self,
+        node_label: str,
+        max_depth: int,
+        max_nodes: int,
+        direction: str = "both",
     ) -> dict[str, Any]:
         self.last_graph_call = {
             "node_label": node_label,
             "max_depth": max_depth,
             "max_nodes": max_nodes,
+            "direction": direction,
         }
         if self.graph_result is not None:
             return self.graph_result
@@ -350,6 +355,7 @@ def test_get_graphs_route_remains_backward_compatible(graph_client):
         "node_label": "Tesla",
         "max_depth": 2,
         "max_nodes": 128,
+        "direction": "both",
     }
 
 
@@ -366,6 +372,7 @@ def test_get_graphs_route_uses_10000_default_limit(graph_client):
         "node_label": "Tesla",
         "max_depth": 2,
         "max_nodes": DEFAULT_MAX_GRAPH_NODES,
+        "direction": "both",
     }
 
 
@@ -474,6 +481,7 @@ def test_graph_query_accepts_v1_filter_shape_and_returns_meta_truncation(graph_c
         "node_label": "Tesla",
         "max_depth": 2,
         "max_nodes": 128,
+        "direction": "both",
     }
 
 
@@ -497,6 +505,7 @@ def test_graph_query_uses_10000_default_limit(graph_client):
         "node_label": "Tesla",
         "max_depth": 3,
         "max_nodes": DEFAULT_MAX_GRAPH_NODES,
+        "direction": "both",
     }
 
 
@@ -532,6 +541,30 @@ def test_graph_query_caps_edges_to_max_nodes(monkeypatch):
     assert len(body["data"]["edges"]) == 3
     assert body["data"]["is_truncated"] is True
     assert body["truncation"]["effective_max_nodes"] == 3
+
+
+def test_graph_query_accepts_scope_direction_and_forwards_it(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/query",
+        json={
+            "scope": {
+                "label": "Tesla",
+                "max_depth": 2,
+                "max_nodes": 128,
+                "direction": "outbound",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert rag.last_graph_call == {
+        "node_label": "Tesla",
+        "max_depth": 2,
+        "max_nodes": 128,
+        "direction": "outbound",
+    }
 
 
 def test_delete_entity_route_exists_and_returns_expected_structure(graph_client):

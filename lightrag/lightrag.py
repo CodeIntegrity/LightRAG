@@ -1273,6 +1273,7 @@ class LightRAG:
         node_label: str,
         max_depth: int = 3,
         max_nodes: int = None,
+        direction: str = "both",
     ) -> KnowledgeGraph:
         """Get knowledge graph for a given label
 
@@ -1292,7 +1293,7 @@ class LightRAG:
             max_nodes = min(max_nodes, self.max_graph_nodes)
 
         return await self.chunk_entity_relation_graph.get_knowledge_graph(
-            node_label, max_depth, max_nodes
+            node_label, max_depth, max_nodes, direction
         )
 
     def _get_storage_class(self, storage_name: str) -> Callable[..., Any]:

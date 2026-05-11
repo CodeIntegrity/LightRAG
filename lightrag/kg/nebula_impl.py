@@ -1734,7 +1734,11 @@ class NebulaGraphStorage(BaseGraphStorage):
         return sorted(labels)
 
     async def get_knowledge_graph(
-        self, node_label: str, max_depth: int = 3, max_nodes: int = 1000
+        self,
+        node_label: str,
+        max_depth: int = 3,
+        max_nodes: int = 1000,
+        direction: str = "both",
     ) -> KnowledgeGraph:
         resolved_max_nodes = self._resolve_max_nodes(self.global_config, max_nodes)
         resolved_max_depth = max(0, int(max_depth))

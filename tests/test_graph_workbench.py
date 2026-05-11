@@ -34,12 +34,17 @@ class _DummyRAG:
         self.last_graph_call: dict[str, Any] | None = None
 
     async def get_knowledge_graph(
-        self, node_label: str, max_depth: int, max_nodes: int
+        self,
+        node_label: str,
+        max_depth: int,
+        max_nodes: int,
+        direction: str = "both",
     ) -> dict[str, Any]:
         self.last_graph_call = {
             "node_label": node_label,
             "max_depth": max_depth,
             "max_nodes": max_nodes,
+            "direction": direction,
         }
         return self.graph_payload
 
@@ -103,7 +108,12 @@ async def test_query_bounded_base_graph_filtering_and_node_filtering():
         },
     )
 
-    assert rag.last_graph_call == {"node_label": "*", "max_depth": 2, "max_nodes": 2}
+    assert rag.last_graph_call == {
+        "node_label": "*",
+        "max_depth": 2,
+        "max_nodes": 2,
+        "direction": "both",
+    }
     assert result["truncation"]["effective_max_nodes"] == 2
     assert [node["id"] for node in result["data"]["nodes"]] == ["n1", "n3"]
 
@@ -216,6 +226,92 @@ async def test_query_normalizes_unknown_graph_fields_into_custom_properties():
 
 
 @pytest.mark.asyncio
+async def test_query_scope_direction_outbound_keeps_only_descendants():
+    rag = _DummyRAG(
+        graph_payload={
+            "nodes": [
+                _node("A", "ORGANIZATION"),
+                _node("B", "PERSON"),
+                _node("C", "PRODUCT"),
+                _node("P", "PERSON"),
+                _node("D", "LOCATION"),
+            ],
+            "edges": [
+                _edge("e-parent", "P", "A", "parent_of"),
+                _edge("e-out-1", "A", "B", "owns"),
+                _edge("e-out-2", "B", "C", "builds"),
+                _edge("e-in-2", "D", "A", "located_in"),
+            ],
+            "is_truncated": False,
+        }
+    )
+
+    result = await query_graph_workbench(
+        rag,
+        {
+            "scope": {
+                "label": "A",
+                "max_depth": 2,
+                "max_nodes": 20,
+                "direction": "outbound",
+            }
+        },
+    )
+
+    assert rag.last_graph_call == {
+        "node_label": "A",
+        "max_depth": 2,
+        "max_nodes": 20,
+        "direction": "outbound",
+    }
+    assert {node["id"] for node in result["data"]["nodes"]} == {"A", "B", "C"}
+    assert {edge["id"] for edge in result["data"]["edges"]} == {"e-out-1", "e-out-2"}
+
+
+@pytest.mark.asyncio
+async def test_query_scope_direction_inbound_keeps_only_ancestors():
+    rag = _DummyRAG(
+        graph_payload={
+            "nodes": [
+                _node("A", "ORGANIZATION"),
+                _node("B", "PERSON"),
+                _node("C", "PRODUCT"),
+                _node("P", "PERSON"),
+                _node("D", "LOCATION"),
+            ],
+            "edges": [
+                _edge("e-parent", "P", "A", "parent_of"),
+                _edge("e-out-1", "A", "B", "owns"),
+                _edge("e-out-2", "B", "C", "builds"),
+                _edge("e-in-2", "D", "A", "located_in"),
+            ],
+            "is_truncated": False,
+        }
+    )
+
+    result = await query_graph_workbench(
+        rag,
+        {
+            "scope": {
+                "label": "A",
+                "max_depth": 2,
+                "max_nodes": 20,
+                "direction": "inbound",
+            }
+        },
+    )
+
+    assert rag.last_graph_call == {
+        "node_label": "A",
+        "max_depth": 2,
+        "max_nodes": 20,
+        "direction": "inbound",
+    }
+    assert {node["id"] for node in result["data"]["nodes"]} == {"A", "P", "D"}
+    assert {edge["id"] for edge in result["data"]["edges"]} == {"e-parent", "e-in-2"}
+
+
+@pytest.mark.asyncio
 async def test_query_parses_stringified_custom_properties():
     rag = _DummyRAG(
         graph_payload={
@@ -316,7 +412,12 @@ async def test_effective_max_nodes_never_exceeds_runtime_or_backend_limit():
 
     assert result["truncation"]["requested_max_nodes"] == 100
     assert result["truncation"]["effective_max_nodes"] == 20
-    assert rag.last_graph_call == {"node_label": "*", "max_depth": 1, "max_nodes": 20}
+    assert rag.last_graph_call == {
+        "node_label": "*",
+        "max_depth": 1,
+        "max_nodes": 20,
+        "direction": "both",
+    }
 
 
 @pytest.mark.asyncio

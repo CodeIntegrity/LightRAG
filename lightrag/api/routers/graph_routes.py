@@ -218,6 +218,10 @@ class GraphQueryScope(BaseModel):
     label: str = Field(default="*", min_length=1)
     max_depth: int = Field(default=3, ge=1)
     max_nodes: int = Field(default=DEFAULT_MAX_GRAPH_NODES, ge=1)
+    direction: Literal["both", "outbound", "inbound"] = Field(
+        default="both",
+        description="Traversal direction: both, outbound, or inbound",
+    )
     only_matched_neighborhood: bool = False
 
     @field_validator("label", mode="after")

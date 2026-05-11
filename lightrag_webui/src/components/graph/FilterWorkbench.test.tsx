@@ -108,6 +108,8 @@ describe('FilterWorkbench', () => {
     const html = renderToString(<FilterWorkbench />)
 
     expect(html).toContain('Start Label')
+    expect(html).toContain('Traversal Direction')
+    expect(html).toContain('Both')
     expect(html).toContain('Max Depth')
     expect(html).not.toContain('Entity Types')
     expect(html).not.toContain('Relation Types')
@@ -144,6 +146,7 @@ describe('FilterWorkbench', () => {
     const draft = getDefaultGraphWorkbenchFilterDraft()
     draft.scope.label = 'Tesla'
     draft.scope.max_depth = 2
+    draft.scope.direction = 'outbound'
     draft.node_filters.entity_types = ['ORGANIZATION']
     draft.view_options.highlight_matches = true
     store.setFilterDraft(draft)
@@ -151,6 +154,7 @@ describe('FilterWorkbench', () => {
     applyWorkbenchFilters()
     const applied = useGraphWorkbenchStore.getState().appliedQuery
     expect(applied?.scope.label).toBe('Tesla')
+    expect(applied?.scope.direction).toBe('outbound')
     expect(applied?.node_filters.entity_types).toEqual(['ORGANIZATION'])
     expect(useGraphWorkbenchStore.getState().queryVersion).toBe(beforeVersion + 1)
 
@@ -238,6 +242,9 @@ describe('FilterWorkbench', () => {
       'ORGANIZATION'
     ])
     expect(withEntityTypes.node_filters.entity_types).toEqual(['PERSON', 'ORGANIZATION'])
+
+    const withDirection = updateDraftFromValue(withEntityTypes, 'scope', 'direction', 'inbound')
+    expect(withDirection.scope.direction).toBe('inbound')
     expect(draft.node_filters.entity_types).toEqual([])
 
     const withLabel = updateDraftFromValue(withEntityTypes, 'scope', 'label', 'OpenAI')
@@ -273,6 +280,10 @@ describe('FilterWorkbench', () => {
       'graphPanel.workbench.filter.actions.expand',
       'graphPanel.workbench.filter.actions.removeSelection',
       'graphPanel.workbench.filter.actions.apply',
+      'graphPanel.workbench.filter.fields.direction',
+      'graphPanel.workbench.filter.direction.both',
+      'graphPanel.workbench.filter.direction.outbound',
+      'graphPanel.workbench.filter.direction.inbound',
       'graphPanel.workbench.filter.placeholders.searchEntityTypes',
       'graphPanel.workbench.filter.placeholders.searchStartLabel',
       'graphPanel.workbench.filter.messages.noEntityTypeResults',

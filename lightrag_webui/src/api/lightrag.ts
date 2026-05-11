@@ -31,6 +31,7 @@ export type GraphQueryScope = {
   label: string
   max_depth: number
   max_nodes: number
+  direction: 'both' | 'outbound' | 'inbound'
   only_matched_neighborhood: boolean
 }
 

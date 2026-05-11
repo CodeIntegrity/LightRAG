@@ -13,6 +13,7 @@ import Checkbox from '@/components/ui/Checkbox'
 import Input from '@/components/ui/Input'
 import { ScrollArea } from '@/components/ui/ScrollArea'
 import { AsyncSelect } from '@/components/ui/AsyncSelect'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import {
   dropdownDisplayLimit,
   popularLabelsDefaultLimit,
@@ -280,6 +281,39 @@ const ToggleField = ({
   </label>
 )
 
+const DirectionField = ({
+  label,
+  value,
+  options,
+  onChange
+}: {
+  label: string
+  value: GraphWorkbenchQueryRequest['scope']['direction']
+  options: Array<{
+    value: GraphWorkbenchQueryRequest['scope']['direction']
+    label: string
+  }>
+  onChange: (value: GraphWorkbenchQueryRequest['scope']['direction']) => void
+}) => (
+  <div className="min-w-0 space-y-1">
+    <FieldLabel>{label}</FieldLabel>
+    <Tabs
+      value={value}
+      onValueChange={(nextValue) =>
+        onChange(nextValue as GraphWorkbenchQueryRequest['scope']['direction'])
+      }
+    >
+      <TabsList className="grid h-9 w-full grid-cols-3">
+        {options.map((option) => (
+          <TabsTrigger key={option.value} value={option.value} className="px-2 text-xs">
+            {option.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
+  </div>
+)
+
 const SearchableSelectField = ({
   label,
   value,
@@ -418,6 +452,14 @@ export const FilterWorkbench = ({
 
   const nodeCount = rawGraph?.nodes.length ?? 0
   const edgeCount = rawGraph?.edges.length ?? 0
+  const directionOptions: Array<{
+    value: GraphWorkbenchQueryRequest['scope']['direction']
+    label: string
+  }> = [
+    { value: 'both', label: t('graphPanel.workbench.filter.direction.both') },
+    { value: 'outbound', label: t('graphPanel.workbench.filter.direction.outbound') },
+    { value: 'inbound', label: t('graphPanel.workbench.filter.direction.inbound') }
+  ]
   const removeSelectionLabel = (value: string) =>
     t('graphPanel.workbench.filter.actions.removeSelection', { value })
 
@@ -546,6 +588,12 @@ export const FilterWorkbench = ({
                       onChange={(value) => updateField('scope', 'max_nodes', value)}
                     />
                   </div>
+                  <DirectionField
+                    label={t('graphPanel.workbench.filter.fields.direction')}
+                    value={filterDraft.scope.direction}
+                    options={directionOptions}
+                    onChange={(value) => updateStructuredField('scope', 'direction', value)}
+                  />
                   <ToggleField
                     label={t('graphPanel.workbench.filter.fields.onlyMatchedNeighborhood')}
                     checked={filterDraft.scope.only_matched_neighborhood}
