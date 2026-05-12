@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import { createSelectors } from '@/lib/utils'
 import { defaultQueryLabel } from '@/lib/constants'
 import { Message, PromptConfigGroup, QueryPromptOverrides, QueryRequest } from '@/api/lightrag'
+import { DEFAULT_LAYOUT_PARAMS } from '@/utils/graphViewPersistence'
 
 type Theme = 'dark' | 'light' | 'system'
 type Language = 'en' | 'zh' | 'fr' | 'ar' | 'zh_TW' | 'ru' | 'ja' | 'de' | 'uk' | 'ko' | 'vi'
@@ -35,6 +36,7 @@ interface SettingsState {
 
   showNodeLabel: boolean
   enableNodeDrag: boolean
+  enableSearchLinkedDrag: boolean
 
   showEdgeLabel: boolean
   enableHideUnselectedEdges: boolean
@@ -66,6 +68,27 @@ interface SettingsState {
 
   graphLayoutMargin: number
   setGraphLayoutMargin: (margin: number) => void
+
+  graphLayoutAttraction: number
+  setGraphLayoutAttraction: (attraction: number) => void
+
+  graphLayoutInertia: number
+  setGraphLayoutInertia: (inertia: number) => void
+
+  graphLayoutMaxMove: number
+  setGraphLayoutMaxMove: (maxMove: number) => void
+
+  graphLayoutExpansion: number
+  setGraphLayoutExpansion: (expansion: number) => void
+
+  graphLayoutGridSize: number
+  setGraphLayoutGridSize: (gridSize: number) => void
+
+  graphLayoutRatio: number
+  setGraphLayoutRatio: (ratio: number) => void
+
+  graphLayoutSpeed: number
+  setGraphLayoutSpeed: (speed: number) => void
 
   // Retrieval settings
   queryLabel: string
@@ -118,6 +141,7 @@ const useSettingsStoreBase = create<SettingsState>()(
 
       showNodeLabel: true,
       enableNodeDrag: true,
+      enableSearchLinkedDrag: false,
 
       showEdgeLabel: false,
       enableHideUnselectedEdges: true,
@@ -129,10 +153,17 @@ const useSettingsStoreBase = create<SettingsState>()(
       graphQueryMaxDepth: 3,
       graphMaxNodes: 10000,
       backendMaxGraphNodes: null,
-      graphLayoutMaxIterations: 15,
-      graphLayoutRepulsion: 0.02,
-      graphLayoutGravity: 0.02,
-      graphLayoutMargin: 5,
+      graphLayoutMaxIterations: DEFAULT_LAYOUT_PARAMS.maxIterations,
+      graphLayoutRepulsion: DEFAULT_LAYOUT_PARAMS.repulsion,
+      graphLayoutGravity: DEFAULT_LAYOUT_PARAMS.gravity,
+      graphLayoutMargin: DEFAULT_LAYOUT_PARAMS.margin,
+      graphLayoutAttraction: DEFAULT_LAYOUT_PARAMS.attraction,
+      graphLayoutInertia: DEFAULT_LAYOUT_PARAMS.inertia,
+      graphLayoutMaxMove: DEFAULT_LAYOUT_PARAMS.maxMove,
+      graphLayoutExpansion: DEFAULT_LAYOUT_PARAMS.expansion,
+      graphLayoutGridSize: DEFAULT_LAYOUT_PARAMS.gridSize,
+      graphLayoutRatio: DEFAULT_LAYOUT_PARAMS.ratio,
+      graphLayoutSpeed: DEFAULT_LAYOUT_PARAMS.speed,
 
       queryLabel: defaultQueryLabel,
 
@@ -195,6 +226,41 @@ const useSettingsStoreBase = create<SettingsState>()(
       setGraphLayoutMargin: (margin: number) =>
         set({
           graphLayoutMargin: margin
+        }),
+
+      setGraphLayoutAttraction: (attraction: number) =>
+        set({
+          graphLayoutAttraction: attraction
+        }),
+
+      setGraphLayoutInertia: (inertia: number) =>
+        set({
+          graphLayoutInertia: inertia
+        }),
+
+      setGraphLayoutMaxMove: (maxMove: number) =>
+        set({
+          graphLayoutMaxMove: maxMove
+        }),
+
+      setGraphLayoutExpansion: (expansion: number) =>
+        set({
+          graphLayoutExpansion: expansion
+        }),
+
+      setGraphLayoutGridSize: (gridSize: number) =>
+        set({
+          graphLayoutGridSize: gridSize
+        }),
+
+      setGraphLayoutRatio: (ratio: number) =>
+        set({
+          graphLayoutRatio: ratio
+        }),
+
+      setGraphLayoutSpeed: (speed: number) =>
+        set({
+          graphLayoutSpeed: speed
         }),
 
       setQueryLabel: (queryLabel: string) =>
@@ -313,7 +379,7 @@ const useSettingsStoreBase = create<SettingsState>()(
     {
       name: 'settings-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 26,
+      version: 28,
       migrate: (state: any, version: number) => {
         if (version < 2) {
           state.showEdgeLabel = false
@@ -446,9 +512,21 @@ const useSettingsStoreBase = create<SettingsState>()(
           }
         }
         if (version < 26) {
-          state.graphLayoutRepulsion = 0.02
-          state.graphLayoutGravity = 0.02
-          state.graphLayoutMargin = 5
+          state.graphLayoutRepulsion = DEFAULT_LAYOUT_PARAMS.repulsion
+          state.graphLayoutGravity = DEFAULT_LAYOUT_PARAMS.gravity
+          state.graphLayoutMargin = DEFAULT_LAYOUT_PARAMS.margin
+        }
+        if (version < 27) {
+          state.graphLayoutAttraction = DEFAULT_LAYOUT_PARAMS.attraction
+          state.graphLayoutInertia = DEFAULT_LAYOUT_PARAMS.inertia
+          state.graphLayoutMaxMove = DEFAULT_LAYOUT_PARAMS.maxMove
+          state.graphLayoutExpansion = DEFAULT_LAYOUT_PARAMS.expansion
+          state.graphLayoutGridSize = DEFAULT_LAYOUT_PARAMS.gridSize
+          state.graphLayoutRatio = DEFAULT_LAYOUT_PARAMS.ratio
+          state.graphLayoutSpeed = DEFAULT_LAYOUT_PARAMS.speed
+        }
+        if (version < 28) {
+          state.enableSearchLinkedDrag = false
         }
         return state
       }

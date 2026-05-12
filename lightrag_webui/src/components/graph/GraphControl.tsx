@@ -11,7 +11,13 @@ import * as Constants from '@/lib/constants'
 
 import { useSettingsStore } from '@/stores/settings'
 import { useGraphStore } from '@/stores/graph'
-import { saveGraphView, buildGraphViewKey } from '@/utils/graphViewPersistence'
+import {
+  loadGraphCameraView,
+  restorePersistedCameraView,
+  saveGraphNodePosition,
+  subscribeToCameraViewPersistence
+} from '@/utils/graphViewPersistence'
+import { applyLinkedDragMovement } from '@/utils/graphDrag'
 
 const isButtonPressed = (ev: MouseEvent | TouchEvent) => {
   if (ev.type.startsWith('mouse')) {
@@ -38,16 +44,20 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
   const renderEdgeLabels = useSettingsStore.use.showEdgeLabel()
   const renderLabels = useSettingsStore.use.showNodeLabel()
   const enableNodeDrag = useSettingsStore.use.enableNodeDrag()
+  const enableSearchLinkedDrag = useSettingsStore.use.enableSearchLinkedDrag()
+  const currentWorkspace = useSettingsStore.use.currentWorkspace()
   const minEdgeSize = useSettingsStore.use.minEdgeSize()
   const maxEdgeSize = useSettingsStore.use.maxEdgeSize()
   const selectedNode = useGraphStore.use.selectedNode()
+  const selectedNodeSource = useGraphStore.use.selectedNodeSource()
   const focusedNode = useGraphStore.use.focusedNode()
   const selectedEdge = useGraphStore.use.selectedEdge()
   const focusedEdge = useGraphStore.use.focusedEdge()
   const sigmaGraph = useGraphStore.use.sigmaGraph()
-  const rawGraph = useGraphStore.use.rawGraph()
+  const lastSuccessfulQueryLabel = useGraphStore.use.lastSuccessfulQueryLabel()
 
   const draggedNodeRef = useRef<string | null>(null)
+  const linkedDraggedNodeIdsRef = useRef<string[]>([])
   const wasDraggingRef = useRef(false)
 
   // Track system theme changes when theme is set to 'system'
@@ -89,6 +99,33 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
       assignLayout();
     }
   }, [sigma, sigmaGraph, assignLayout, maxIterations])
+
+  useEffect(() => {
+    if (!sigma || !sigmaGraph) {
+      return
+    }
+
+    const persistedCameraView = loadGraphCameraView({
+      workspace: currentWorkspace,
+      queryLabel: lastSuccessfulQueryLabel
+    })
+    if (!persistedCameraView) {
+      return
+    }
+
+    restorePersistedCameraView(sigma.getCamera(), persistedCameraView)
+  }, [sigma, sigmaGraph, currentWorkspace, lastSuccessfulQueryLabel])
+
+  useEffect(() => {
+    if (!sigma || !sigmaGraph || !lastSuccessfulQueryLabel) {
+      return
+    }
+
+    return subscribeToCameraViewPersistence(sigma.getCamera(), {
+      workspace: currentWorkspace,
+      queryLabel: lastSuccessfulQueryLabel
+    })
+  }, [sigma, sigmaGraph, currentWorkspace, lastSuccessfulQueryLabel])
 
   /**
    * Ensure the sigma instance is set in the store
@@ -179,13 +216,17 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
       return
     }
 
-    const { setSelectedNode } = useGraphStore.getState()
-
     const dragEvents: Record<string, any> = {
       downNode: (event: NodeEvent) => {
         const graph = sigma.getGraph()
         if (graph.hasNode(event.node)) {
           draggedNodeRef.current = event.node
+          linkedDraggedNodeIdsRef.current =
+            enableSearchLinkedDrag &&
+            selectedNodeSource === 'search' &&
+            selectedNode === event.node
+              ? graph.neighbors(event.node).filter((nodeId) => graph.hasNode(nodeId))
+              : []
           graph.setNodeAttribute(event.node, 'highlighted', true)
         }
       },
@@ -194,8 +235,35 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
         const pos = sigma.viewportToGraph(event)
         const graph = sigma.getGraph()
         if (!graph.hasNode(draggedNodeRef.current)) return
-        graph.setNodeAttribute(draggedNodeRef.current, 'x', pos.x)
-        graph.setNodeAttribute(draggedNodeRef.current, 'y', pos.y)
+        const draggedNodeId = draggedNodeRef.current
+        const movedPositions = applyLinkedDragMovement({
+          positions: [draggedNodeId, ...linkedDraggedNodeIdsRef.current].reduce(
+            (acc, nodeId) => {
+              if (!graph.hasNode(nodeId)) {
+                return acc
+              }
+
+              acc[nodeId] = {
+                x: graph.getNodeAttribute(nodeId, 'x') as number,
+                y: graph.getNodeAttribute(nodeId, 'y') as number
+              }
+              return acc
+            },
+            {} as Record<string, { x: number; y: number }>
+          ),
+          draggedNodeId,
+          linkedNodeIds: linkedDraggedNodeIdsRef.current,
+          nextPosition: { x: pos.x, y: pos.y }
+        })
+
+        for (const [nodeId, nodePosition] of Object.entries(movedPositions)) {
+          if (!graph.hasNode(nodeId)) {
+            continue
+          }
+
+          graph.setNodeAttribute(nodeId, 'x', nodePosition.x)
+          graph.setNodeAttribute(nodeId, 'y', nodePosition.y)
+        }
         wasDraggingRef.current = true
         event.preventSigmaDefault()
         event.original.preventDefault()
@@ -210,28 +278,31 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
             const state = useGraphStore.getState()
             const rg = state.rawGraph
             if (rg) {
-              const idx = rg.nodeIdMap[nodeId]
-              if (idx !== undefined && rg.nodes[idx]) {
-                rg.nodes[idx].x = graph.getNodeAttribute(nodeId, 'x') as number
-                rg.nodes[idx].y = graph.getNodeAttribute(nodeId, 'y') as number
+              const draggedNodeIds = [nodeId, ...linkedDraggedNodeIdsRef.current]
+              for (const draggedId of draggedNodeIds) {
+                const idx = rg.nodeIdMap[draggedId]
+                if (idx !== undefined && rg.nodes[idx]) {
+                  rg.nodes[idx].x = graph.getNodeAttribute(draggedId, 'x') as number
+                  rg.nodes[idx].y = graph.getNodeAttribute(draggedId, 'y') as number
+                }
               }
 
               const settings = useSettingsStore.getState()
-              const viewKey = buildGraphViewKey(
-                settings.currentWorkspace,
-                state.lastSuccessfulQueryLabel || '*'
-              )
-              saveGraphView(viewKey, {
-                nodePositions: {
-                  [nodeId]: {
-                    x: graph.getNodeAttribute(nodeId, 'x') as number,
-                    y: graph.getNodeAttribute(nodeId, 'y') as number
-                  }
-                }
-              })
+              for (const draggedId of draggedNodeIds) {
+                saveGraphNodePosition(
+                  {
+                    workspace: settings.currentWorkspace,
+                    queryLabel: state.lastSuccessfulQueryLabel
+                  },
+                  draggedId,
+                  graph.getNodeAttribute(draggedId, 'x') as number,
+                  graph.getNodeAttribute(draggedId, 'y') as number
+                )
+              }
             }
           }
           draggedNodeRef.current = null
+          linkedDraggedNodeIdsRef.current = []
         }
       },
       mousedown: () => {
@@ -246,9 +317,10 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
 
     return () => {
       draggedNodeRef.current = null
+      linkedDraggedNodeIdsRef.current = []
       wasDraggingRef.current = false
     }
-  }, [registerEvents, sigma, enableNodeDrag])
+  }, [registerEvents, sigma, enableNodeDrag, enableSearchLinkedDrag, selectedNode, selectedNodeSource])
 
   /**
    * When edge size settings change, recalculate edge sizes and refresh the sigma instance

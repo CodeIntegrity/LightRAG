@@ -82,9 +82,11 @@ export class RawGraph {
 }
 
 export type GraphViewState = 'idle' | 'loading' | 'ready' | 'empty' | 'auth_error' | 'error'
+export type SelectedNodeSource = 'graph' | 'search' | null
 
 interface GraphState {
   selectedNode: string | null
+  selectedNodeSource: SelectedNodeSource
   focusedNode: string | null
   selectedEdge: string | null
   focusedEdge: string | null
@@ -110,7 +112,11 @@ interface GraphState {
   labelsFetchAttempted: boolean
 
   setSigmaInstance: (instance: any) => void
-  setSelectedNode: (nodeId: string | null, moveToSelectedNode?: boolean) => void
+  setSelectedNode: (
+    nodeId: string | null,
+    moveToSelectedNode?: boolean,
+    source?: SelectedNodeSource
+  ) => void
   setFocusedNode: (nodeId: string | null) => void
   setSelectedEdge: (edgeId: string | null) => void
   setFocusedEdge: (edgeId: string | null) => void
@@ -157,6 +163,7 @@ interface GraphState {
 
 const useGraphStoreBase = create<GraphState>()((set, get) => ({
   selectedNode: null,
+  selectedNodeSource: null,
   focusedNode: null,
   selectedEdge: null,
   focusedEdge: null,
@@ -188,14 +195,23 @@ const useGraphStoreBase = create<GraphState>()((set, get) => ({
 
 
   setIsFetching: (isFetching: boolean) => set({ isFetching }),
-  setSelectedNode: (nodeId: string | null, moveToSelectedNode?: boolean) =>
-    set({ selectedNode: nodeId, moveToSelectedNode }),
+  setSelectedNode: (
+    nodeId: string | null,
+    moveToSelectedNode?: boolean,
+    source: SelectedNodeSource = 'graph'
+  ) =>
+    set({
+      selectedNode: nodeId,
+      selectedNodeSource: nodeId ? source : null,
+      moveToSelectedNode
+    }),
   setFocusedNode: (nodeId: string | null) => set({ focusedNode: nodeId }),
-  setSelectedEdge: (edgeId: string | null) => set({ selectedEdge: edgeId }),
+  setSelectedEdge: (edgeId: string | null) => set({ selectedEdge: edgeId, selectedNodeSource: null }),
   setFocusedEdge: (edgeId: string | null) => set({ focusedEdge: edgeId }),
   clearSelection: () =>
     set({
       selectedNode: null,
+      selectedNodeSource: null,
       focusedNode: null,
       selectedEdge: null,
       focusedEdge: null
@@ -203,6 +219,7 @@ const useGraphStoreBase = create<GraphState>()((set, get) => ({
   reset: () => {
     set({
       selectedNode: null,
+      selectedNodeSource: null,
       focusedNode: null,
       selectedEdge: null,
       focusedEdge: null,

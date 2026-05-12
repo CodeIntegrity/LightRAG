@@ -113,7 +113,7 @@ export const GraphSearchInput = ({
 
     const graphStore = useGraphStore.getState()
     graphStore.setFocusedNode(plan.nodeId)
-    graphStore.setSelectedNode(plan.nodeId, true)
+    graphStore.setSelectedNode(plan.nodeId, true, 'search')
     setPendingNavigationEntity(null)
   }, [rawGraph, pendingNavigationEntity])
 
@@ -222,6 +222,13 @@ export const GraphSearchInput = ({
       renderOption={OptionComponent}
       getOptionValue={(item) => item.value}
       value={value && value.type !== 'message' ? `node:${value.id}` : null}
+      onClear={() => {
+        const graphStore = useGraphStore.getState()
+        graphStore.setFocusedNode(null)
+        graphStore.setSelectedNode(null)
+        onFocus?.(null)
+        onChange(null)
+      }}
       onChange={(selectedValue) => {
         if (selectedValue === graphSearchMessageId) {
           return

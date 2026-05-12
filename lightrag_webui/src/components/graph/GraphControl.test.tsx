@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 Object.defineProperty(globalThis, 'localStorage', {
   value: {
@@ -22,11 +22,28 @@ describe('GraphControl — drag gating', () => {
     expect(useSettingsStore.getState().enableNodeDrag).toBe(true)
   })
 
+  test('enableSearchLinkedDrag defaults to false in settings store', async () => {
+    const { useSettingsStore } = await import('@/stores/settings')
+    expect(useSettingsStore.getState().enableSearchLinkedDrag).toBe(false)
+  })
+
   test('enableNodeDrag can be toggled off', async () => {
     const { useSettingsStore } = await import('@/stores/settings')
     useSettingsStore.getState().enableNodeDrag = false
     expect(useSettingsStore.getState().enableNodeDrag).toBe(false)
     useSettingsStore.getState().enableNodeDrag = true
+  })
+
+  test('search-selected nodes track their selection source', async () => {
+    const { useGraphStore } = await import('@/stores/graph')
+
+    useGraphStore.getState().setSelectedNode('node-1', true, 'search')
+    expect(useGraphStore.getState().selectedNode).toBe('node-1')
+    expect(useGraphStore.getState().selectedNodeSource).toBe('search')
+
+    useGraphStore.getState().clearSelection()
+    expect(useGraphStore.getState().selectedNode).toBeNull()
+    expect(useGraphStore.getState().selectedNodeSource).toBeNull()
   })
 
   test('drag coordinate sync updates rawGraph nodes', async () => {
@@ -62,6 +79,29 @@ describe('GraphControl — drag gating', () => {
 
     expect(useGraphStore.getState().rawGraph!.nodes[0].x).toBe(0.5)
     expect(useGraphStore.getState().rawGraph!.nodes[0].y).toBe(0.6)
+  })
+
+  test('linked drag applies the same delta to direct neighbors', async () => {
+    const { applyLinkedDragMovement } = await import('@/utils/graphDrag')
+
+    const positions = {
+      center: { x: 10, y: 20 },
+      neighborA: { x: 5, y: 7 },
+      neighborB: { x: -1, y: 3 },
+      other: { x: 100, y: 200 }
+    }
+
+    const moved = applyLinkedDragMovement({
+      positions,
+      draggedNodeId: 'center',
+      linkedNodeIds: ['neighborA', 'neighborB'],
+      nextPosition: { x: 14, y: 26 }
+    })
+
+    expect(moved.center).toEqual({ x: 14, y: 26 })
+    expect(moved.neighborA).toEqual({ x: 9, y: 13 })
+    expect(moved.neighborB).toEqual({ x: 3, y: 9 })
+    expect(moved.other).toEqual({ x: 100, y: 200 })
   })
 })
 

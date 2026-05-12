@@ -149,7 +149,7 @@ const GraphViewer = () => {
     if (value === null) {
       useGraphStore.getState().setSelectedNode(null)
     } else if (value.type === 'nodes') {
-      useGraphStore.getState().setSelectedNode(value.id, true)
+      useGraphStore.getState().setSelectedNode(value.id, true, 'search')
     }
   }, [])
 

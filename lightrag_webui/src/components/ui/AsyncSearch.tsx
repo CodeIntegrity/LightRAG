@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, X } from 'lucide-react'
 import { useDebounce } from '@/hooks/useDebounce'
 
 import { cn } from '@/lib/utils'
@@ -59,6 +59,8 @@ export interface AsyncSearchProps<T> {
   noResultsMessage?: string
   /** Allow clearing the selection */
   clearable?: boolean
+  /** Callback when clear is triggered */
+  onClear?: () => void
 }
 
 export function AsyncSearch<T>({
@@ -78,6 +80,8 @@ export function AsyncSearch<T>({
   disabled = false,
   className,
   noResultsMessage
+  ,
+  onClear
 }: AsyncSearchProps<T>) {
   const [open, setOpen] = useState(false)
   const [fetchedOptions, setFetchedOptions] = useState<T[]>([])
@@ -123,14 +127,12 @@ export function AsyncSearch<T>({
   // after the async call resolves, so the rule fires on the synchronous loading flag.
   useEffect(() => {
     if (preload) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchOptions(debouncedSearchTerm)
   }, [preload, debouncedSearchTerm, fetchOptions])
 
   // Load initial value
   useEffect(() => {
     if (!value) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchOptions(value)
   }, [value, fetchOptions])
 
@@ -168,6 +170,13 @@ export function AsyncSearch<T>({
     }
   }, [])
 
+  const handleClear = useCallback(() => {
+    setSearchTerm('')
+    setOpen(false)
+    onFocus('')
+    onClear?.()
+  }, [onClear, onFocus])
+
   return (
     <div
       ref={containerRef}
@@ -175,7 +184,7 @@ export function AsyncSearch<T>({
       onMouseDown={handleMouseDown}
     >
       <Command shouldFilter={false} className="bg-transparent">
-        <div>
+        <div className="relative">
           <CommandInput
             placeholder={placeholder}
             value={searchTerm}
@@ -191,6 +200,16 @@ export function AsyncSearch<T>({
             <div className="absolute top-1/2 right-2 flex -translate-y-1/2 transform items-center">
               <Loader2 className="h-4 w-4 animate-spin" />
             </div>
+          )}
+          {!loading && onClear && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 flex h-5 w-5 -translate-y-1/2 items-center justify-center"
+              onClick={handleClear}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           )}
         </div>
         <CommandList hidden={!open}>
