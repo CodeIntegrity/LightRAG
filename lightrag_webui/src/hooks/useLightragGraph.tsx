@@ -22,7 +22,12 @@ import seedrandom from 'seedrandom'
 import { resolveNodeColor, DEFAULT_NODE_COLOR } from '@/utils/graphColor'
 import { resolveNodeDisplayName } from '@/utils/graphLabel'
 import { normalizeGraphEdgePayload, normalizeGraphNodePayload } from '@/utils/graphPayload'
-import { loadGraphView, buildGraphViewKey } from '@/utils/graphViewPersistence'
+import {
+  applyPersistedLayoutParams,
+  applyPersistedNodePositions,
+  loadGraphLayoutParams,
+  loadGraphNodePositions,
+} from '@/utils/graphViewPersistence'
 
 // Select color based on node type
 const getNodeColorByType = (nodeType: string | undefined): string => {
@@ -354,8 +359,9 @@ const useLightrangeGraph = () => {
   }, [appliedWorkbenchQuery, workbenchQueryVersion, queryLabel, maxQueryDepth, maxNodes])
 
   useEffect(() => {
+    const requestState = requestStateRef.current
     return () => {
-      requestStateRef.current.reset()
+      requestState.reset()
     }
   }, [])
 
@@ -438,35 +444,19 @@ const useLightrangeGraph = () => {
           nextState.setLastSuccessfulQueryLabel('')
         } else {
           const currentWorkspace = useSettingsStore.getState().currentWorkspace
-          const viewKey = buildGraphViewKey(currentWorkspace, currentQueryLabel || '*')
-          const persistedView = loadGraphView(viewKey)
+          const context = {
+            workspace: currentWorkspace,
+            queryLabel: currentQueryLabel
+          }
+          const nodePositions = loadGraphNodePositions(context)
+          const layoutParams = loadGraphLayoutParams(context)
 
-          if (persistedView) {
-            if (persistedView.nodePositions) {
-              for (const node of data.nodes) {
-                const pos = persistedView.nodePositions[node.id]
-                if (pos) {
-                  node.x = pos.x
-                  node.y = pos.y
-                }
-              }
-            }
+          if (Object.keys(nodePositions).length > 0) {
+            applyPersistedNodePositions(data.nodes, nodePositions)
+          }
 
-            if (persistedView.layoutParams) {
-              const settings = useSettingsStore.getState()
-              if (persistedView.layoutParams.repulsion !== undefined) {
-                settings.setGraphLayoutRepulsion(persistedView.layoutParams.repulsion)
-              }
-              if (persistedView.layoutParams.gravity !== undefined) {
-                settings.setGraphLayoutGravity(persistedView.layoutParams.gravity)
-              }
-              if (persistedView.layoutParams.margin !== undefined) {
-                settings.setGraphLayoutMargin(persistedView.layoutParams.margin)
-              }
-              if (persistedView.layoutParams.maxIterations !== undefined) {
-                settings.setGraphLayoutMaxIterations(persistedView.layoutParams.maxIterations)
-              }
-            }
+          if (layoutParams) {
+            applyPersistedLayoutParams(layoutParams, useSettingsStore.getState())
           }
 
           const newSigmaGraph = createSigmaGraph(data)
@@ -509,9 +499,10 @@ const useLightrangeGraph = () => {
 
     void loadGraph()
 
+    const requestState = requestStateRef.current
     return () => {
-      if (requestStateRef.current.isCurrent(requestId)) {
-        requestStateRef.current.abortCurrent()
+      if (requestState.isCurrent(requestId)) {
+        requestState.abortCurrent()
       }
     }
   }, [
