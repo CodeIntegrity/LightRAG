@@ -415,6 +415,7 @@
         "showPropertyPanel": "Show Property Panel",
         "showSearchBar": "Show Search Bar",
         "showNodeLabel": "Show Node Label",
+        "graphLabelFontSize": "Node/Edge Label Font Size",
         "nodeDraggable": "Node Draggable",
         "searchLinkedDrag": "Search Linked Drag",
         "showEdgeLabel": "Show Edge Label",

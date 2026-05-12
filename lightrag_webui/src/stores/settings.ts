@@ -35,6 +35,7 @@ interface SettingsState {
   setShowLegend: (show: boolean) => void
 
   showNodeLabel: boolean
+  graphLabelFontSize: number
   enableNodeDrag: boolean
   enableSearchLinkedDrag: boolean
 
@@ -140,6 +141,7 @@ const useSettingsStoreBase = create<SettingsState>()(
       showLegend: false,
 
       showNodeLabel: true,
+      graphLabelFontSize: 12,
       enableNodeDrag: true,
       enableSearchLinkedDrag: false,
 
@@ -379,7 +381,7 @@ const useSettingsStoreBase = create<SettingsState>()(
     {
       name: 'settings-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 28,
+      version: 29,
       migrate: (state: any, version: number) => {
         if (version < 2) {
           state.showEdgeLabel = false
@@ -527,6 +529,9 @@ const useSettingsStoreBase = create<SettingsState>()(
         }
         if (version < 28) {
           state.enableSearchLinkedDrag = false
+        }
+        if (version < 29) {
+          state.graphLabelFontSize = 12
         }
         return state
       }

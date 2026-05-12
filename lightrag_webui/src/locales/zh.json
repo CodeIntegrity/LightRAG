@@ -415,6 +415,7 @@
         "showPropertyPanel": "显示属性面板",
         "showSearchBar": "显示搜索栏",
         "showNodeLabel": "显示节点标签",
+        "graphLabelFontSize": "节点/边标签字体大小",
         "nodeDraggable": "节点可拖动",
         "searchLinkedDrag": "搜索选中节点联动拖拽",
         "showEdgeLabel": "显示边标签",

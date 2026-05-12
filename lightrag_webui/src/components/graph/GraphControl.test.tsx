@@ -27,6 +27,11 @@ describe('GraphControl — drag gating', () => {
     expect(useSettingsStore.getState().enableSearchLinkedDrag).toBe(false)
   })
 
+  test('graphLabelFontSize defaults to 12 in settings store', async () => {
+    const { useSettingsStore } = await import('@/stores/settings')
+    expect(useSettingsStore.getState().graphLabelFontSize).toBe(12)
+  })
+
   test('enableNodeDrag can be toggled off', async () => {
     const { useSettingsStore } = await import('@/stores/settings')
     useSettingsStore.getState().enableNodeDrag = false
@@ -152,5 +157,13 @@ describe('GraphControl — edge size recalculation', () => {
     useSettingsStore.getState().setMaxEdgeSize(5)
     expect(useSettingsStore.getState().maxEdgeSize).toBe(5)
     useSettingsStore.getState().setMaxEdgeSize(1)
+  })
+
+  test('edge label font size keeps the existing 4px offset from node labels', async () => {
+    const { getEdgeLabelFontSize } = await import('@/utils/graphLabelSize')
+
+    expect(getEdgeLabelFontSize(12)).toBe(8)
+    expect(getEdgeLabelFontSize(16)).toBe(12)
+    expect(getEdgeLabelFontSize(8)).toBe(4)
   })
 })

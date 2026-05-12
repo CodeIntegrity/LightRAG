@@ -232,6 +232,7 @@
         "showPropertyPanel": "إظهار لوحة الخصائص",
         "showSearchBar": "إظهار شريط البحث",
         "showNodeLabel": "إظهار تسمية العقدة",
+        "graphLabelFontSize": "حجم خط تسميات العقد والحواف",
         "nodeDraggable": "العقدة قابلة للسحب",
         "searchLinkedDrag": "سحب مترابط لعقدة محددة من البحث",
         "showEdgeLabel": "إظهار تسمية الحافة",

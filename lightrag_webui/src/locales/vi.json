@@ -232,6 +232,7 @@
         "showPropertyPanel": "Hiển Thị Bảng Thuộc Tính",
         "showSearchBar": "Hiển Thị Thanh Tìm Kiếm",
         "showNodeLabel": "Hiển Thị Nhãn Nút",
+        "graphLabelFontSize": "Cỡ chữ nhãn nút/cạnh",
         "nodeDraggable": "Cho Phép Kéo Nút",
         "searchLinkedDrag": "Kéo liên kết cho nút chọn từ tìm kiếm",
         "showEdgeLabel": "Hiển Thị Nhãn Cạnh",

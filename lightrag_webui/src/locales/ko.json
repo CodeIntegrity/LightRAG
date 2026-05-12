@@ -232,6 +232,7 @@
         "showPropertyPanel": "속성 패널 표시",
         "showSearchBar": "검색 바 표시",
         "showNodeLabel": "노드 레이블 표시",
+        "graphLabelFontSize": "노드/엣지 레이블 글자 크기",
         "nodeDraggable": "노드 드래그 가능",
         "searchLinkedDrag": "검색 선택 노드 연동 드래그",
         "showEdgeLabel": "엣지 레이블 표시",

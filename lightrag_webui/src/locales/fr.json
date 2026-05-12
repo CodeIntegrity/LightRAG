@@ -232,6 +232,7 @@
         "showPropertyPanel": "Afficher le panneau des propriétés",
         "showSearchBar": "Afficher la barre de recherche",
         "showNodeLabel": "Afficher l'étiquette du nœud",
+        "graphLabelFontSize": "Taille de police des étiquettes nœud/arête",
         "nodeDraggable": "Nœud déplaçable",
         "searchLinkedDrag": "Glisser lié pour sélection de recherche",
         "showEdgeLabel": "Afficher l'étiquette de l'arête",

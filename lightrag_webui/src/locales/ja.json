@@ -232,6 +232,7 @@
         "showPropertyPanel": "プロパティパネルを表示",
         "showSearchBar": "検索バーを表示",
         "showNodeLabel": "ノードラベルを表示",
+        "graphLabelFontSize": "ノード/エッジラベルの文字サイズ",
         "nodeDraggable": "ノードをドラッグ可能",
         "searchLinkedDrag": "検索選択ノードの連動ドラッグ",
         "showEdgeLabel": "エッジラベルを表示",

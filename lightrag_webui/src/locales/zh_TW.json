@@ -232,6 +232,7 @@
         "showPropertyPanel": "顯示屬性面板",
         "showSearchBar": "顯示搜尋列",
         "showNodeLabel": "顯示節點標籤",
+        "graphLabelFontSize": "節點/邊標籤字體大小",
         "nodeDraggable": "節點可拖曳",
         "searchLinkedDrag": "搜尋選中節點連動拖曳",
         "showEdgeLabel": "顯示 Edge 標籤",

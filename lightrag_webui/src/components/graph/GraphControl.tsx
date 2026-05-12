@@ -18,6 +18,7 @@ import {
   subscribeToCameraViewPersistence
 } from '@/utils/graphViewPersistence'
 import { applyLinkedDragMovement } from '@/utils/graphDrag'
+import { getEdgeLabelFontSize } from '@/utils/graphLabelSize'
 
 const isButtonPressed = (ev: MouseEvent | TouchEvent) => {
   if (ev.type.startsWith('mouse')) {
@@ -43,6 +44,7 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
   const enableEdgeEvents = useSettingsStore.use.enableEdgeEvents()
   const renderEdgeLabels = useSettingsStore.use.showEdgeLabel()
   const renderLabels = useSettingsStore.use.showNodeLabel()
+  const graphLabelFontSize = useSettingsStore.use.graphLabelFontSize()
   const enableNodeDrag = useSettingsStore.use.enableNodeDrag()
   const enableSearchLinkedDrag = useSettingsStore.use.enableSearchLinkedDrag()
   const currentWorkspace = useSettingsStore.use.currentWorkspace()
@@ -374,10 +376,12 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
   useEffect(() => {
     setSettings({
       enableEdgeEvents,
+      edgeLabelSize: getEdgeLabelFontSize(graphLabelFontSize),
+      labelSize: graphLabelFontSize,
       renderEdgeLabels,
       renderLabels
     })
-  }, [setSettings, enableEdgeEvents, renderEdgeLabels, renderLabels])
+  }, [setSettings, enableEdgeEvents, graphLabelFontSize, renderEdgeLabels, renderLabels])
 
   /**
    * Reducers for node/edge appearance — depend on interaction state

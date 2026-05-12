@@ -232,6 +232,7 @@
         "showPropertyPanel": "Показати панель властивостей",
         "showSearchBar": "Показати панель пошуку",
         "showNodeLabel": "Показати мітку вузла",
+        "graphLabelFontSize": "Розмір шрифту міток вузлів/ребер",
         "nodeDraggable": "Вузол перетягуваний",
         "searchLinkedDrag": "Пов'язане перетягування вузла з пошуку",
         "showEdgeLabel": "Показати мітку ребра",

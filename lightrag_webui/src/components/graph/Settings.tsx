@@ -12,6 +12,7 @@ import {
   DEFAULT_LAYOUT_PARAMS,
   saveGraphLayoutSettings
 } from '@/utils/graphViewPersistence'
+import { DEFAULT_GRAPH_LABEL_FONT_SIZE } from '@/utils/graphLabelSize'
 
 import { SettingsIcon, Undo2, Shuffle } from 'lucide-react'
 import { useTranslation } from 'react-i18next';
@@ -157,6 +158,7 @@ export default function Settings() {
   const showPropertyPanel = useSettingsStore.use.showPropertyPanel()
   const showNodeSearchBar = useSettingsStore.use.showNodeSearchBar()
   const showNodeLabel = useSettingsStore.use.showNodeLabel()
+  const graphLabelFontSize = useSettingsStore.use.graphLabelFontSize()
   const enableEdgeEvents = useSettingsStore.use.enableEdgeEvents()
   const enableNodeDrag = useSettingsStore.use.enableNodeDrag()
   const enableHideUnselectedEdges = useSettingsStore.use.enableHideUnselectedEdges()
@@ -255,6 +257,11 @@ export default function Settings() {
   const setGraphLayoutMaxIterations = useCallback((iterations: number) => {
     if (iterations < 1) return
     useSettingsStore.setState({ graphLayoutMaxIterations: iterations })
+  }, [])
+
+  const setGraphLabelFontSize = useCallback((fontSize: number) => {
+    if (fontSize < 8 || fontSize > 24) return
+    useSettingsStore.setState({ graphLabelFontSize: fontSize })
   }, [])
 
   const setGraphLayoutRepulsion = useCallback((repulsion: number) => {
@@ -377,6 +384,14 @@ export default function Settings() {
               checked={showNodeLabel}
               onCheckedChange={setShowNodeLabel}
               label={t('graphPanel.sideBar.settings.showNodeLabel')}
+            />
+            <LabeledNumberInput
+              value={graphLabelFontSize}
+              onEditFinished={setGraphLabelFontSize}
+              label={t('graphPanel.sideBar.settings.graphLabelFontSize')}
+              min={8}
+              max={24}
+              defaultValue={DEFAULT_GRAPH_LABEL_FONT_SIZE}
             />
             <LabeledCheckBox
               checked={enableNodeDrag}
