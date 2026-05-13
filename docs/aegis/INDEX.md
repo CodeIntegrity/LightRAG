@@ -7,6 +7,7 @@
 ## Plans
 
 - `plans/2026-05-08-upstream-main-merge.md` - 上游 `upstream/main` 合并执行方案
+- `plans/2026-05-13-backend-runtime-and-workspace-optimization.md` - 后端 runtime 绑定与 workspace 校验优化计划
 
 ## SOP
 
