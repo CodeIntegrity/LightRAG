@@ -67,7 +67,9 @@ from lightrag.api.routers.graph_routes import create_graph_routes
 from lightrag.api.routers.ollama_api import OllamaAPI
 from lightrag.api.workspace_registry import (
     WorkspaceRegistryStore,
-    sanitize_workspace_identifier,
+    WorkspaceNotFoundError,
+    WorkspaceValidationError,
+    normalize_workspace_identifier,
 )
 from lightrag.api.workspace_runtime import (
     WorkspaceRuntimeBundle,
@@ -783,27 +785,46 @@ def create_app(args):
         if not should_bind_runtime(request.url.path):
             return await call_next(request)
 
-        workspace = resolve_request_workspace(request)
         try:
-            workspace_record = await workspace_registry.get_workspace(workspace)
-        except Exception:
-            return JSONResponse(
-                status_code=404,
-                content={"detail": f"Workspace '{workspace}' is not registered"},
-            )
-
-        if workspace_record["status"] != "ready":
-            return JSONResponse(
-                status_code=409,
-                content={
-                    "detail": f"Workspace '{workspace}' is not ready (status={workspace_record['status']})"
-                },
-            )
-
+            workspace = resolve_request_workspace(request)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
         try:
-            bundle = await runtime_manager.acquire_runtime(workspace)
+            bundle = await runtime_manager.acquire_cached_runtime(workspace)
         except WorkspaceStateError as exc:
             return JSONResponse(status_code=409, content={"detail": str(exc)})
+        if bundle is None:
+            try:
+                workspace_record = await workspace_registry.get_workspace(workspace)
+            except WorkspaceNotFoundError:
+                return JSONResponse(
+                    status_code=404,
+                    content={"detail": f"Workspace '{workspace}' is not registered"},
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to resolve workspace '%s' before runtime binding",
+                    workspace,
+                )
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "detail": f"Failed to resolve workspace '{workspace}' runtime binding"
+                    },
+                )
+
+            if workspace_record["status"] != "ready":
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "detail": f"Workspace '{workspace}' is not ready (status={workspace_record['status']})"
+                    },
+                )
+
+            try:
+                bundle = await runtime_manager.acquire_runtime(workspace)
+            except WorkspaceStateError as exc:
+                return JSONResponse(status_code=409, content={"detail": str(exc)})
 
         tokens = bind_current_runtime(bundle)
         request.state.workspace_runtime = bundle
@@ -887,13 +908,10 @@ def create_app(args):
         if not workspace:
             workspace = None
         else:
-            sanitized = sanitize_workspace_identifier(workspace)
-            if sanitized != workspace:
-                logger.warning(
-                    f"Workspace header '{workspace}' contains invalid characters. "
-                    f"Sanitized to '{sanitized}'."
-                )
-                workspace = sanitized
+            try:
+                workspace = normalize_workspace_identifier(workspace)
+            except WorkspaceValidationError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         return workspace
 
