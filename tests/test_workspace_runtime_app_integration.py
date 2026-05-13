@@ -162,7 +162,9 @@ def _build_runtime_test_app(
         lightrag_server, "global_args", SimpleNamespace(cors_origins="*")
     )
     monkeypatch.setattr(lightrag_server, "cleanup_keyed_lock", lambda: {})
-    monkeypatch.setattr(lightrag_server, "get_default_workspace", lambda: "")
+    monkeypatch.setattr(
+        lightrag_server, "get_default_workspace", lambda: default_workspace
+    )
     fake_ollama_module = types.ModuleType("lightrag.llm.ollama")
 
     async def _fake_ollama_model_complete(*args, **kwargs):
@@ -239,6 +241,164 @@ def test_query_routes_resolve_runtime_from_workspace_header(query_test_client):
 
     assert response.status_code == 200
     assert response.json()["response"] == "ws1:workspace aware"
+
+
+def test_runtime_binding_returns_404_for_unregistered_workspace(
+    monkeypatch, tmp_path
+):
+    app = _build_runtime_test_app(
+        monkeypatch,
+        tmp_path,
+        include_query_routes=False,
+        include_graph_routes=True,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/graph/label/list",
+            headers={
+                "Authorization": f"Bearer {_build_token('alice', 'user')}",
+                "LIGHTRAG-WORKSPACE": "missing_ws",
+            },
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Workspace 'missing_ws' is not registered"}
+
+
+def test_runtime_binding_returns_500_for_registry_internal_error(
+    monkeypatch, tmp_path
+):
+    from lightrag.api import lightrag_server
+
+    async def _boom(self, workspace: str):
+        raise RuntimeError(f"sqlite blew up for {workspace}")
+
+    monkeypatch.setattr(lightrag_server.WorkspaceRegistryStore, "get_workspace", _boom)
+
+    app = _build_runtime_test_app(
+        monkeypatch,
+        tmp_path,
+        include_query_routes=False,
+        include_graph_routes=True,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/graph/label/list",
+            headers={
+                "Authorization": f"Bearer {_build_token('alice', 'user')}",
+                "LIGHTRAG-WORKSPACE": "ws1",
+            },
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "Failed to resolve workspace 'ws1' runtime binding"
+    }
+
+
+def test_runtime_binding_rejects_invalid_workspace_header(
+    monkeypatch, tmp_path
+):
+    app = _build_runtime_test_app(
+        monkeypatch,
+        tmp_path,
+        include_query_routes=True,
+        include_graph_routes=False,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/query",
+            json={"query": "workspace aware"},
+            headers={
+                "Authorization": f"Bearer {_build_token('alice', 'user')}",
+                "LIGHTRAG-WORKSPACE": "bad-workspace",
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Workspace identifier may only contain letters, numbers, and underscores."
+    }
+
+
+def test_query_routes_fall_back_to_default_workspace_without_header(
+    monkeypatch, tmp_path
+):
+    app = _build_runtime_test_app(
+        monkeypatch,
+        tmp_path,
+        include_query_routes=True,
+        include_graph_routes=False,
+        default_workspace="default_ws",
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/query",
+            json={"query": "workspace aware"},
+            headers={"Authorization": f"Bearer {_build_token('alice', 'user')}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["response"] == "default_ws:workspace aware"
+
+
+def test_cached_runtime_allows_query_when_registry_temporarily_fails(
+    monkeypatch, tmp_path
+):
+    app = _build_runtime_test_app(
+        monkeypatch,
+        tmp_path,
+        include_query_routes=True,
+        include_graph_routes=False,
+    )
+    from lightrag.api import lightrag_server
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/workspaces",
+            json={
+                "workspace": "ws1",
+                "display_name": "Workspace 1",
+                "description": "cache test",
+                "visibility": "public",
+            },
+            headers={"Authorization": f"Bearer {_build_token('alice', 'user')}"},
+        )
+        assert create_response.status_code == 201
+
+        first_response = client.post(
+            "/query",
+            json={"query": "warm cache"},
+            headers={
+                "Authorization": f"Bearer {_build_token('alice', 'user')}",
+                "LIGHTRAG-WORKSPACE": "ws1",
+            },
+        )
+        assert first_response.status_code == 200
+        assert first_response.json()["response"] == "ws1:warm cache"
+
+        async def _boom(self, workspace: str):
+            raise RuntimeError(f"sqlite blew up for {workspace}")
+
+        monkeypatch.setattr(
+            lightrag_server.WorkspaceRegistryStore, "get_workspace", _boom
+        )
+
+        second_response = client.post(
+            "/query",
+            json={"query": "cache hit"},
+            headers={
+                "Authorization": f"Bearer {_build_token('alice', 'user')}",
+                "LIGHTRAG-WORKSPACE": "ws1",
+            },
+        )
+
+    assert second_response.status_code == 200
+    assert second_response.json()["response"] == "ws1:cache hit"
 
 
 def test_delete_workspace_data_uses_isolated_runtime_for_default_workspace(
@@ -363,6 +523,17 @@ def test_create_app_preserves_startup_error_without_prune_task_unbound(
     )
     monkeypatch.setattr(lightrag_server, "cleanup_keyed_lock", lambda: {})
     monkeypatch.setattr(lightrag_server, "get_default_workspace", lambda: "")
+    fake_ollama_module = types.ModuleType("lightrag.llm.ollama")
+
+    async def _fake_ollama_model_complete(*args, **kwargs):
+        return "ok"
+
+    async def _fake_ollama_embed(*args, **kwargs):
+        return []
+
+    fake_ollama_module.ollama_model_complete = _fake_ollama_model_complete
+    fake_ollama_module.ollama_embed = _fake_ollama_embed
+    monkeypatch.setitem(sys.modules, "lightrag.llm.ollama", fake_ollama_module)
 
     async def _fake_get_namespace_data(*args, **kwargs):
         return {"busy": False}

@@ -280,6 +280,8 @@ The command-line `workspace` argument and the `WORKSPACE` environment variable i
 - **For graph databases, logical data isolation is achieved through labels:** `Neo4JStorage`, `MemgraphStorage`
 - **For OpenSearch, data isolation is achieved through index name prefixes:** `OpenSearchKVStorage`, `OpenSearchDocStatusStorage`, `OpenSearchGraphStorage`, `OpenSearchVectorDBStorage`
 
+For multi-workspace API requests, clients can send the `LIGHTRAG-WORKSPACE` HTTP header on document, query, and graph endpoints. The header must follow the same identifier rules as workspace creation: letters, numbers, and underscores only. Invalid values are rejected with HTTP `400`; the server does not silently rewrite them. When a workspace runtime is already cached and still accepting requests, LightRAG reuses the cached runtime before consulting the workspace registry again.
+
 To maintain compatibility with legacy data, the default workspace for PostgreSQL is `default` and for Neo4j is `base` when no workspace is configured. For all external storages, the system provides dedicated workspace environment variables to override the common `WORKSPACE` environment variable configuration. These storage-specific workspace environment variables are: `REDIS_WORKSPACE`, `MILVUS_WORKSPACE`, `QDRANT_WORKSPACE`, `MONGODB_WORKSPACE`, `POSTGRES_WORKSPACE`, `NEO4J_WORKSPACE`, `MEMGRAPH_WORKSPACE`, `OPENSEARCH_WORKSPACE`.
 
 ### Multiple workers for Gunicorn + Uvicorn
