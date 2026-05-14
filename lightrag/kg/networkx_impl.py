@@ -398,6 +398,8 @@ class NetworkXStorage(BaseGraphStorage):
         if normalized_direction not in {"both", "outbound", "inbound"}:
             normalized_direction = "both"
 
+        kept_edges: set[tuple[str, str]] = set()
+
         # Handle special case for "*" label
         if node_label == "*":
             # Get degrees of all nodes
@@ -415,6 +417,12 @@ class NetworkXStorage(BaseGraphStorage):
             limited_nodes = [node for node, _ in sorted_nodes[:max_nodes]]
             # Create subgraph with the highest degree nodes
             subgraph = graph.subgraph(limited_nodes)
+            if normalized_direction != "both":
+                for source_node, target_node, edge_data in subgraph.edges(data=True):
+                    edge_source, edge_target = self._resolve_edge_endpoints(
+                        source_node, target_node, edge_data
+                    )
+                    kept_edges.add((edge_source, edge_target))
         else:
             # Check if node exists
             if node_label not in graph:
@@ -428,7 +436,6 @@ class NetworkXStorage(BaseGraphStorage):
             visited = set()
             # Store (node, depth, degree) in the queue
             queue = deque([(node_label, 0, graph.degree(node_label))])
-            kept_edges: set[tuple[str, str]] = set()
             directional_adjacency: dict[str, list[tuple[str, str]]] = {}
 
             if normalized_direction != "both":

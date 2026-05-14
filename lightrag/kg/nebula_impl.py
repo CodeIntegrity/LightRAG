@@ -98,8 +98,7 @@ def _nebula_vid(entity_id: str) -> str:
 
 
 def _nebula_edge_vids(source_node_id: str, target_node_id: str) -> tuple[str, str]:
-    src_id, tgt_id = _canonical_edge_pair(source_node_id, target_node_id)
-    return _nebula_vid(src_id), _nebula_vid(tgt_id)
+    return _nebula_vid(source_node_id), _nebula_vid(target_node_id)
 
 
 def _normalize_space_name(prefix: str, workspace: str) -> str:
@@ -953,11 +952,10 @@ class NebulaGraphStorage(BaseGraphStorage):
         return _first_row(result) is not None
 
     async def has_edge(self, source_node_id: str, target_node_id: str) -> bool:
-        src_id, tgt_id = _canonical_edge_pair(source_node_id, target_node_id)
         result = await self._execute_in_space(
             "MATCH (a:entity)-[e:relation]->(b:entity) "
-            f"WHERE a.entity.entity_id == {_ngql_literal(src_id)} AND "
-            f"b.entity.entity_id == {_ngql_literal(tgt_id)} "
+            f"WHERE a.entity.entity_id == {_ngql_literal(source_node_id)} AND "
+            f"b.entity.entity_id == {_ngql_literal(target_node_id)} "
             "RETURN a.entity.entity_id AS source, b.entity.entity_id AS target "
             "LIMIT 1;"
         )
@@ -1222,7 +1220,9 @@ class NebulaGraphStorage(BaseGraphStorage):
         )
         return [label for _, label in ranked[:limit]]
 
-    async def _build_global_knowledge_graph(self, max_nodes: int) -> KnowledgeGraph:
+    async def _build_global_knowledge_graph(
+        self, max_nodes: int, direction: str = "both"
+    ) -> KnowledgeGraph:
         result = KnowledgeGraph()
         if max_nodes <= 0:
             result.is_truncated = bool(await self.get_all_labels())
@@ -1245,7 +1245,7 @@ class NebulaGraphStorage(BaseGraphStorage):
             node_data = node_payloads.get(node_id, {"entity_id": node_id})
             result.nodes.append(self._to_knowledge_graph_node(node_id, node_data))
 
-        adjacency = await self.get_nodes_edges_batch(selected_ids)
+        adjacency = await self.get_nodes_edges_batch(selected_ids, direction=direction)
         edge_pairs: list[dict[str, str]] = []
         seen_pairs: set[tuple[str, str]] = set()
         for node_id in selected_ids:
@@ -1255,11 +1255,11 @@ class NebulaGraphStorage(BaseGraphStorage):
                 target = str(tgt)
                 if source not in selected_set or target not in selected_set:
                     continue
-                canonical = _canonical_edge_pair(source, target)
-                if canonical in seen_pairs:
+                edge_key = (source, target)
+                if edge_key in seen_pairs:
                     continue
-                seen_pairs.add(canonical)
-                edge_pairs.append({"src": canonical[0], "tgt": canonical[1]})
+                seen_pairs.add(edge_key)
+                edge_pairs.append({"src": source, "tgt": target})
 
         edge_payloads = await self.get_edges_batch(edge_pairs) if edge_pairs else {}
         for pair in edge_pairs:
@@ -1273,7 +1273,11 @@ class NebulaGraphStorage(BaseGraphStorage):
         return result
 
     async def _build_bounded_subgraph(
-        self, node_label: str, max_depth: int, max_nodes: int
+        self,
+        node_label: str,
+        max_depth: int,
+        max_nodes: int,
+        direction: str = "both",
     ) -> KnowledgeGraph:
         result = KnowledgeGraph()
         if max_nodes <= 0:
@@ -1307,7 +1311,9 @@ class NebulaGraphStorage(BaseGraphStorage):
             if len(bfs_order) >= max_nodes:
                 hit_node_limit = bool(frontier)
                 if not hit_node_limit:
-                    adjacency = await self.get_nodes_edges_batch(current_layer)
+                    adjacency = await self.get_nodes_edges_batch(
+                        current_layer, direction=direction
+                    )
                     for node_id in current_layer:
                         for edge in adjacency.get(node_id, []):
                             neighbor = self._extract_neighbor(node_id, edge)
@@ -1319,7 +1325,9 @@ class NebulaGraphStorage(BaseGraphStorage):
                 break
 
             if current_depth >= max_depth:
-                adjacency = await self.get_nodes_edges_batch(current_layer)
+                adjacency = await self.get_nodes_edges_batch(
+                    current_layer, direction=direction
+                )
                 for node_id in current_layer:
                     for edge in adjacency.get(node_id, []):
                         neighbor = self._extract_neighbor(node_id, edge)
@@ -1330,7 +1338,9 @@ class NebulaGraphStorage(BaseGraphStorage):
                         break
                 continue
 
-            adjacency = await self.get_nodes_edges_batch(current_layer)
+            adjacency = await self.get_nodes_edges_batch(
+                current_layer, direction=direction
+            )
             next_candidates: list[str] = []
             seen_next: set[str] = set()
             for node_id in current_layer:
@@ -1357,7 +1367,7 @@ class NebulaGraphStorage(BaseGraphStorage):
                 node_data = {"entity_id": node_id}
             result.nodes.append(self._to_knowledge_graph_node(node_id, node_data))
 
-        adjacency = await self.get_nodes_edges_batch(selected_ids)
+        adjacency = await self.get_nodes_edges_batch(selected_ids, direction=direction)
         edge_pairs: list[dict[str, str]] = []
         seen_pairs: set[tuple[str, str]] = set()
         for node_id in selected_ids:
@@ -1367,11 +1377,11 @@ class NebulaGraphStorage(BaseGraphStorage):
                 target = str(tgt)
                 if source not in selected_set or target not in selected_set:
                     continue
-                canonical = _canonical_edge_pair(source, target)
-                if canonical in seen_pairs:
+                edge_key = (source, target)
+                if edge_key in seen_pairs:
                     continue
-                seen_pairs.add(canonical)
-                edge_pairs.append({"src": canonical[0], "tgt": canonical[1]})
+                seen_pairs.add(edge_key)
+                edge_pairs.append({"src": source, "tgt": target})
 
         edge_payloads = (
             await self.get_edges_batch(edge_pairs)
@@ -1420,11 +1430,10 @@ class NebulaGraphStorage(BaseGraphStorage):
     async def get_edge(
         self, source_node_id: str, target_node_id: str
     ) -> dict[str, Any] | None:
-        src_id, tgt_id = _canonical_edge_pair(source_node_id, target_node_id)
         result = await self._execute_in_space(
             "MATCH (a:entity)-[e:relation]->(b:entity) "
-            f"WHERE a.entity.entity_id == {_ngql_literal(src_id)} AND "
-            f"b.entity.entity_id == {_ngql_literal(tgt_id)} "
+            f"WHERE a.entity.entity_id == {_ngql_literal(source_node_id)} AND "
+            f"b.entity.entity_id == {_ngql_literal(target_node_id)} "
             "RETURN "
             "a.entity.entity_id AS source, "
             "b.entity.entity_id AS target, "
@@ -1528,23 +1537,19 @@ class NebulaGraphStorage(BaseGraphStorage):
 
     async def get_edges_batch(self, pairs: list[dict[str, str]]) -> dict[tuple[str, str], dict]:
         requested_pairs: list[tuple[str, str]] = []
-        canonical_to_requested: dict[tuple[str, str], list[tuple[str, str]]] = {}
         for pair in pairs:
             src = str(pair.get("src", ""))
             tgt = str(pair.get("tgt", ""))
             if not src or not tgt:
                 continue
-            request_key = (src, tgt)
-            requested_pairs.append(request_key)
-            canonical = _canonical_edge_pair(src, tgt)
-            canonical_to_requested.setdefault(canonical, []).append(request_key)
+            requested_pairs.append((src, tgt))
 
         if not requested_pairs:
             return {}
 
-        by_canonical: dict[tuple[str, str], dict[str, Any]] = {}
+        output: dict[tuple[str, str], dict] = {}
         for pair_chunk in _chunk_items(
-            list(canonical_to_requested), _MAX_BATCH_FILTER_ITEMS
+            list(dict.fromkeys(requested_pairs)), _MAX_BATCH_FILTER_ITEMS
         ):
             where_clause = self._build_relation_pair_clause(pair_chunk)
             result = await self._execute_in_space(
@@ -1568,19 +1573,11 @@ class NebulaGraphStorage(BaseGraphStorage):
                 tgt = row.get("target")
                 if src is None or tgt is None:
                     continue
-                canonical = _canonical_edge_pair(str(src), str(tgt))
+                request_key = (str(src), str(tgt))
                 props = self._extract_edge_props(row)
                 props["source"] = str(src)
                 props["target"] = str(tgt)
-                by_canonical[canonical] = props
-
-        output: dict[tuple[str, str], dict] = {}
-        for canonical, request_keys in canonical_to_requested.items():
-            props = by_canonical.get(canonical)
-            if props is None:
-                continue
-            for request_key in request_keys:
-                output[request_key] = dict(props)
+                output[request_key] = props
         return output
 
     async def get_node_edges(self, source_node_id: str) -> list[tuple[str, str]] | None:
@@ -1591,7 +1588,7 @@ class NebulaGraphStorage(BaseGraphStorage):
         return batched.get(source_node_id, [])
 
     async def get_nodes_edges_batch(
-        self, node_ids: list[str]
+        self, node_ids: list[str], direction: str = "both"
     ) -> dict[str, list[tuple[str, str]]]:
         requested_ids = [str(node_id) for node_id in node_ids]
         output = {node_id: [] for node_id in requested_ids}
@@ -1601,6 +1598,9 @@ class NebulaGraphStorage(BaseGraphStorage):
         if not unique_ids:
             return output
 
+        normalized_direction = str(direction or "both").strip().lower()
+        if normalized_direction not in {"both", "outbound", "inbound"}:
+            normalized_direction = "both"
         requested_set = set(output)
         for id_chunk in _chunk_items(unique_ids, _MAX_BATCH_FILTER_ITEMS):
             where_clause = self._build_relation_endpoint_clause(id_chunk)
@@ -1620,9 +1620,13 @@ class NebulaGraphStorage(BaseGraphStorage):
                 src_id = str(src)
                 tgt_id = str(tgt)
                 edge = (src_id, tgt_id)
-                if src_id in requested_set:
+                if normalized_direction in {"both", "outbound"} and src_id in requested_set:
                     output[src_id].append(edge)
-                if tgt_id in requested_set and tgt_id != src_id:
+                if (
+                    normalized_direction in {"both", "inbound"}
+                    and tgt_id in requested_set
+                    and tgt_id != src_id
+                ):
                     output[tgt_id].append(edge)
         return output
 
@@ -1670,8 +1674,9 @@ class NebulaGraphStorage(BaseGraphStorage):
     async def upsert_edge(
         self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
     ) -> None:
-        src_id, tgt_id = _canonical_edge_pair(source_node_id, target_node_id)
-        src_vid, tgt_vid = _nebula_edge_vids(source_node_id, target_node_id)
+        src_id = str(source_node_id)
+        tgt_id = str(target_node_id)
+        src_vid, tgt_vid = _nebula_edge_vids(src_id, tgt_id)
         source_id = str(edge_data.get("source_id", ""))
         target_id = str(edge_data.get("target_id", ""))
         relationship = str(edge_data.get("relationship", ""))
@@ -1740,15 +1745,23 @@ class NebulaGraphStorage(BaseGraphStorage):
         max_nodes: int = 1000,
         direction: str = "both",
     ) -> KnowledgeGraph:
+        normalized_direction = str(direction or "both").strip().lower()
+        if normalized_direction not in {"both", "outbound", "inbound"}:
+            normalized_direction = "both"
         resolved_max_nodes = self._resolve_max_nodes(self.global_config, max_nodes)
         resolved_max_depth = max(0, int(max_depth))
         label = str(node_label).strip()
         if not label:
             return KnowledgeGraph()
         if label == "*":
-            return await self._build_global_knowledge_graph(resolved_max_nodes)
+            return await self._build_global_knowledge_graph(
+                resolved_max_nodes, direction=normalized_direction
+            )
         return await self._build_bounded_subgraph(
-            label, resolved_max_depth, resolved_max_nodes
+            label,
+            resolved_max_depth,
+            resolved_max_nodes,
+            direction=normalized_direction,
         )
 
     async def get_all_nodes(self) -> list[dict]:

@@ -1191,15 +1191,15 @@ async def test_nebula_long_entity_ids_use_internal_vids_for_edges_and_property_f
 
 
 @pytest.mark.asyncio
-async def test_nebula_edge_reads_are_undirected():
+async def test_nebula_edge_reads_preserve_direction():
     storage = build_storage(workspace="finance")
     execute_in_space = AsyncMock(
         side_effect=[
             object(),
             [
                 {
-                    "source": "A",
-                    "target": "B",
+                    "source": "B",
+                    "target": "A",
                     "source_id": "chunk-1<SEP>chunk-2",
                     "target_id": "meta-target",
                     "relationship": "rel",
@@ -1210,20 +1210,7 @@ async def test_nebula_edge_reads_are_undirected():
                     "custom_properties_json": '{"confidence":0.9}',
                 }
             ],
-            [
-                {
-                    "source": "A",
-                    "target": "B",
-                    "source_id": "chunk-1<SEP>chunk-2",
-                    "target_id": "meta-target",
-                    "relationship": "rel",
-                    "description": "d",
-                    "keywords": "k1,k2",
-                    "weight": 1.0,
-                    "file_path": "doc/a.md",
-                    "custom_properties_json": '{"confidence":0.9}',
-                }
-            ],
+            [],
         ]
     )
     with patch.object(storage, "_execute_in_space", execute_in_space):
@@ -1239,35 +1226,38 @@ async def test_nebula_edge_reads_are_undirected():
                 "custom_properties": {"confidence": 0.9},
             },
         )
-        forward = await storage.get_edge("A", "B")
         reverse = await storage.get_edge("B", "A")
+        forward = await storage.get_edge("A", "B")
 
-    assert forward == reverse
-    assert forward["keywords"] == "k1,k2"
-    assert forward["file_path"] == "doc/a.md"
-    assert forward["custom_properties"] == {"confidence": 0.9}
+    assert reverse is not None
+    assert reverse["source"] == "B"
+    assert reverse["target"] == "A"
+    assert reverse["keywords"] == "k1,k2"
+    assert reverse["file_path"] == "doc/a.md"
+    assert reverse["custom_properties"] == {"confidence": 0.9}
+    assert forward is None
     upsert_sql = execute_in_space.await_args_list[0].args[0]
     assert "keywords" in upsert_sql
     assert "file_path" in upsert_sql
     assert "custom_properties_json" in upsert_sql
-    src_vid, tgt_vid = _nebula_edge_vids("A", "B")
+    src_vid, tgt_vid = _nebula_edge_vids("B", "A")
     assert f'VALUES "{src_vid}"->"{tgt_vid}"' in upsert_sql
     fetch_sql_1 = execute_in_space.await_args_list[1].args[0]
     fetch_sql_2 = execute_in_space.await_args_list[2].args[0]
-    assert 'WHERE a.entity.entity_id == "A" AND b.entity.entity_id == "B"' in fetch_sql_1
+    assert 'WHERE a.entity.entity_id == "B" AND b.entity.entity_id == "A"' in fetch_sql_1
     assert 'WHERE a.entity.entity_id == "A" AND b.entity.entity_id == "B"' in fetch_sql_2
 
 
 @pytest.mark.asyncio
-async def test_nebula_upsert_edge_forces_canonical_source_target_properties():
+async def test_nebula_upsert_edge_preserves_source_target_properties():
     storage = build_storage(workspace="finance")
     execute_in_space = AsyncMock(
         side_effect=[
             object(),
             [
                 {
-                    "source": "A",
-                    "target": "B",
+                    "source": "B",
+                    "target": "A",
                     "source_id": "chunk1<SEP>chunk2",
                     "target_id": "meta-target",
                     "relationship": "rel",
@@ -1293,17 +1283,17 @@ async def test_nebula_upsert_edge_forces_canonical_source_target_properties():
                 "file_path": "doc/a.md",
             },
         )
-        edge = await storage.get_edge("A", "B")
+        edge = await storage.get_edge("B", "A")
 
     assert edge is not None
-    assert edge["source"] == "A"
-    assert edge["target"] == "B"
+    assert edge["source"] == "B"
+    assert edge["target"] == "A"
     assert edge["source_id"] == "chunk1<SEP>chunk2"
     assert edge["target_id"] == "meta-target"
     assert edge["keywords"] == "k1,k2"
     assert edge["file_path"] == "doc/a.md"
     upsert_sql = execute_in_space.await_args_list[0].args[0]
-    src_vid, tgt_vid = _nebula_edge_vids("A", "B")
+    src_vid, tgt_vid = _nebula_edge_vids("B", "A")
     assert (
         f'VALUES "{src_vid}"->"{tgt_vid}":("chunk1<SEP>chunk2", "meta-target"' in upsert_sql
     )
@@ -1564,7 +1554,7 @@ async def test_nebula_node_degrees_batch_splits_large_endpoint_filters():
 
 
 @pytest.mark.asyncio
-async def test_nebula_get_edges_batch_uses_canonical_pairs_and_preserves_keys():
+async def test_nebula_get_edges_batch_preserves_requested_direction():
     storage = build_storage(workspace="finance")
     execute_in_space = AsyncMock(
         return_value=[
@@ -1590,18 +1580,6 @@ async def test_nebula_get_edges_batch_uses_canonical_pairs_and_preserves_keys():
         edges = await storage.get_edges_batch(pairs)
 
     assert edges == {
-        ("B", "A"): {
-            "source": "A",
-            "target": "B",
-            "source_id": "A",
-            "target_id": "B",
-            "relationship": "rel-ab",
-            "description": "A-B edge",
-            "keywords": "k1,k2",
-            "weight": 2.5,
-            "file_path": "doc/a.md",
-            "custom_properties": {},
-        },
         ("A", "B"): {
             "source": "A",
             "target": "B",
@@ -2064,6 +2042,57 @@ async def test_nebula_get_knowledge_graph_entity_returns_bounded_subgraph():
     assert len(graph.edges) == 1
     assert graph.edges[0].source in node_ids
     assert graph.edges[0].target in node_ids
+
+
+@pytest.mark.asyncio
+async def test_nebula_get_knowledge_graph_entity_respects_direction():
+    storage = build_storage(workspace="finance")
+    nodes_by_id = {
+        "A": {"entity_id": "A", "name": "A"},
+        "B": {"entity_id": "B", "name": "B"},
+        "C": {"entity_id": "C", "name": "C"},
+    }
+    adjacency_by_direction = {
+        "outbound": {"A": [("A", "B")], "B": [("B", "C")]},
+        "inbound": {"A": [("C", "A")], "C": [("B", "C")]},
+    }
+    edges_by_direction = {
+        "outbound": {
+            ("A", "B"): {"source": "A", "target": "B", "relationship": "ab"}
+        },
+        "inbound": {
+            ("C", "A"): {"source": "C", "target": "A", "relationship": "ca"}
+        },
+    }
+
+    async def mock_get_nodes_edges_batch(node_ids, direction="both"):
+        assert direction in adjacency_by_direction
+        adjacency = adjacency_by_direction[direction]
+        return {node_id: list(adjacency.get(node_id, [])) for node_id in node_ids}
+
+    async def mock_get_edges_batch(pairs):
+        if pairs == [{"src": "A", "tgt": "B"}]:
+            return edges_by_direction["outbound"]
+        if pairs == [{"src": "C", "tgt": "A"}]:
+            return edges_by_direction["inbound"]
+        return {}
+
+    with (
+        patch.object(storage, "get_nodes_batch", AsyncMock(return_value=nodes_by_id)),
+        patch.object(storage, "get_nodes_edges_batch", AsyncMock(side_effect=mock_get_nodes_edges_batch)),
+        patch.object(storage, "get_edges_batch", AsyncMock(side_effect=mock_get_edges_batch)),
+    ):
+        outbound = await storage.get_knowledge_graph(
+            "A", max_depth=1, max_nodes=2, direction="outbound"
+        )
+        inbound = await storage.get_knowledge_graph(
+            "A", max_depth=1, max_nodes=2, direction="inbound"
+        )
+
+    assert {node.id for node in outbound.nodes} == {"A", "B"}
+    assert [(edge.source, edge.target) for edge in outbound.edges] == [("A", "B")]
+    assert {node.id for node in inbound.nodes} == {"A", "C"}
+    assert [(edge.source, edge.target) for edge in inbound.edges] == [("C", "A")]
 
 
 @pytest.mark.asyncio

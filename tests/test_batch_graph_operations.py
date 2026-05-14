@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock
 
 from lightrag.kg.networkx_impl import NetworkXStorage
 from lightrag.kg.shared_storage import initialize_share_data
+from lightrag.api.graph_workbench import query_graph_workbench
 from lightrag.utils import EmbeddingFunc, Tokenizer, make_relation_vdb_ids
 
 
@@ -804,6 +805,73 @@ class TestAinsertCustomKgBatchPath:
             assert rag.relationships_vdb.delete.await_args.args[0] == [
                 make_relation_vdb_ids("EntityA", "EntityB")[1]
             ]
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_query_graph_with_global_scope_direction_preserves_edge_direction(self):
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=f"custom-direction-{time.time_ns()}",
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            custom_kg = {
+                "chunks": [
+                    {
+                        "content": "chunk content",
+                        "chunk_order_index": 0,
+                        "source_id": "src-1",
+                    }
+                ],
+                "entities": [
+                    {
+                        "entity_name": "Elon Musk",
+                        "entity_type": "PERSON",
+                        "source_id": "src-1",
+                    },
+                    {
+                        "entity_name": "Tesla",
+                        "entity_type": "ORGANIZATION",
+                        "source_id": "src-1",
+                    },
+                ],
+                "relationships": [
+                    {
+                        "src_id": "Elon Musk",
+                        "tgt_id": "Tesla",
+                        "description": "Elon Musk founded Tesla",
+                        "keywords": "founder",
+                        "weight": 1.0,
+                        "source_id": "src-1",
+                    }
+                ],
+            }
+
+            await rag.ainsert_custom_kg(custom_kg)
+
+            result = await query_graph_workbench(
+                rag,
+                {
+                    "scope": {
+                        "label": "*",
+                        "max_depth": 2,
+                        "max_nodes": 20,
+                        "direction": "outbound",
+                    }
+                },
+            )
+
+            edge_pairs = [
+                (edge["source"], edge["target"]) for edge in result["data"]["edges"]
+            ]
+            assert edge_pairs == [("Elon Musk", "Tesla")]
 
             await rag.finalize_storages()
 
