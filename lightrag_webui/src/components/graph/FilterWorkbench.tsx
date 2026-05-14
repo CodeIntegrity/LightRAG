@@ -298,14 +298,19 @@ const DirectionField = ({
   <div className="min-w-0 space-y-1">
     <FieldLabel>{label}</FieldLabel>
     <Tabs
+      className="w-full min-w-0"
       value={value}
       onValueChange={(nextValue) =>
         onChange(nextValue as GraphWorkbenchQueryRequest['scope']['direction'])
       }
     >
-      <TabsList className="grid h-9 w-full grid-cols-3">
+      <TabsList className="grid h-auto w-full min-w-0 grid-cols-1 gap-1 sm:grid-cols-3">
         {options.map((option) => (
-          <TabsTrigger key={option.value} value={option.value} className="px-2 text-xs">
+          <TabsTrigger
+            key={option.value}
+            value={option.value}
+            className="h-auto min-w-0 whitespace-normal px-2 py-1.5 text-[11px] leading-tight"
+          >
             {option.label}
           </TabsTrigger>
         ))}
