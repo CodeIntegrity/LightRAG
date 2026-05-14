@@ -2,7 +2,7 @@ import { useRegisterEvents, useSetSettings, useSigma } from '@react-sigma/core'
 import { AbstractGraph } from 'graphology-types'
 // import { useLayoutCircular } from '@react-sigma/layout-circular'
 import { useLayoutForceAtlas2 } from '@react-sigma/layout-forceatlas2'
-import { useEffect, useRef, useState } from 'react'
+import { type MutableRefObject, useEffect, useRef, useState } from 'react'
 
 // import useRandomGraph, { EdgeType, NodeType } from '@/hooks/useRandomGraph'
 import { EdgeType, NodeType } from '@/hooks/useLightragGraph'
@@ -18,6 +18,7 @@ import {
   subscribeToCameraViewPersistence
 } from '@/utils/graphViewPersistence'
 import { applyLinkedDragMovement } from '@/utils/graphDrag'
+import { getGraphInteractionSettings } from '@/utils/graphInteractionSettings'
 import { getEdgeLabelFontSize } from '@/utils/graphLabelSize'
 
 const isButtonPressed = (ev: MouseEvent | TouchEvent) => {
@@ -27,6 +28,185 @@ const isButtonPressed = (ev: MouseEvent | TouchEvent) => {
     }
   }
   return false
+}
+
+type NodeEvent = { node: string; event: { original: MouseEvent | TouchEvent } }
+type EdgeEvent = { edge: string; event: { original: MouseEvent | TouchEvent } }
+
+type GraphEventHandlerDeps = {
+  sigma: ReturnType<typeof useSigma<NodeType, EdgeType>>
+  enableEdgeEvents: boolean
+  enableNodeDrag: boolean
+  enableSearchLinkedDrag: boolean
+  selectedNode: string | null
+  selectedNodeSource: 'graph' | 'search' | null
+  draggedNodeRef: MutableRefObject<string | null>
+  linkedDraggedNodeIdsRef: MutableRefObject<string[]>
+  wasDraggingRef: MutableRefObject<boolean>
+}
+
+export const buildGraphEventHandlers = ({
+  sigma,
+  enableEdgeEvents,
+  enableNodeDrag,
+  enableSearchLinkedDrag,
+  selectedNode,
+  selectedNodeSource,
+  draggedNodeRef,
+  linkedDraggedNodeIdsRef,
+  wasDraggingRef
+}: GraphEventHandlerDeps): Record<string, any> => {
+  const { setFocusedNode, setSelectedNode, setFocusedEdge, setSelectedEdge, clearSelection } =
+    useGraphStore.getState()
+
+  const events: Record<string, any> = {
+    enterNode: (event: NodeEvent) => {
+      if (!isButtonPressed(event.event.original)) {
+        const graph = sigma.getGraph()
+        if (graph.hasNode(event.node)) {
+          setFocusedNode(event.node)
+        }
+      }
+    },
+    leaveNode: (event: NodeEvent) => {
+      if (!isButtonPressed(event.event.original)) {
+        setFocusedNode(null)
+      }
+    },
+    clickNode: (event: NodeEvent) => {
+      if (wasDraggingRef.current) {
+        wasDraggingRef.current = false
+        return
+      }
+      const graph = sigma.getGraph()
+      if (graph.hasNode(event.node)) {
+        setSelectedNode(event.node)
+        setSelectedEdge(null)
+      }
+    },
+    clickStage: () => clearSelection()
+  }
+
+  if (enableEdgeEvents) {
+    events.clickEdge = (event: EdgeEvent) => {
+      setSelectedEdge(event.edge)
+      setSelectedNode(null)
+    }
+
+    events.enterEdge = (event: EdgeEvent) => {
+      if (!isButtonPressed(event.event.original)) {
+        setFocusedEdge(event.edge)
+      }
+    }
+
+    events.leaveEdge = (event: EdgeEvent) => {
+      if (!isButtonPressed(event.event.original)) {
+        setFocusedEdge(null)
+      }
+    }
+  }
+
+  if (!enableNodeDrag) {
+    return events
+  }
+
+  events.downNode = (event: NodeEvent) => {
+    const graph = sigma.getGraph()
+    if (graph.hasNode(event.node)) {
+      draggedNodeRef.current = event.node
+      linkedDraggedNodeIdsRef.current =
+        enableSearchLinkedDrag && selectedNodeSource === 'search' && selectedNode === event.node
+          ? graph.neighbors(event.node).filter((nodeId) => graph.hasNode(nodeId))
+          : []
+      graph.setNodeAttribute(event.node, 'highlighted', true)
+    }
+  }
+
+  events.mousemovebody = (event: any) => {
+    if (!draggedNodeRef.current) return
+    const pos = sigma.viewportToGraph(event)
+    const graph = sigma.getGraph()
+    if (!graph.hasNode(draggedNodeRef.current)) return
+    const draggedNodeId = draggedNodeRef.current
+    const movedPositions = applyLinkedDragMovement({
+      positions: [draggedNodeId, ...linkedDraggedNodeIdsRef.current].reduce(
+        (acc, nodeId) => {
+          if (!graph.hasNode(nodeId)) {
+            return acc
+          }
+
+          acc[nodeId] = {
+            x: graph.getNodeAttribute(nodeId, 'x') as number,
+            y: graph.getNodeAttribute(nodeId, 'y') as number
+          }
+          return acc
+        },
+        {} as Record<string, { x: number; y: number }>
+      ),
+      draggedNodeId,
+      linkedNodeIds: linkedDraggedNodeIdsRef.current,
+      nextPosition: { x: pos.x, y: pos.y }
+    })
+
+    for (const [nodeId, nodePosition] of Object.entries(movedPositions)) {
+      if (!graph.hasNode(nodeId)) {
+        continue
+      }
+
+      graph.setNodeAttribute(nodeId, 'x', nodePosition.x)
+      graph.setNodeAttribute(nodeId, 'y', nodePosition.y)
+    }
+    wasDraggingRef.current = true
+    event.preventSigmaDefault()
+    event.original.preventDefault()
+    event.original.stopPropagation()
+  }
+
+  events.mouseup = () => {
+    if (draggedNodeRef.current) {
+      const nodeId = draggedNodeRef.current
+      const graph = sigma.getGraph()
+      if (graph.hasNode(nodeId)) {
+        graph.removeNodeAttribute(nodeId, 'highlighted')
+        const state = useGraphStore.getState()
+        const rg = state.rawGraph
+        if (rg) {
+          const draggedNodeIds = [nodeId, ...linkedDraggedNodeIdsRef.current]
+          for (const draggedId of draggedNodeIds) {
+            const idx = rg.nodeIdMap[draggedId]
+            if (idx !== undefined && rg.nodes[idx]) {
+              rg.nodes[idx].x = graph.getNodeAttribute(draggedId, 'x') as number
+              rg.nodes[idx].y = graph.getNodeAttribute(draggedId, 'y') as number
+            }
+          }
+
+          const settings = useSettingsStore.getState()
+          for (const draggedId of draggedNodeIds) {
+            saveGraphNodePosition(
+              {
+                workspace: settings.currentWorkspace,
+                queryLabel: state.lastSuccessfulQueryLabel
+              },
+              draggedId,
+              graph.getNodeAttribute(draggedId, 'x') as number,
+              graph.getNodeAttribute(draggedId, 'y') as number
+            )
+          }
+        }
+      }
+      draggedNodeRef.current = null
+      linkedDraggedNodeIdsRef.current = []
+    }
+  }
+
+  events.mousedown = () => {
+    wasDraggingRef.current = false
+    if (!sigma.getCustomBBox()) {
+      sigma.setCustomBBox(sigma.getBBox())
+    }
+  }
+
+  return events
 }
 
 const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) => {
@@ -148,181 +328,34 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
    * => register events
    */
   useEffect(() => {
-    const { setFocusedNode, setSelectedNode, setFocusedEdge, setSelectedEdge, clearSelection } =
-      useGraphStore.getState()
-
-    // Define event types
-    type NodeEvent = { node: string; event: { original: MouseEvent | TouchEvent } }
-    type EdgeEvent = { edge: string; event: { original: MouseEvent | TouchEvent } }
-
-    // Register all events, but edge events will only be processed if enableEdgeEvents is true
-    const events: Record<string, any> = {
-      enterNode: (event: NodeEvent) => {
-        if (!isButtonPressed(event.event.original)) {
-          const graph = sigma.getGraph()
-          if (graph.hasNode(event.node)) {
-            setFocusedNode(event.node)
-          }
-        }
-      },
-      leaveNode: (event: NodeEvent) => {
-        if (!isButtonPressed(event.event.original)) {
-          setFocusedNode(null)
-        }
-      },
-      clickNode: (event: NodeEvent) => {
-        if (wasDraggingRef.current) {
-          wasDraggingRef.current = false
-          return
-        }
-        const graph = sigma.getGraph()
-        if (graph.hasNode(event.node)) {
-          setSelectedNode(event.node)
-          setSelectedEdge(null)
-        }
-      },
-      clickStage: () => clearSelection()
-    }
-
-    // Only add edge event handlers if enableEdgeEvents is true
-    if (enableEdgeEvents) {
-      events.clickEdge = (event: EdgeEvent) => {
-        setSelectedEdge(event.edge)
-        setSelectedNode(null)
-      }
-
-      events.enterEdge = (event: EdgeEvent) => {
-        if (!isButtonPressed(event.event.original)) {
-          setFocusedEdge(event.edge)
-        }
-      }
-
-      events.leaveEdge = (event: EdgeEvent) => {
-        if (!isButtonPressed(event.event.original)) {
-          setFocusedEdge(null)
-        }
-      }
-    }
-
-    // Register the events
-    registerEvents(events)
-
-    // Cleanup function - basic cleanup without relying on specific APIs
-    return () => {
-      // cleanup placeholder
-    }
-  }, [registerEvents, enableEdgeEvents, sigma])
-
-  useEffect(() => {
-    if (!enableNodeDrag) {
-      return
-    }
-
-    const dragEvents: Record<string, any> = {
-      downNode: (event: NodeEvent) => {
-        const graph = sigma.getGraph()
-        if (graph.hasNode(event.node)) {
-          draggedNodeRef.current = event.node
-          linkedDraggedNodeIdsRef.current =
-            enableSearchLinkedDrag &&
-            selectedNodeSource === 'search' &&
-            selectedNode === event.node
-              ? graph.neighbors(event.node).filter((nodeId) => graph.hasNode(nodeId))
-              : []
-          graph.setNodeAttribute(event.node, 'highlighted', true)
-        }
-      },
-      mousemovebody: (event: any) => {
-        if (!draggedNodeRef.current) return
-        const pos = sigma.viewportToGraph(event)
-        const graph = sigma.getGraph()
-        if (!graph.hasNode(draggedNodeRef.current)) return
-        const draggedNodeId = draggedNodeRef.current
-        const movedPositions = applyLinkedDragMovement({
-          positions: [draggedNodeId, ...linkedDraggedNodeIdsRef.current].reduce(
-            (acc, nodeId) => {
-              if (!graph.hasNode(nodeId)) {
-                return acc
-              }
-
-              acc[nodeId] = {
-                x: graph.getNodeAttribute(nodeId, 'x') as number,
-                y: graph.getNodeAttribute(nodeId, 'y') as number
-              }
-              return acc
-            },
-            {} as Record<string, { x: number; y: number }>
-          ),
-          draggedNodeId,
-          linkedNodeIds: linkedDraggedNodeIdsRef.current,
-          nextPosition: { x: pos.x, y: pos.y }
-        })
-
-        for (const [nodeId, nodePosition] of Object.entries(movedPositions)) {
-          if (!graph.hasNode(nodeId)) {
-            continue
-          }
-
-          graph.setNodeAttribute(nodeId, 'x', nodePosition.x)
-          graph.setNodeAttribute(nodeId, 'y', nodePosition.y)
-        }
-        wasDraggingRef.current = true
-        event.preventSigmaDefault()
-        event.original.preventDefault()
-        event.original.stopPropagation()
-      },
-      mouseup: () => {
-        if (draggedNodeRef.current) {
-          const nodeId = draggedNodeRef.current
-          const graph = sigma.getGraph()
-          if (graph.hasNode(nodeId)) {
-            graph.removeNodeAttribute(nodeId, 'highlighted')
-            const state = useGraphStore.getState()
-            const rg = state.rawGraph
-            if (rg) {
-              const draggedNodeIds = [nodeId, ...linkedDraggedNodeIdsRef.current]
-              for (const draggedId of draggedNodeIds) {
-                const idx = rg.nodeIdMap[draggedId]
-                if (idx !== undefined && rg.nodes[idx]) {
-                  rg.nodes[idx].x = graph.getNodeAttribute(draggedId, 'x') as number
-                  rg.nodes[idx].y = graph.getNodeAttribute(draggedId, 'y') as number
-                }
-              }
-
-              const settings = useSettingsStore.getState()
-              for (const draggedId of draggedNodeIds) {
-                saveGraphNodePosition(
-                  {
-                    workspace: settings.currentWorkspace,
-                    queryLabel: state.lastSuccessfulQueryLabel
-                  },
-                  draggedId,
-                  graph.getNodeAttribute(draggedId, 'x') as number,
-                  graph.getNodeAttribute(draggedId, 'y') as number
-                )
-              }
-            }
-          }
-          draggedNodeRef.current = null
-          linkedDraggedNodeIdsRef.current = []
-        }
-      },
-      mousedown: () => {
-        wasDraggingRef.current = false
-        if (!sigma.getCustomBBox()) {
-          sigma.setCustomBBox(sigma.getBBox())
-        }
-      }
-    }
-
-    registerEvents(dragEvents)
+    registerEvents(
+      buildGraphEventHandlers({
+        sigma,
+        enableEdgeEvents,
+        enableNodeDrag,
+        enableSearchLinkedDrag,
+        selectedNode,
+        selectedNodeSource,
+        draggedNodeRef,
+        linkedDraggedNodeIdsRef,
+        wasDraggingRef
+      })
+    )
 
     return () => {
       draggedNodeRef.current = null
       linkedDraggedNodeIdsRef.current = []
       wasDraggingRef.current = false
     }
-  }, [registerEvents, sigma, enableNodeDrag, enableSearchLinkedDrag, selectedNode, selectedNodeSource])
+  }, [
+    registerEvents,
+    sigma,
+    enableEdgeEvents,
+    enableNodeDrag,
+    enableSearchLinkedDrag,
+    selectedNode,
+    selectedNodeSource
+  ])
 
   /**
    * When edge size settings change, recalculate edge sizes and refresh the sigma instance
@@ -375,7 +408,7 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
    */
   useEffect(() => {
     setSettings({
-      enableEdgeEvents,
+      ...getGraphInteractionSettings(enableEdgeEvents),
       edgeLabelSize: getEdgeLabelFontSize(graphLabelFontSize),
       labelSize: graphLabelFontSize,
       renderEdgeLabels,

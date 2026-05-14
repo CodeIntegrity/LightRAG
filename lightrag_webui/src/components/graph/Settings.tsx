@@ -55,7 +55,8 @@ const LabeledNumberInput = ({
   min,
   max,
   defaultValue,
-  step
+  step,
+  inputClassName
 }: {
   value: number
   onEditFinished: (value: number) => void
@@ -64,6 +65,7 @@ const LabeledNumberInput = ({
   max?: number
   defaultValue?: number
   step?: number
+  inputClassName?: string
 }) => {
   const { t } = useTranslation();
   const [currentValue, setCurrentValue] = useState<number | null>(value)
@@ -122,7 +124,7 @@ const LabeledNumberInput = ({
           type="number"
           value={currentValue === null ? '' : currentValue}
           onChange={onValueChange}
-          className="h-6 w-full min-w-0 pr-1"
+          className={`h-6 min-w-0 pr-1 ${inputClassName ?? 'w-full'}`}
           min={min}
           max={max}
           onBlur={onBlur}
@@ -392,6 +394,7 @@ export default function Settings() {
               min={8}
               max={24}
               defaultValue={DEFAULT_GRAPH_LABEL_FONT_SIZE}
+              inputClassName="w-24"
             />
             <LabeledCheckBox
               checked={enableNodeDrag}

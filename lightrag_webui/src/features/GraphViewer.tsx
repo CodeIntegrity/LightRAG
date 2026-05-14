@@ -32,6 +32,7 @@ import { labelColorDarkTheme, labelColorLightTheme } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import Button from '@/components/ui/Button'
 import { useTranslation } from 'react-i18next'
+import { getGraphInteractionSettings } from '@/utils/graphInteractionSettings'
 import {
   DEFAULT_GRAPH_LABEL_FONT_SIZE,
   getEdgeLabelFontSize
@@ -43,7 +44,8 @@ import '@react-sigma/graph-search/lib/style.css'
 // Function to create sigma settings based on theme
 const createSigmaSettings = (
   isDarkTheme: boolean,
-  graphLabelFontSize: number
+  graphLabelFontSize: number,
+  enableEdgeEvents: boolean
 ): Partial<SigmaSettings> => ({
   allowInvalidContainer: true,
   defaultNodeType: 'default',
@@ -61,7 +63,7 @@ const createSigmaSettings = (
   },
   labelGridCellSize: 60,
   labelRenderedSizeThreshold: 12,
-  enableEdgeEvents: true,
+  ...getGraphInteractionSettings(enableEdgeEvents),
   labelColor: {
     color: isDarkTheme ? labelColorDarkTheme : labelColorLightTheme,
     attribute: 'labelColor'
@@ -95,6 +97,7 @@ const GraphViewer = () => {
   const showNodeSearchBar = useSettingsStore.use.showNodeSearchBar()
   const showLegend = useSettingsStore.use.showLegend()
   const graphLabelFontSize = useSettingsStore.use.graphLabelFontSize()
+  const enableEdgeEvents = useSettingsStore.use.enableEdgeEvents()
   const theme = useSettingsStore.use.theme()
 
   const [isThemeSwitching, setIsThemeSwitching] = useState(false)
@@ -102,8 +105,12 @@ const GraphViewer = () => {
   // Memoize sigma settings to prevent unnecessary re-creation
   const memoizedSigmaSettings = useMemo(() => {
     const isDarkTheme = theme === 'dark'
-    return createSigmaSettings(isDarkTheme, graphLabelFontSize || DEFAULT_GRAPH_LABEL_FONT_SIZE)
-  }, [theme, graphLabelFontSize])
+    return createSigmaSettings(
+      isDarkTheme,
+      graphLabelFontSize || DEFAULT_GRAPH_LABEL_FONT_SIZE,
+      enableEdgeEvents
+    )
+  }, [theme, graphLabelFontSize, enableEdgeEvents])
 
   // Detect theme changes and briefly show a loading overlay to avoid flash of
   // unstyled content. setState is inside setTimeout (async), not synchronously

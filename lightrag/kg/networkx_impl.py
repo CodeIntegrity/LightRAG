@@ -1,7 +1,7 @@
 import os
 from collections import deque
 from dataclasses import dataclass
-from typing import final
+from typing import Any, final
 
 from lightrag.types import KnowledgeGraph, KnowledgeGraphNode, KnowledgeGraphEdge
 from lightrag.utils import logger
@@ -20,10 +20,37 @@ from dotenv import load_dotenv
 # the OS environment variables take precedence over the .env file
 load_dotenv(dotenv_path=".env", override=False)
 
+_EDGE_SOURCE_KEY = "_lightrag_source"
+_EDGE_TARGET_KEY = "_lightrag_target"
+
 
 @final
 @dataclass
 class NetworkXStorage(BaseGraphStorage):
+    @staticmethod
+    def _build_edge_data(
+        source_node_id: str, target_node_id: str, edge_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        stored_edge_data = dict(edge_data)
+        stored_edge_data[_EDGE_SOURCE_KEY] = source_node_id
+        stored_edge_data[_EDGE_TARGET_KEY] = target_node_id
+        return stored_edge_data
+
+    @staticmethod
+    def _resolve_edge_endpoints(
+        node_a: Any, node_b: Any, edge_data: dict[str, Any]
+    ) -> tuple[str, str]:
+        source = str(edge_data.get(_EDGE_SOURCE_KEY) or node_a)
+        target = str(edge_data.get(_EDGE_TARGET_KEY) or node_b)
+        return source, target
+
+    @staticmethod
+    def _public_edge_data(edge_data: dict[str, Any]) -> dict[str, Any]:
+        sanitized_edge_data = dict(edge_data)
+        sanitized_edge_data.pop(_EDGE_SOURCE_KEY, None)
+        sanitized_edge_data.pop(_EDGE_TARGET_KEY, None)
+        return sanitized_edge_data
+
     @staticmethod
     def load_nx_graph(file_name) -> nx.Graph:
         if os.path.exists(file_name):
@@ -124,7 +151,10 @@ class NetworkXStorage(BaseGraphStorage):
         self, source_node_id: str, target_node_id: str
     ) -> dict[str, str] | None:
         graph = await self._get_graph()
-        return graph.edges.get((source_node_id, target_node_id))
+        edge_data = graph.edges.get((source_node_id, target_node_id))
+        if edge_data is None:
+            return None
+        return self._public_edge_data(edge_data)
 
     async def get_node_edges(self, source_node_id: str) -> list[tuple[str, str]] | None:
         graph = await self._get_graph()
@@ -152,7 +182,11 @@ class NetworkXStorage(BaseGraphStorage):
            KG-storage-log should be used to avoid data corruption
         """
         graph = await self._get_graph()
-        graph.add_edge(source_node_id, target_node_id, **edge_data)
+        graph.add_edge(
+            source_node_id,
+            target_node_id,
+            **self._build_edge_data(source_node_id, target_node_id, edge_data),
+        )
 
     async def upsert_nodes_batch(self, nodes: list[tuple[str, dict[str, str]]]) -> None:
         """Batch insert/update multiple nodes in a single call.
@@ -186,7 +220,7 @@ class NetworkXStorage(BaseGraphStorage):
         """
         graph = await self._get_graph()
         for src, tgt, edge_data in edges:
-            graph.add_edge(src, tgt, **edge_data)
+            graph.add_edge(src, tgt, **self._build_edge_data(src, tgt, edge_data))
 
     async def delete_node(self, node_id: str) -> None:
         """
@@ -360,6 +394,9 @@ class NetworkXStorage(BaseGraphStorage):
         graph = await self._get_graph()
 
         result = KnowledgeGraph()
+        normalized_direction = str(direction or "both").strip().lower()
+        if normalized_direction not in {"both", "outbound", "inbound"}:
+            normalized_direction = "both"
 
         # Handle special case for "*" label
         if node_label == "*":
@@ -391,6 +428,22 @@ class NetworkXStorage(BaseGraphStorage):
             visited = set()
             # Store (node, depth, degree) in the queue
             queue = deque([(node_label, 0, graph.degree(node_label))])
+            kept_edges: set[tuple[str, str]] = set()
+            directional_adjacency: dict[str, list[tuple[str, str]]] = {}
+
+            if normalized_direction != "both":
+                for source_node, target_node, edge_data in graph.edges(data=True):
+                    edge_source, edge_target = self._resolve_edge_endpoints(
+                        source_node, target_node, edge_data
+                    )
+                    if normalized_direction == "outbound":
+                        directional_adjacency.setdefault(edge_source, []).append(
+                            (edge_target, (edge_source, edge_target))
+                        )
+                    else:
+                        directional_adjacency.setdefault(edge_target, []).append(
+                            (edge_source, (edge_source, edge_target))
+                        )
 
             # Flag to track if there are unexplored neighbors due to depth limit
             has_unexplored_neighbors = False
@@ -417,21 +470,47 @@ class NetworkXStorage(BaseGraphStorage):
                         # Only explore neighbors if we haven't reached max_depth
                         if depth < max_depth:
                             # Add neighbor nodes to queue with incremented depth
-                            neighbors = list(graph.neighbors(current_node))
+                            if normalized_direction == "both":
+                                neighbors = list(graph.neighbors(current_node))
+                                neighbor_records = [
+                                    (neighbor, None)
+                                    for neighbor in neighbors
+                                    if neighbor not in visited
+                                ]
+                            else:
+                                neighbor_records = []
+                                for neighbor, edge_key in directional_adjacency.get(
+                                    current_node, []
+                                ):
+                                    kept_edges.add(edge_key)
+                                    if neighbor in visited:
+                                        continue
+                                    neighbor_records.append((neighbor, edge_key))
                             # Filter out already visited neighbors
-                            unvisited_neighbors = [
-                                n for n in neighbors if n not in visited
-                            ]
+                            unvisited_neighbors = [n for n, _ in neighbor_records]
                             # Add neighbors to the queue with their degrees
-                            for neighbor in unvisited_neighbors:
+                            for neighbor, _ in sorted(
+                                neighbor_records,
+                                key=lambda item: graph.degree(item[0]),
+                                reverse=True,
+                            ):
                                 neighbor_degree = graph.degree(neighbor)
                                 queue.append((neighbor, depth + 1, neighbor_degree))
                         else:
                             # Check if there are unexplored neighbors (skipped due to depth limit)
-                            neighbors = list(graph.neighbors(current_node))
-                            unvisited_neighbors = [
-                                n for n in neighbors if n not in visited
-                            ]
+                            if normalized_direction == "both":
+                                neighbors = list(graph.neighbors(current_node))
+                                unvisited_neighbors = [
+                                    n for n in neighbors if n not in visited
+                                ]
+                            else:
+                                unvisited_neighbors = [
+                                    neighbor
+                                    for neighbor, _ in directional_adjacency.get(
+                                        current_node, []
+                                    )
+                                    if neighbor not in visited
+                                ]
                             if unvisited_neighbors:
                                 has_unexplored_neighbors = True
 
@@ -482,24 +561,32 @@ class NetworkXStorage(BaseGraphStorage):
 
         # Add edges to result
         for edge in subgraph.edges():
-            source, target = edge
-            # Esure unique edge_id for undirect graph
-            if str(source) > str(target):
-                source, target = target, source
-            edge_id = f"{source}-{target}"
+            source_node, target_node = edge
+            edge_data = dict(subgraph.edges[edge])
+            edge_source, edge_target = self._resolve_edge_endpoints(
+                source_node, target_node, edge_data
+            )
+
+            if normalized_direction == "both":
+                if str(edge_source) > str(edge_target):
+                    edge_source, edge_target = edge_target, edge_source
+                edge_id = f"{edge_source}-{edge_target}"
+            else:
+                if (edge_source, edge_target) not in kept_edges:
+                    continue
+                edge_id = f"{edge_source}-{edge_target}"
+
             if edge_id in seen_edges:
                 continue
-
-            edge_data = dict(subgraph.edges[edge])
 
             # Create edge with complete information
             result.edges.append(
                 KnowledgeGraphEdge(
                     id=edge_id,
                     type="DIRECTED",
-                    source=str(source),
-                    target=str(target),
-                    properties=edge_data,
+                    source=str(edge_source),
+                    target=str(edge_target),
+                    properties=self._public_edge_data(edge_data),
                 )
             )
             seen_edges.add(edge_id)
@@ -532,9 +619,10 @@ class NetworkXStorage(BaseGraphStorage):
         graph = await self._get_graph()
         all_edges = []
         for u, v, edge_data in graph.edges(data=True):
-            edge_data_with_nodes = edge_data.copy()
-            edge_data_with_nodes["source"] = u
-            edge_data_with_nodes["target"] = v
+            edge_source, edge_target = self._resolve_edge_endpoints(u, v, edge_data)
+            edge_data_with_nodes = self._public_edge_data(edge_data)
+            edge_data_with_nodes["source"] = edge_source
+            edge_data_with_nodes["target"] = edge_target
             all_edges.append(edge_data_with_nodes)
         return all_edges
 

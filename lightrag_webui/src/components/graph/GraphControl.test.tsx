@@ -9,6 +9,34 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true
 })
 
+Object.defineProperty(globalThis, 'WebGL2RenderingContext', {
+  value: {
+    BOOL: 0,
+    BYTE: 1,
+    UNSIGNED_BYTE: 2,
+    SHORT: 3,
+    UNSIGNED_SHORT: 4,
+    INT: 5,
+    UNSIGNED_INT: 6,
+    FLOAT: 7
+  },
+  configurable: true
+})
+
+Object.defineProperty(globalThis, 'WebGLRenderingContext', {
+  value: {
+    BOOL: 0,
+    BYTE: 1,
+    UNSIGNED_BYTE: 2,
+    SHORT: 3,
+    UNSIGNED_SHORT: 4,
+    INT: 5,
+    UNSIGNED_INT: 6,
+    FLOAT: 7
+  },
+  configurable: true
+})
+
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
@@ -165,5 +193,95 @@ describe('GraphControl — edge size recalculation', () => {
     expect(getEdgeLabelFontSize(12)).toBe(8)
     expect(getEdgeLabelFontSize(16)).toBe(12)
     expect(getEdgeLabelFontSize(8)).toBe(4)
+  })
+})
+
+describe('GraphControl — edge interaction settings', () => {
+  test('enabling edge events maps to sigma click/hover/wheel switches', async () => {
+    const { getGraphInteractionSettings } = await import('@/utils/graphInteractionSettings')
+
+    expect(getGraphInteractionSettings(true)).toEqual({
+      enableEdgeEvents: true,
+      enableEdgeClickEvents: true,
+      enableEdgeHoverEvents: true,
+      enableEdgeWheelEvents: true
+    })
+  })
+
+  test('disabling edge events turns off every sigma edge interaction switch', async () => {
+    const { getGraphInteractionSettings } = await import('@/utils/graphInteractionSettings')
+
+    expect(getGraphInteractionSettings(false)).toEqual({
+      enableEdgeEvents: false,
+      enableEdgeClickEvents: false,
+      enableEdgeHoverEvents: false,
+      enableEdgeWheelEvents: false
+    })
+  })
+})
+
+describe('GraphControl — event registration composition', () => {
+  test('single handler set keeps node hover/click together with drag events', async () => {
+    const { buildGraphEventHandlers } = await import('./GraphControl')
+
+    const graph = {
+      hasNode: () => true,
+      neighbors: () => [],
+      setNodeAttribute: () => {},
+      getNodeAttribute: () => 0,
+      removeNodeAttribute: () => {}
+    }
+    const sigma = {
+      getGraph: () => graph,
+      viewportToGraph: () => ({ x: 0, y: 0 }),
+      getCustomBBox: () => null,
+      setCustomBBox: () => {},
+      getBBox: () => ({})
+    } as any
+
+    const handlers = buildGraphEventHandlers({
+      sigma,
+      enableEdgeEvents: true,
+      enableNodeDrag: true,
+      enableSearchLinkedDrag: false,
+      selectedNode: null,
+      selectedNodeSource: null,
+      draggedNodeRef: { current: null },
+      linkedDraggedNodeIdsRef: { current: [] },
+      wasDraggingRef: { current: false }
+    })
+
+    expect(handlers.clickNode).toBeTypeOf('function')
+    expect(handlers.enterNode).toBeTypeOf('function')
+    expect(handlers.clickEdge).toBeTypeOf('function')
+    expect(handlers.downNode).toBeTypeOf('function')
+    expect(handlers.mousemovebody).toBeTypeOf('function')
+    expect(handlers.mouseup).toBeTypeOf('function')
+  })
+
+  test('disabling node drag keeps view handlers without drag-only captors', async () => {
+    const { buildGraphEventHandlers } = await import('./GraphControl')
+
+    const sigma = {
+      getGraph: () => ({ hasNode: () => true })
+    } as any
+
+    const handlers = buildGraphEventHandlers({
+      sigma,
+      enableEdgeEvents: false,
+      enableNodeDrag: false,
+      enableSearchLinkedDrag: false,
+      selectedNode: null,
+      selectedNodeSource: null,
+      draggedNodeRef: { current: null },
+      linkedDraggedNodeIdsRef: { current: [] },
+      wasDraggingRef: { current: false }
+    })
+
+    expect(handlers.clickNode).toBeTypeOf('function')
+    expect(handlers.enterNode).toBeTypeOf('function')
+    expect(handlers.downNode).toBeUndefined()
+    expect(handlers.mousemovebody).toBeUndefined()
+    expect(handlers.mouseup).toBeUndefined()
   })
 })

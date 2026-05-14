@@ -333,6 +333,56 @@ class TestNetworkXBatchOperations:
             node = await storage.get_node("Node1")
             assert node["description"] == "Updated description"
 
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_get_knowledge_graph_honors_outbound_direction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            storage = make_networkx_storage(tmp)
+            await storage.initialize()
+
+            for node_id in ("A", "B", "C", "P", "D"):
+                await storage.upsert_node(node_id, node_data=_make_node(node_id))
+
+            await storage.upsert_edge("P", "A", edge_data=_make_edge())
+            await storage.upsert_edge("A", "B", edge_data=_make_edge())
+            await storage.upsert_edge("B", "C", edge_data=_make_edge())
+            await storage.upsert_edge("D", "A", edge_data=_make_edge())
+
+            graph = await storage.get_knowledge_graph(
+                "A", max_depth=2, max_nodes=20, direction="outbound"
+            )
+
+            assert {node.id for node in graph.nodes} == {"A", "B", "C"}
+            assert {(edge.source, edge.target) for edge in graph.edges} == {
+                ("A", "B"),
+                ("B", "C"),
+            }
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_get_knowledge_graph_honors_inbound_direction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            storage = make_networkx_storage(tmp)
+            await storage.initialize()
+
+            for node_id in ("A", "B", "C", "P", "D"):
+                await storage.upsert_node(node_id, node_data=_make_node(node_id))
+
+            await storage.upsert_edge("P", "A", edge_data=_make_edge())
+            await storage.upsert_edge("A", "B", edge_data=_make_edge())
+            await storage.upsert_edge("B", "C", edge_data=_make_edge())
+            await storage.upsert_edge("D", "A", edge_data=_make_edge())
+
+            graph = await storage.get_knowledge_graph(
+                "A", max_depth=2, max_nodes=20, direction="inbound"
+            )
+
+            assert {node.id for node in graph.nodes} == {"A", "P", "D"}
+            assert {(edge.source, edge.target) for edge in graph.edges} == {
+                ("P", "A"),
+                ("D", "A"),
+            }
+
 
 # ---------------------------------------------------------------------------
 # 3. ainsert_custom_kg uses batch interface end-to-end
