@@ -55,6 +55,11 @@ describe('GraphControl — drag gating', () => {
     expect(useSettingsStore.getState().enableSearchLinkedDrag).toBe(false)
   })
 
+  test('showDirectionalArrows defaults to false in settings store', async () => {
+    const { useSettingsStore } = await import('@/stores/settings')
+    expect(useSettingsStore.getState().showDirectionalArrows).toBe(false)
+  })
+
   test('graphLabelFontSize defaults to 12 in settings store', async () => {
     const { useSettingsStore } = await import('@/stores/settings')
     expect(useSettingsStore.getState().graphLabelFontSize).toBe(12)

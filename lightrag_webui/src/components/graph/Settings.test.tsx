@@ -1,5 +1,5 @@
-import { createElement } from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 Object.defineProperty(globalThis, 'localStorage', {
@@ -73,19 +73,18 @@ describe('Settings', () => {
     useSettingsStore.setState({
       showNodeLabel: true,
       showEdgeLabel: true,
+      showDirectionalArrows: true,
       graphLabelFontSize: 12
     })
   })
 
-  test('keeps the original label control order and narrows the font-size input', async () => {
-    const { default: Settings } = await import('@/components/graph/Settings')
+  test('keeps the graph settings controls and includes the directional arrows toggle', () => {
+    const source = readFileSync(resolve('src/components/graph/Settings.tsx'), 'utf8')
 
-    const markup = renderToStaticMarkup(createElement(Settings))
-
-    expect(markup).toContain('graphPanel.sideBar.settings.showNodeLabel')
-    expect(markup).toContain('graphPanel.sideBar.settings.showEdgeLabel')
-    expect(markup).toContain('graphPanel.sideBar.settings.graphLabelFontSize')
-    expect(markup).toContain('w-24')
-    expect(markup).not.toContain('md:grid-cols-[minmax(0,1fr)_auto]')
+    expect(source).toContain("graphPanel.sideBar.settings.showNodeLabel")
+    expect(source).toContain("graphPanel.sideBar.settings.showEdgeLabel")
+    expect(source).toContain("graphPanel.sideBar.settings.showDirectionalArrows")
+    expect(source).toContain('inputClassName="w-24"')
+    expect(source).not.toContain('md:grid-cols-[minmax(0,1fr)_auto]')
   })
 })

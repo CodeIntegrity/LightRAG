@@ -236,6 +236,7 @@
         "nodeDraggable": "Узлы перетаскиваемые",
         "searchLinkedDrag": "Связанное перетаскивание для узла из поиска",
         "showEdgeLabel": "Показать метки рёбер",
+        "showDirectionalArrows": "Show Directional Arrows",
         "hideUnselectedEdges": "Скрыть невыбранные рёбра",
         "edgeEvents": "События рёбер",
         "maxQueryDepth": "Максимальная глубина запроса",

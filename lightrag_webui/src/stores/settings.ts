@@ -40,6 +40,7 @@ interface SettingsState {
   enableSearchLinkedDrag: boolean
 
   showEdgeLabel: boolean
+  showDirectionalArrows: boolean
   enableHideUnselectedEdges: boolean
   enableEdgeEvents: boolean
 
@@ -146,6 +147,7 @@ const useSettingsStoreBase = create<SettingsState>()(
       enableSearchLinkedDrag: false,
 
       showEdgeLabel: false,
+      showDirectionalArrows: false,
       enableHideUnselectedEdges: true,
       enableEdgeEvents: false,
 
@@ -381,7 +383,7 @@ const useSettingsStoreBase = create<SettingsState>()(
     {
       name: 'settings-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 29,
+      version: 30,
       migrate: (state: any, version: number) => {
         if (version < 2) {
           state.showEdgeLabel = false
@@ -532,6 +534,9 @@ const useSettingsStoreBase = create<SettingsState>()(
         }
         if (version < 29) {
           state.graphLabelFontSize = 12
+        }
+        if (version < 30) {
+          state.showDirectionalArrows = false
         }
         return state
       }

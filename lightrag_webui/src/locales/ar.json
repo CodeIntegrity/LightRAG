@@ -236,6 +236,7 @@
         "nodeDraggable": "العقدة قابلة للسحب",
         "searchLinkedDrag": "سحب مترابط لعقدة محددة من البحث",
         "showEdgeLabel": "إظهار تسمية الحافة",
+        "showDirectionalArrows": "Show Directional Arrows",
         "hideUnselectedEdges": "إخفاء الحواف غير المحددة",
         "edgeEvents": "أحداث الحافة",
         "maxQueryDepth": "أقصى عمق للاستعلام",

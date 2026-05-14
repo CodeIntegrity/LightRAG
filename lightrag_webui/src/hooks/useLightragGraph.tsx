@@ -20,6 +20,7 @@ import { createGraphRequestState, isAbortError } from '@/utils/graphRequestState
 
 import seedrandom from 'seedrandom'
 import { resolveNodeColor, DEFAULT_NODE_COLOR } from '@/utils/graphColor'
+import { getGraphEdgeType } from '@/utils/graphEdgeType'
 import { resolveNodeDisplayName } from '@/utils/graphLabel'
 import { normalizeGraphEdgePayload, normalizeGraphNodePayload } from '@/utils/graphPayload'
 import {
@@ -227,6 +228,7 @@ const createSigmaGraph = (rawGraph: RawGraph | null) => {
   // Get edge size settings from store
   const minEdgeSize = useSettingsStore.getState().minEdgeSize
   const maxEdgeSize = useSettingsStore.getState().maxEdgeSize
+  const showDirectionalArrows = useSettingsStore.getState().showDirectionalArrows
   // Skip graph creation if no data or empty nodes
   if (!rawGraph || !rawGraph.nodes.length) {
     console.log('No graph data available, skipping sigma graph creation');
@@ -259,7 +261,7 @@ const createSigmaGraph = (rawGraph: RawGraph | null) => {
       label: rawEdge.properties?.keywords || undefined,
       size: weight, // Set initial size based on weight
       originalWeight: weight, // Store original weight for recalculation
-      type: 'curvedNoArrow' // Explicitly set edge type to no arrow
+      type: getGraphEdgeType(showDirectionalArrows)
     })
   }
 
@@ -640,7 +642,7 @@ const useLightrangeGraph = () => {
             label: newEdge.properties?.keywords || undefined,
             size: weight,
             originalWeight: weight,
-            type: 'curvedNoArrow'
+            type: getGraphEdgeType(useSettingsStore.getState().showDirectionalArrows)
           })
 
           if (!currentRawGraph.getEdge(newEdge.id, false)) {

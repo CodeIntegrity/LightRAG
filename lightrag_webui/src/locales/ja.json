@@ -236,6 +236,7 @@
         "nodeDraggable": "ノードをドラッグ可能",
         "searchLinkedDrag": "検索選択ノードの連動ドラッグ",
         "showEdgeLabel": "エッジラベルを表示",
+        "showDirectionalArrows": "Show Directional Arrows",
         "hideUnselectedEdges": "選択されていないエッジを非表示",
         "edgeEvents": "エッジイベント",
         "maxQueryDepth": "最大クエリ深度",

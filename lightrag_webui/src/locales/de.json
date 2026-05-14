@@ -236,6 +236,7 @@
         "nodeDraggable": "Knoten verschiebbar",
         "searchLinkedDrag": "Verknüpftes Ziehen bei Suchauswahl",
         "showEdgeLabel": "Kantenbezeichnung anzeigen",
+        "showDirectionalArrows": "Show Directional Arrows",
         "hideUnselectedEdges": "Nicht ausgewählte Kanten ausblenden",
         "edgeEvents": "Kanten-Ereignisse",
         "maxQueryDepth": "Maximale Abfragetiefe",

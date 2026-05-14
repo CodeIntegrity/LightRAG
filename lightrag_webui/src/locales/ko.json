@@ -236,6 +236,7 @@
         "nodeDraggable": "노드 드래그 가능",
         "searchLinkedDrag": "검색 선택 노드 연동 드래그",
         "showEdgeLabel": "엣지 레이블 표시",
+        "showDirectionalArrows": "Show Directional Arrows",
         "hideUnselectedEdges": "선택되지 않은 엣지 숨기기",
         "edgeEvents": "엣지 이벤트",
         "maxQueryDepth": "최대 쿼리 깊이",

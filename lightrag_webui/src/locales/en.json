@@ -419,6 +419,7 @@
         "nodeDraggable": "Node Draggable",
         "searchLinkedDrag": "Search Linked Drag",
         "showEdgeLabel": "Show Edge Label",
+        "showDirectionalArrows": "Show Directional Arrows",
         "hideUnselectedEdges": "Hide Unselected Edges",
         "edgeEvents": "Edge Events",
         "maxQueryDepth": "Max Query Depth",

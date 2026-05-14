@@ -236,6 +236,7 @@
         "nodeDraggable": "節點可拖曳",
         "searchLinkedDrag": "搜尋選中節點連動拖曳",
         "showEdgeLabel": "顯示 Edge 標籤",
+        "showDirectionalArrows": "顯示方向箭頭",
         "hideUnselectedEdges": "隱藏未選取的 Edge",
         "edgeEvents": "Edge 事件",
         "maxQueryDepth": "最大查詢深度",

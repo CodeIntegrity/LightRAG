@@ -236,6 +236,7 @@
         "nodeDraggable": "Nœud déplaçable",
         "searchLinkedDrag": "Glisser lié pour sélection de recherche",
         "showEdgeLabel": "Afficher l'étiquette de l'arête",
+        "showDirectionalArrows": "Show Directional Arrows",
         "hideUnselectedEdges": "Masquer les arêtes non sélectionnées",
         "edgeEvents": "Événements des arêtes",
         "maxQueryDepth": "Profondeur maximale de la requête",

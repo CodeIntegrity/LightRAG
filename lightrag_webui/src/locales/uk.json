@@ -236,6 +236,7 @@
         "nodeDraggable": "Вузол перетягуваний",
         "searchLinkedDrag": "Пов'язане перетягування вузла з пошуку",
         "showEdgeLabel": "Показати мітку ребра",
+        "showDirectionalArrows": "Show Directional Arrows",
         "hideUnselectedEdges": "Приховати невибрані ребра",
         "edgeEvents": "Події ребер",
         "maxQueryDepth": "Максимальна глибина запиту",

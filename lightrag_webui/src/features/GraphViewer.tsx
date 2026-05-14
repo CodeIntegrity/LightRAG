@@ -1,11 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 // import { MiniMap } from '@react-sigma/minimap'
 import { SigmaContainer } from '@react-sigma/core'
-import { Settings as SigmaSettings } from 'sigma/settings'
 import { GraphSearchOption, OptionItem } from '@react-sigma/graph-search'
-import { EdgeArrowProgram, NodePointProgram, NodeCircleProgram } from 'sigma/rendering'
-import { NodeBorderProgram } from '@sigma/node-border'
-import { EdgeCurvedArrowProgram, createEdgeCurveProgram } from '@sigma/edge-curve'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 import FocusOnNode from '@/components/graph/FocusOnNode'
@@ -28,55 +24,14 @@ import useLightragGraph from '@/hooks/useLightragGraph'
 
 import { useSettingsStore } from '@/stores/settings'
 import { useGraphStore } from '@/stores/graph'
-import { labelColorDarkTheme, labelColorLightTheme } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import Button from '@/components/ui/Button'
 import { useTranslation } from 'react-i18next'
-import { getGraphInteractionSettings } from '@/utils/graphInteractionSettings'
-import {
-  DEFAULT_GRAPH_LABEL_FONT_SIZE,
-  getEdgeLabelFontSize
-} from '@/utils/graphLabelSize'
+import { DEFAULT_GRAPH_LABEL_FONT_SIZE } from '@/utils/graphLabelSize'
+import { createSigmaSettings } from '@/utils/graphSigmaSettings'
 
 import '@react-sigma/core/lib/style.css'
 import '@react-sigma/graph-search/lib/style.css'
-
-// Function to create sigma settings based on theme
-const createSigmaSettings = (
-  isDarkTheme: boolean,
-  graphLabelFontSize: number,
-  enableEdgeEvents: boolean
-): Partial<SigmaSettings> => ({
-  allowInvalidContainer: true,
-  defaultNodeType: 'default',
-  defaultEdgeType: 'curvedNoArrow',
-  renderEdgeLabels: false,
-  edgeProgramClasses: {
-    arrow: EdgeArrowProgram,
-    curvedArrow: EdgeCurvedArrowProgram,
-    curvedNoArrow: createEdgeCurveProgram()
-  },
-  nodeProgramClasses: {
-    default: NodeBorderProgram,
-    circel: NodeCircleProgram,
-    point: NodePointProgram
-  },
-  labelGridCellSize: 60,
-  labelRenderedSizeThreshold: 12,
-  ...getGraphInteractionSettings(enableEdgeEvents),
-  labelColor: {
-    color: isDarkTheme ? labelColorDarkTheme : labelColorLightTheme,
-    attribute: 'labelColor'
-  },
-  edgeLabelColor: {
-    color: isDarkTheme ? labelColorDarkTheme : labelColorLightTheme,
-    attribute: 'labelColor'
-  },
-  edgeLabelSize: getEdgeLabelFontSize(graphLabelFontSize),
-  labelSize: graphLabelFontSize
-  // minEdgeThickness: 2
-  // labelFont: 'Lato, sans-serif'
-})
 
 const GraphViewer = () => {
   useLightragGraph()
@@ -98,6 +53,7 @@ const GraphViewer = () => {
   const showLegend = useSettingsStore.use.showLegend()
   const graphLabelFontSize = useSettingsStore.use.graphLabelFontSize()
   const enableEdgeEvents = useSettingsStore.use.enableEdgeEvents()
+  const showDirectionalArrows = useSettingsStore.use.showDirectionalArrows()
   const theme = useSettingsStore.use.theme()
 
   const [isThemeSwitching, setIsThemeSwitching] = useState(false)
@@ -108,9 +64,10 @@ const GraphViewer = () => {
     return createSigmaSettings(
       isDarkTheme,
       graphLabelFontSize || DEFAULT_GRAPH_LABEL_FONT_SIZE,
-      enableEdgeEvents
+      enableEdgeEvents,
+      showDirectionalArrows
     )
-  }, [theme, graphLabelFontSize, enableEdgeEvents])
+  }, [theme, graphLabelFontSize, enableEdgeEvents, showDirectionalArrows])
 
   // Detect theme changes and briefly show a loading overlay to avoid flash of
   // unstyled content. setState is inside setTimeout (async), not synchronously

@@ -236,6 +236,7 @@
         "nodeDraggable": "Cho Phép Kéo Nút",
         "searchLinkedDrag": "Kéo liên kết cho nút chọn từ tìm kiếm",
         "showEdgeLabel": "Hiển Thị Nhãn Cạnh",
+        "showDirectionalArrows": "Show Directional Arrows",
         "hideUnselectedEdges": "Ẩn Cạnh Không Được Chọn",
         "edgeEvents": "Sự Kiện Cạnh",
         "maxQueryDepth": "Độ Sâu Truy Vấn Tối Đa",

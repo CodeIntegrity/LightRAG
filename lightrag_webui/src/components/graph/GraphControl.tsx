@@ -18,6 +18,7 @@ import {
   subscribeToCameraViewPersistence
 } from '@/utils/graphViewPersistence'
 import { applyLinkedDragMovement } from '@/utils/graphDrag'
+import { getGraphEdgeType } from '@/utils/graphEdgeType'
 import { getGraphInteractionSettings } from '@/utils/graphInteractionSettings'
 import { getEdgeLabelFontSize } from '@/utils/graphLabelSize'
 
@@ -223,6 +224,7 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
   const hideUnselectedEdges = useSettingsStore.use.enableHideUnselectedEdges()
   const enableEdgeEvents = useSettingsStore.use.enableEdgeEvents()
   const renderEdgeLabels = useSettingsStore.use.showEdgeLabel()
+  const showDirectionalArrows = useSettingsStore.use.showDirectionalArrows()
   const renderLabels = useSettingsStore.use.showNodeLabel()
   const graphLabelFontSize = useSettingsStore.use.graphLabelFontSize()
   const enableNodeDrag = useSettingsStore.use.enableNodeDrag()
@@ -409,12 +411,32 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
   useEffect(() => {
     setSettings({
       ...getGraphInteractionSettings(enableEdgeEvents),
+      defaultEdgeType: getGraphEdgeType(showDirectionalArrows),
       edgeLabelSize: getEdgeLabelFontSize(graphLabelFontSize),
       labelSize: graphLabelFontSize,
       renderEdgeLabels,
       renderLabels
     })
-  }, [setSettings, enableEdgeEvents, graphLabelFontSize, renderEdgeLabels, renderLabels])
+  }, [
+    setSettings,
+    enableEdgeEvents,
+    showDirectionalArrows,
+    graphLabelFontSize,
+    renderEdgeLabels,
+    renderLabels
+  ])
+
+  useEffect(() => {
+    if (!sigma || !sigmaGraph) {
+      return
+    }
+
+    const edgeType = getGraphEdgeType(showDirectionalArrows)
+    sigmaGraph.forEachEdge((edge) => {
+      sigmaGraph.setEdgeAttribute(edge, 'type', edgeType)
+    })
+    sigma.refresh()
+  }, [sigma, sigmaGraph, showDirectionalArrows])
 
   /**
    * Reducers for node/edge appearance — depend on interaction state
