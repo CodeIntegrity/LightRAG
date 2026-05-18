@@ -14,6 +14,12 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/Popover
 import { Command, CommandGroup, CommandItem, CommandList } from '@/components/ui/Command'
 import { controlButtonVariant } from '@/lib/constants'
 import { useSettingsStore } from '@/stores/settings'
+import { useGraphStore } from '@/stores/graph'
+import {
+  DEFAULT_GRAPH_LAYOUT,
+  loadGraphLayoutType,
+  saveGraphLayoutView
+} from '@/utils/graphViewPersistence'
 
 import { GripIcon, PlayIcon, PauseIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -140,7 +146,6 @@ const WorkerLayoutControl = ({ layout, autoRunFor, mainLayout }: ExtendedWorkerL
     if (autoRunFor !== undefined && autoRunFor > -1 && sigma.getGraph().order > 0) {
       console.log('Auto-starting layout animation')
 
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       updatePositions() // transitively calls setIsRunning on error; intentional here
 
       // Set up interval for continuous updates
@@ -195,10 +200,22 @@ const WorkerLayoutControl = ({ layout, autoRunFor, mainLayout }: ExtendedWorkerL
 const LayoutsControl = () => {
   const sigma = useSigma()
   const { t } = useTranslation()
-  const [layout, setLayout] = useState<LayoutName>('Circular')
+  const currentWorkspace = useSettingsStore.use.currentWorkspace()
+  const lastSuccessfulQueryLabel = useGraphStore.use.lastSuccessfulQueryLabel()
+  const [layout, setLayout] = useState<LayoutName>(DEFAULT_GRAPH_LAYOUT)
   const [opened, setOpened] = useState<boolean>(false)
 
   const maxIterations = useSettingsStore.use.graphLayoutMaxIterations()
+  const repulsion = useSettingsStore.use.graphLayoutRepulsion()
+  const gravity = useSettingsStore.use.graphLayoutGravity()
+  const margin = useSettingsStore.use.graphLayoutMargin()
+  const attraction = useSettingsStore.use.graphLayoutAttraction()
+  const inertia = useSettingsStore.use.graphLayoutInertia()
+  const maxMove = useSettingsStore.use.graphLayoutMaxMove()
+  const expansion = useSettingsStore.use.graphLayoutExpansion()
+  const gridSize = useSettingsStore.use.graphLayoutGridSize()
+  const ratio = useSettingsStore.use.graphLayoutRatio()
+  const speed = useSettingsStore.use.graphLayoutSpeed()
 
   const layoutCircular = useLayoutCircular()
   const layoutCirclepack = useLayoutCirclepack()
@@ -206,22 +223,22 @@ const LayoutsControl = () => {
   const layoutNoverlap = useLayoutNoverlap({
     maxIterations: maxIterations,
     settings: {
-      margin: 5,
-      expansion: 1.1,
-      gridSize: 1,
-      ratio: 1,
-      speed: 3,
+      margin: margin,
+      expansion: expansion,
+      gridSize: gridSize,
+      ratio: ratio,
+      speed: speed,
     }
   })
   // Add parameters for Force Directed layout to improve convergence
   const layoutForce = useLayoutForce({
     maxIterations: maxIterations,
     settings: {
-      attraction: 0.0003,  // Lower attraction force to reduce oscillation
-      repulsion: 0.02,     // Lower repulsion force to reduce oscillation
-      gravity: 0.02,      // Increase gravity to make nodes converge to center faster
-      inertia: 0.4,        // Lower inertia to add damping effect
-      maxMove: 100         // Limit maximum movement per step to prevent large jumps
+      attraction: attraction,
+      repulsion: repulsion,
+      gravity: gravity,
+      inertia: inertia,
+      maxMove: maxMove
     }
   })
   const layoutForceAtlas2 = useLayoutForceAtlas2({ iterations: maxIterations })
@@ -265,6 +282,13 @@ const LayoutsControl = () => {
     workerForceAtlas2
   ])
 
+  useEffect(() => {
+    setLayout(loadGraphLayoutType({
+      workspace: currentWorkspace,
+      queryLabel: lastSuccessfulQueryLabel
+    }))
+  }, [currentWorkspace, lastSuccessfulQueryLabel])
+
   const runLayout = useCallback(
     (newLayout: LayoutName) => {
       console.debug('Running layout:', newLayout)
@@ -281,6 +305,17 @@ const LayoutsControl = () => {
         console.log('Positions calculated, animating nodes')
         animateNodes(graph, pos, { duration: 400 })
         setLayout(newLayout)
+
+        const settings = useSettingsStore.getState()
+        const graphState = useGraphStore.getState()
+        saveGraphLayoutView(
+          {
+            workspace: settings.currentWorkspace,
+            queryLabel: graphState.lastSuccessfulQueryLabel
+          },
+          newLayout,
+          settings
+        )
       } catch (error) {
         console.error('Error running layout:', error)
       }

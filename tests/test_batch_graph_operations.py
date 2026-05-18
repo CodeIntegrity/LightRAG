@@ -9,15 +9,18 @@ Verifies:
 5. upsert_edges_batch and upsert_nodes_batch are idempotent (safe to call twice).
 """
 
+import asyncio
 import time
 import tempfile
 import pytest
 import numpy as np
+from types import MethodType
 from unittest.mock import AsyncMock
 
 from lightrag.kg.networkx_impl import NetworkXStorage
 from lightrag.kg.shared_storage import initialize_share_data
-from lightrag.utils import EmbeddingFunc, make_relation_vdb_ids
+from lightrag.api.graph_workbench import query_graph_workbench
+from lightrag.utils import EmbeddingFunc, Tokenizer, make_relation_vdb_ids
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +43,35 @@ mock_embedding_func = EmbeddingFunc(
     max_token_size=512,
     func=_raw_embedding_func,
 )
+
+
+class _WhitespaceTokenizer:
+    def encode(self, content: str) -> list[int]:
+        stripped = content.strip()
+        if not stripped:
+            return []
+        return list(range(len(stripped.split())))
+
+    def decode(self, tokens: list[int]) -> str:
+        return " ".join(str(token) for token in tokens)
+
+
+class _DriftedStorage:
+    def __init__(self) -> None:
+        self.namespace = "drifted_graph"
+        self.workspace = "test_ws"
+        self._initialized = False
+        self._connection_pool = None
+        self.initialize_calls = 0
+
+    async def initialize(self) -> None:
+        self.initialize_calls += 1
+        self._initialized = True
+        self._connection_pool = object()
+
+    async def finalize(self) -> None:
+        self._initialized = False
+        self._connection_pool = None
 
 
 def make_networkx_storage(tmp_dir: str) -> NetworkXStorage:
@@ -302,6 +334,56 @@ class TestNetworkXBatchOperations:
             node = await storage.get_node("Node1")
             assert node["description"] == "Updated description"
 
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_get_knowledge_graph_honors_outbound_direction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            storage = make_networkx_storage(tmp)
+            await storage.initialize()
+
+            for node_id in ("A", "B", "C", "P", "D"):
+                await storage.upsert_node(node_id, node_data=_make_node(node_id))
+
+            await storage.upsert_edge("P", "A", edge_data=_make_edge())
+            await storage.upsert_edge("A", "B", edge_data=_make_edge())
+            await storage.upsert_edge("B", "C", edge_data=_make_edge())
+            await storage.upsert_edge("D", "A", edge_data=_make_edge())
+
+            graph = await storage.get_knowledge_graph(
+                "A", max_depth=2, max_nodes=20, direction="outbound"
+            )
+
+            assert {node.id for node in graph.nodes} == {"A", "B", "C"}
+            assert {(edge.source, edge.target) for edge in graph.edges} == {
+                ("A", "B"),
+                ("B", "C"),
+            }
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_get_knowledge_graph_honors_inbound_direction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            storage = make_networkx_storage(tmp)
+            await storage.initialize()
+
+            for node_id in ("A", "B", "C", "P", "D"):
+                await storage.upsert_node(node_id, node_data=_make_node(node_id))
+
+            await storage.upsert_edge("P", "A", edge_data=_make_edge())
+            await storage.upsert_edge("A", "B", edge_data=_make_edge())
+            await storage.upsert_edge("B", "C", edge_data=_make_edge())
+            await storage.upsert_edge("D", "A", edge_data=_make_edge())
+
+            graph = await storage.get_knowledge_graph(
+                "A", max_depth=2, max_nodes=20, direction="inbound"
+            )
+
+            assert {node.id for node in graph.nodes} == {"A", "P", "D"}
+            assert {(edge.source, edge.target) for edge in graph.edges} == {
+                ("P", "A"),
+                ("D", "A"),
+            }
+
 
 # ---------------------------------------------------------------------------
 # 3. ainsert_custom_kg uses batch interface end-to-end
@@ -347,6 +429,160 @@ class TestAinsertCustomKgBatchPath:
 
     @pytest.mark.offline
     @pytest.mark.asyncio
+    async def test_get_graph_labels_initializes_storages_on_demand(self):
+        from lightrag import LightRAG
+        from lightrag.base import StoragesStatus
+
+        workspace = f"graph-labels-lazy-init-{time.time_ns()}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            seed_rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await seed_rag.initialize_storages()
+            await seed_rag.chunk_entity_relation_graph.upsert_node(
+                "LabelEntityA",
+                node_data=_make_node("LabelEntityA", "CONCEPT"),
+            )
+            await seed_rag.chunk_entity_relation_graph.upsert_node(
+                "LabelEntityB",
+                node_data=_make_node("LabelEntityB", "TOPIC"),
+            )
+            await seed_rag.chunk_entity_relation_graph.index_done_callback()
+            await seed_rag.finalize_storages()
+
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            assert rag._storages_status == StoragesStatus.CREATED
+
+            labels = await rag.get_graph_labels()
+
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+            assert set(labels) >= {"LabelEntityA", "LabelEntityB"}
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_get_graph_entity_types_initializes_storages_on_demand(self):
+        from lightrag import LightRAG
+        from lightrag.base import StoragesStatus
+
+        workspace = f"graph-types-lazy-init-{time.time_ns()}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            seed_rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await seed_rag.initialize_storages()
+            await seed_rag.chunk_entity_relation_graph.upsert_node(
+                "TypeEntityA",
+                node_data=_make_node("TypeEntityA", "CONCEPT"),
+            )
+            await seed_rag.chunk_entity_relation_graph.upsert_node(
+                "TypeEntityB",
+                node_data=_make_node("TypeEntityB", "TOPIC"),
+            )
+            await seed_rag.chunk_entity_relation_graph.index_done_callback()
+            await seed_rag.finalize_storages()
+
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            assert rag._storages_status == StoragesStatus.CREATED
+
+            entity_types = await rag.get_graph_entity_types()
+
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+            assert set(entity_types) >= {"CONCEPT", "TOPIC"}
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_aget_docs_by_ids_initializes_storages_on_demand(self):
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus, StoragesStatus
+
+        workspace = f"docs-by-id-lazy-init-{time.time_ns()}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            seed_rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await seed_rag.initialize_storages()
+            await seed_rag.ainsert_custom_chunks(
+                full_text="docs by id lazy init full text",
+                text_chunks=["docs by id chunk"],
+                doc_id="doc-lazy-docs-by-id-1",
+                file_path="docs/by-id.md",
+            )
+            await seed_rag.finalize_storages()
+
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            assert rag._storages_status == StoragesStatus.CREATED
+
+            docs = await rag.aget_docs_by_ids("doc-lazy-docs-by-id-1")
+
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+            assert "doc-lazy-docs-by-id-1" in docs
+            assert docs["doc-lazy-docs-by-id-1"]["status"] == DocStatus.PROCESSED
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_initializes_storages_on_demand(self):
+        """ainsert_custom_kg should initialize storages when caller skipped setup."""
+        from lightrag import LightRAG
+        from lightrag.base import StoragesStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=f"custom-kg-lazy-init-{time.time_ns()}",
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            assert rag._storages_status == StoragesStatus.CREATED
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+            rag.text_chunks.upsert = AsyncMock()
+            rag.doc_status.upsert = AsyncMock(wraps=rag.doc_status.upsert)
+
+            result = await rag.ainsert_custom_kg(self._make_custom_kg())
+
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+            assert result["entity_count"] == 2
+            assert result["relationship_count"] == 1
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
     async def test_ainsert_custom_kg_calls_batch_methods(self):
         """upsert_nodes_batch, has_nodes_batch, upsert_edges_batch must all be called."""
         from lightrag import LightRAG
@@ -354,6 +590,7 @@ class TestAinsertCustomKgBatchPath:
         with tempfile.TemporaryDirectory() as tmp:
             rag = LightRAG(
                 working_dir=tmp,
+                workspace=f"custom-rebuild-{time.time_ns()}",
                 llm_model_func=AsyncMock(return_value=""),
                 embedding_func=mock_embedding_func,
             )
@@ -420,6 +657,7 @@ class TestAinsertCustomKgBatchPath:
         with tempfile.TemporaryDirectory() as tmp:
             rag = LightRAG(
                 working_dir=tmp,
+                workspace=f"custom-rebuild-{time.time_ns()}",
                 llm_model_func=AsyncMock(return_value=""),
                 embedding_func=mock_embedding_func,
             )
@@ -469,6 +707,7 @@ class TestAinsertCustomKgBatchPath:
         with tempfile.TemporaryDirectory() as tmp:
             rag = LightRAG(
                 working_dir=tmp,
+                workspace=f"custom-rebuild-{time.time_ns()}",
                 llm_model_func=AsyncMock(return_value=""),
                 embedding_func=mock_embedding_func,
             )
@@ -571,12 +810,80 @@ class TestAinsertCustomKgBatchPath:
 
     @pytest.mark.offline
     @pytest.mark.asyncio
+    async def test_query_graph_with_global_scope_direction_preserves_edge_direction(self):
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=f"custom-direction-{time.time_ns()}",
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            custom_kg = {
+                "chunks": [
+                    {
+                        "content": "chunk content",
+                        "chunk_order_index": 0,
+                        "source_id": "src-1",
+                    }
+                ],
+                "entities": [
+                    {
+                        "entity_name": "Elon Musk",
+                        "entity_type": "PERSON",
+                        "source_id": "src-1",
+                    },
+                    {
+                        "entity_name": "Tesla",
+                        "entity_type": "ORGANIZATION",
+                        "source_id": "src-1",
+                    },
+                ],
+                "relationships": [
+                    {
+                        "src_id": "Elon Musk",
+                        "tgt_id": "Tesla",
+                        "description": "Elon Musk founded Tesla",
+                        "keywords": "founder",
+                        "weight": 1.0,
+                        "source_id": "src-1",
+                    }
+                ],
+            }
+
+            await rag.ainsert_custom_kg(custom_kg)
+
+            result = await query_graph_workbench(
+                rag,
+                {
+                    "scope": {
+                        "label": "*",
+                        "max_depth": 2,
+                        "max_nodes": 20,
+                        "direction": "outbound",
+                    }
+                },
+            )
+
+            edge_pairs = [
+                (edge["source"], edge["target"]) for edge in result["data"]["edges"]
+            ]
+            assert edge_pairs == [("Elon Musk", "Tesla")]
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
     async def test_ainsert_custom_kg_collects_unknown_fields_into_custom_properties(self):
         from lightrag import LightRAG
 
         with tempfile.TemporaryDirectory() as tmp:
             rag = LightRAG(
                 working_dir=tmp,
+                workspace=f"custom-status-{time.time_ns()}",
                 llm_model_func=AsyncMock(return_value=""),
                 embedding_func=mock_embedding_func,
             )
@@ -659,6 +966,7 @@ class TestAinsertCustomKgBatchPath:
         with tempfile.TemporaryDirectory() as tmp:
             rag = LightRAG(
                 working_dir=tmp,
+                workspace=f"custom-unknown-source-{time.time_ns()}",
                 llm_model_func=AsyncMock(return_value=""),
                 embedding_func=mock_embedding_func,
             )
@@ -711,6 +1019,1170 @@ class TestAinsertCustomKgBatchPath:
                 await rag.ainsert_custom_kg(custom_kg)
 
             rag.relationships_vdb.delete.assert_not_called()
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_writes_full_docs_and_doc_status(self):
+        """ainsert_custom_kg must write full_docs + doc_status for WebUI visibility."""
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=f"custom-status-{time.time_ns()}",
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            custom_kg = {
+                "chunks": [
+                    {
+                        "content": "first chunk",
+                        "chunk_order_index": 0,
+                        "source_id": "src-1",
+                        "file_path": "doc.pdf",
+                    },
+                    {
+                        "content": "second chunk",
+                        "chunk_order_index": 1,
+                        "source_id": "src-2",
+                        "file_path": "doc.pdf",
+                    },
+                ],
+                "entities": [
+                    {
+                        "entity_name": "EntityA",
+                        "entity_type": "CONCEPT",
+                        "description": "Entity A",
+                        "source_id": "src-1",
+                        "file_path": "doc.pdf",
+                    }
+                ],
+                "relationships": [],
+            }
+
+            result = await rag.ainsert_custom_kg(
+                custom_kg, full_doc_id="doc-explicit-1"
+            )
+
+            # Return value contract
+            assert result["full_doc_id"] == "doc-explicit-1"
+            assert isinstance(result["track_id"], str) and result["track_id"]
+            assert result["chunk_count"] == 2
+            assert result["entity_count"] == 1
+            assert result["relationship_count"] == 0
+
+            # full_docs contains the joined content
+            full_doc = await rag.full_docs.get_by_id("doc-explicit-1")
+            assert full_doc is not None
+            assert "first chunk" in full_doc["content"]
+            assert "second chunk" in full_doc["content"]
+            assert full_doc["file_path"] == "doc.pdf"
+
+            # doc_status records PROCESSED + chunks_list for delete chain
+            status = await rag.doc_status.get_by_id("doc-explicit-1")
+            assert status is not None
+            assert status["status"] == DocStatus.PROCESSED
+            assert status["chunks_count"] == 2
+            assert isinstance(status["chunks_list"], list)
+            assert len(status["chunks_list"]) == 2
+            assert status["track_id"] == result["track_id"]
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_chunks_initializes_storages_on_demand(self):
+        """ainsert_custom_chunks should initialize storages when caller skipped setup."""
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus, StoragesStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=f"custom-lazy-init-{time.time_ns()}",
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            assert rag._storages_status == StoragesStatus.CREATED
+
+            await rag.ainsert_custom_chunks(
+                full_text="lazy init chunk full text",
+                text_chunks=["lazy init chunk one", "lazy init chunk two"],
+                doc_id="doc-custom-lazy-init-1",
+                file_path="custom/path/doc-custom-lazy-init-1.md",
+            )
+
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+            status = await rag.doc_status.get_by_id("doc-custom-lazy-init-1")
+            assert status is not None
+            assert status["status"] == DocStatus.PROCESSED
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_initialize_storages_recovers_drifted_graph_storage(self):
+        """initialize_storages should recover graph backends closed behind LightRAG's lifecycle state."""
+        from lightrag import LightRAG
+        from lightrag.base import StoragesStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=f"custom-drift-reinit-{time.time_ns()}",
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+
+            drifted_storage = _DriftedStorage()
+            rag.chunk_entity_relation_graph = drifted_storage
+
+            await rag.initialize_storages()
+
+            assert drifted_storage.initialize_calls == 1
+            assert drifted_storage._initialized is True
+            assert drifted_storage._connection_pool is not None
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_chunks_writes_doc_status_for_webui_visibility(self):
+        """ainsert_custom_chunks must write doc_status so /documents/paginated can see it."""
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=f"custom-unknown-source-{time.time_ns()}",
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+            suffix = str(time.time_ns())
+
+            await rag.ainsert_custom_chunks(
+                full_text=f"first chunk {suffix} second chunk {suffix}",
+                text_chunks=[f"first chunk {suffix}", f"second chunk {suffix}"],
+                doc_id="doc-custom-chunks-1",
+                file_path="custom/path/doc-custom-chunks-1.md",
+            )
+
+            status = await rag.doc_status.get_by_id("doc-custom-chunks-1")
+            assert status is not None
+            assert status["status"] == DocStatus.PROCESSED
+            assert status["chunks_count"] == 2
+            assert status["file_path"] == "custom/path/doc-custom-chunks-1.md"
+            assert isinstance(status["chunks_list"], list)
+            assert len(status["chunks_list"]) == 2
+            assert isinstance(status["track_id"], str) and status["track_id"]
+
+            stored_doc = await rag.full_docs.get_by_id("doc-custom-chunks-1")
+            assert stored_doc is not None
+            assert stored_doc["file_path"] == "custom/path/doc-custom-chunks-1.md"
+
+            for chunk_id in status["chunks_list"]:
+                chunk = await rag.text_chunks.get_by_id(chunk_id)
+                assert chunk is not None
+                assert chunk["file_path"] == "custom/path/doc-custom-chunks-1.md"
+
+            (documents, total_count) = await rag.doc_status.get_docs_paginated(
+                status_filter=None,
+                page=1,
+                page_size=10,
+                sort_field="updated_at",
+                sort_direction="desc",
+            )
+            visible_ids = [doc_id for doc_id, _ in documents]
+
+            assert total_count == 1
+            assert visible_ids == ["doc-custom-chunks-1"]
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_chunks_waits_for_text_chunks_before_extraction(self):
+        """Entity extraction must start only after custom chunks are persisted."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+            suffix = str(time.time_ns())
+            chunk_a = f"first chunk {suffix}"
+            chunk_b = f"second chunk {suffix}"
+
+            original_upsert = rag.text_chunks.upsert
+            upsert_finished = asyncio.Event()
+            observed_chunk_contents: list[str | None] = []
+            observed_upsert_state: list[bool] = []
+
+            async def blocking_upsert(chunks):
+                result = await original_upsert(chunks)
+                await asyncio.sleep(0)
+                upsert_finished.set()
+                return result
+
+            async def assert_chunks_visible_before_extract(self, chunks, *_args):
+                observed_upsert_state.append(upsert_finished.is_set())
+                for chunk_id in chunks:
+                    chunk_data = await self.text_chunks.get_by_id(chunk_id)
+                    observed_chunk_contents.append(
+                        None if chunk_data is None else chunk_data.get("content")
+                    )
+                return []
+
+            rag.text_chunks.upsert = blocking_upsert  # type: ignore[assignment]
+            rag._process_extract_entities = MethodType(  # type: ignore[assignment]
+                assert_chunks_visible_before_extract, rag
+            )
+
+            await rag.ainsert_custom_chunks(
+                full_text=f"{chunk_a} {chunk_b}",
+                text_chunks=[chunk_a, chunk_b],
+                doc_id="doc-custom-order-1",
+            )
+
+            assert observed_upsert_state == [True]
+            assert observed_chunk_contents == [chunk_a, chunk_b]
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_chunks_marks_doc_status_failed_on_error(self):
+        """ainsert_custom_chunks must keep a FAILED doc_status record when storage write fails."""
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            rag.chunks_vdb.upsert = AsyncMock(side_effect=RuntimeError("kaboom"))
+
+            with pytest.raises(RuntimeError, match="kaboom"):
+                await rag.ainsert_custom_chunks(
+                    full_text="broken chunk import",
+                    text_chunks=["broken", "chunk"],
+                    doc_id="doc-custom-chunks-fail-1",
+                )
+
+            status = await rag.doc_status.get_by_id("doc-custom-chunks-fail-1")
+            assert status is not None
+            assert status["status"] == DocStatus.FAILED
+            assert status["chunks_count"] == 2
+            assert "kaboom" in (status.get("error_msg") or "")
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_chunks_rejects_chunk_over_embedding_limit(self):
+        """ainsert_custom_chunks must fail fast when a custom chunk exceeds embedding token limit."""
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        limited_embedding = EmbeddingFunc(
+            embedding_dim=10,
+            max_token_size=8,
+            func=_raw_embedding_func,
+        )
+        tokenizer = Tokenizer("whitespace-test", _WhitespaceTokenizer())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=limited_embedding,
+                tokenizer=tokenizer,
+            )
+            await rag.initialize_storages()
+
+            oversized_chunk = "one two three four five six seven eight nine"
+
+            with pytest.raises(ValueError, match="exceeds embedding token limit"):
+                await rag.ainsert_custom_chunks(
+                    full_text=oversized_chunk,
+                    text_chunks=[oversized_chunk],
+                    doc_id="doc-custom-chunks-limit-1",
+                )
+
+            status = await rag.doc_status.get_by_id("doc-custom-chunks-limit-1")
+            assert status is not None
+            assert status["status"] == DocStatus.FAILED
+            assert status["chunks_count"] == 1
+            assert "chunk index 0" in (status.get("error_msg") or "")
+            assert "9" in (status.get("error_msg") or "")
+            assert "8" in (status.get("error_msg") or "")
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_chunks_auto_builds_graph_for_unknown_source(
+        self, monkeypatch
+    ):
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+            suffix = str(time.time_ns())
+
+            merge_calls: list[dict] = []
+
+            async def fake_extract(self, chunks, *_args):
+                return [("nodes", "edges", list(chunks.keys()))]
+
+            async def fake_merge(**kwargs):
+                merge_calls.append(
+                    {
+                        "doc_id": kwargs["doc_id"],
+                        "file_path": kwargs["file_path"],
+                        "chunk_results": kwargs["chunk_results"],
+                    }
+                )
+
+            monkeypatch.setattr(
+                rag,
+                "_process_extract_entities",
+                MethodType(fake_extract, rag),
+            )
+            monkeypatch.setattr("lightrag.lightrag.merge_nodes_and_edges", fake_merge)
+
+            await rag.ainsert_custom_chunks(
+                full_text=f"unknown source custom chunk full text {suffix}",
+                text_chunks=[f"chunk one {suffix}", f"chunk two {suffix}"],
+                doc_id="doc-custom-unknown-source-1",
+                file_path="unknown_source",
+            )
+
+            status = await rag.doc_status.get_by_id("doc-custom-unknown-source-1")
+            assert status is not None
+            assert status["status"] == DocStatus.PROCESSED
+            assert status["metadata"]["source"] == "custom_chunks"
+            assert len(merge_calls) == 1
+            assert merge_calls[0]["doc_id"] == "doc-custom-unknown-source-1"
+            assert merge_calls[0]["file_path"] == "unknown_source"
+            assert len(merge_calls[0]["chunk_results"]) == 1
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_arebuild_all_custom_chunks_graphs_initializes_storages_on_demand(
+        self, monkeypatch
+    ):
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus, StoragesStatus
+
+        workspace = f"custom-rebuild-lazy-init-{time.time_ns()}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            seed_rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await seed_rag.initialize_storages()
+            await seed_rag.ainsert_custom_chunks(
+                full_text="lazy rebuild full text",
+                text_chunks=["lazy rebuild chunk"],
+                doc_id="doc-custom-rebuild-lazy-init-1",
+                file_path="custom/path/doc-custom-rebuild-lazy-init-1.md",
+            )
+            await seed_rag.finalize_storages()
+
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            assert rag._storages_status == StoragesStatus.CREATED
+
+            extract_calls: list[list[str]] = []
+            merge_calls: list[str] = []
+
+            async def fake_extract(self, chunks, *_args):
+                extract_calls.append(list(chunks.keys()))
+                return [("nodes", "edges")]
+
+            async def fake_merge(**kwargs):
+                merge_calls.append(kwargs["doc_id"])
+
+            monkeypatch.setattr(
+                rag,
+                "_process_extract_entities",
+                MethodType(fake_extract, rag),
+            )
+            monkeypatch.setattr("lightrag.lightrag.merge_nodes_and_edges", fake_merge)
+
+            summary = await rag.arebuild_all_custom_chunks_graphs()
+
+            assert rag._storages_status == StoragesStatus.INITIALIZED
+            assert summary["rebuilt"] == 1
+            assert extract_calls
+            assert merge_calls == ["doc-custom-rebuild-lazy-init-1"]
+
+            status = await rag.doc_status.get_by_id("doc-custom-rebuild-lazy-init-1")
+            assert status is not None
+            assert status["status"] == DocStatus.PROCESSED
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_arebuild_all_custom_chunks_graphs_only_processes_custom_chunk_docs(
+        self, monkeypatch
+    ):
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+        workspace = f"custom-rebuild-{time.time_ns()}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            custom_doc_id = "doc-custom-rebuild-1"
+            normal_doc_id = "doc-normal-rebuild-1"
+            custom_chunk_id = "chunk-custom-rebuild-1"
+            normal_chunk_id = "chunk-normal-rebuild-1"
+
+            await rag.full_docs.upsert(
+                {
+                    custom_doc_id: {"content": "custom full text", "file_path": ""},
+                    normal_doc_id: {"content": "normal full text", "file_path": "note.md"},
+                }
+            )
+            await rag.text_chunks.upsert(
+                {
+                    custom_chunk_id: {
+                        "content": "custom chunk text",
+                        "full_doc_id": custom_doc_id,
+                        "tokens": 3,
+                        "chunk_order_index": 0,
+                        "file_path": "",
+                    },
+                    normal_chunk_id: {
+                        "content": "normal chunk text",
+                        "full_doc_id": normal_doc_id,
+                        "tokens": 3,
+                        "chunk_order_index": 0,
+                        "file_path": "note.md",
+                    },
+                }
+            )
+            await rag.doc_status.upsert(
+                {
+                    custom_doc_id: {
+                        "status": DocStatus.PROCESSED,
+                        "content_summary": "custom summary",
+                        "content_length": 16,
+                        "chunks_count": 1,
+                        "chunks_list": [custom_chunk_id],
+                        "created_at": "2026-05-09T00:00:00+00:00",
+                        "updated_at": "2026-05-09T00:00:00+00:00",
+                        "file_path": "",
+                        "track_id": "track-custom",
+                        "metadata": {"source": "custom_chunks"},
+                    },
+                    normal_doc_id: {
+                        "status": DocStatus.PROCESSED,
+                        "content_summary": "normal summary",
+                        "content_length": 16,
+                        "chunks_count": 1,
+                        "chunks_list": [normal_chunk_id],
+                        "created_at": "2026-05-09T00:00:00+00:00",
+                        "updated_at": "2026-05-09T00:00:00+00:00",
+                        "file_path": "note.md",
+                        "track_id": "track-normal",
+                        "metadata": {"source": "upload"},
+                    },
+                }
+            )
+
+            extract_calls: list[list[str]] = []
+            merge_calls: list[str] = []
+
+            async def fake_extract(self, chunks, *_args):
+                extract_calls.append(list(chunks.keys()))
+                return [("nodes", "edges")]
+
+            async def fake_merge(**kwargs):
+                merge_calls.append(kwargs["doc_id"])
+
+            monkeypatch.setattr(
+                rag,
+                "_process_extract_entities",
+                MethodType(fake_extract, rag),
+            )
+            monkeypatch.setattr("lightrag.lightrag.merge_nodes_and_edges", fake_merge)
+
+            summary = await rag.arebuild_all_custom_chunks_graphs()
+
+            assert summary["total_candidates"] == 1
+            assert summary["rebuilt"] == 1
+            assert summary["failed"] == 0
+            assert summary["skipped"] == 0
+            assert extract_calls == [[custom_chunk_id]]
+            assert merge_calls == [custom_doc_id]
+
+            custom_status = await rag.doc_status.get_by_id(custom_doc_id)
+            normal_status = await rag.doc_status.get_by_id(normal_doc_id)
+            assert custom_status is not None
+            assert custom_status["status"] == DocStatus.PROCESSED
+            assert custom_status["metadata"]["source"] == "custom_chunks"
+            assert normal_status is not None
+            assert normal_status["metadata"]["source"] == "upload"
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_arebuild_all_custom_chunks_graphs_rebuilds_only_selected_doc_ids(
+        self, monkeypatch
+    ):
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        workspace = f"selected-rebuild-{time.time_ns()}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            selected_doc_id = "doc-selected-rebuild-1"
+            skipped_doc_id = "doc-skipped-rebuild-1"
+            selected_chunk_id = "chunk-selected-rebuild-1"
+            skipped_chunk_id = "chunk-skipped-rebuild-1"
+
+            await rag.full_docs.upsert(
+                {
+                    selected_doc_id: {"content": "selected full text", "file_path": "selected.md"},
+                    skipped_doc_id: {"content": "skipped full text", "file_path": "skipped.md"},
+                }
+            )
+            await rag.text_chunks.upsert(
+                {
+                    selected_chunk_id: {
+                        "content": "selected chunk text",
+                        "full_doc_id": selected_doc_id,
+                        "tokens": 3,
+                        "chunk_order_index": 0,
+                        "file_path": "selected.md",
+                    },
+                    skipped_chunk_id: {
+                        "content": "skipped chunk text",
+                        "full_doc_id": skipped_doc_id,
+                        "tokens": 3,
+                        "chunk_order_index": 0,
+                        "file_path": "skipped.md",
+                    },
+                }
+            )
+            await rag.doc_status.upsert(
+                {
+                    selected_doc_id: {
+                        "status": DocStatus.PROCESSED,
+                        "content_summary": "selected summary",
+                        "content_length": 16,
+                        "chunks_count": 1,
+                        "chunks_list": [selected_chunk_id],
+                        "created_at": "2026-05-09T00:00:00+00:00",
+                        "updated_at": "2026-05-09T00:00:00+00:00",
+                        "file_path": "selected.md",
+                        "track_id": "track-selected",
+                        "metadata": {"source": "upload"},
+                    },
+                    skipped_doc_id: {
+                        "status": DocStatus.PROCESSED,
+                        "content_summary": "skipped summary",
+                        "content_length": 16,
+                        "chunks_count": 1,
+                        "chunks_list": [skipped_chunk_id],
+                        "created_at": "2026-05-09T00:00:00+00:00",
+                        "updated_at": "2026-05-09T00:00:00+00:00",
+                        "file_path": "skipped.md",
+                        "track_id": "track-skipped",
+                        "metadata": {"source": "custom_chunks"},
+                    },
+                }
+            )
+
+            extract_calls: list[list[str]] = []
+            merge_calls: list[str] = []
+
+            async def fake_extract(self, chunks, *_args):
+                extract_calls.append(list(chunks.keys()))
+                return [("nodes", "edges")]
+
+            async def fake_merge(**kwargs):
+                merge_calls.append(kwargs["doc_id"])
+
+            monkeypatch.setattr(
+                rag,
+                "_process_extract_entities",
+                MethodType(fake_extract, rag),
+            )
+            monkeypatch.setattr("lightrag.lightrag.merge_nodes_and_edges", fake_merge)
+
+            summary = await rag.arebuild_all_custom_chunks_graphs([selected_doc_id])
+
+            assert summary["total_candidates"] == 1
+            assert summary["rebuilt"] == 1
+            assert summary["failed"] == 0
+            assert summary["skipped"] == 0
+            assert extract_calls == [[selected_chunk_id]]
+            assert merge_calls == [selected_doc_id]
+
+            selected_status = await rag.doc_status.get_by_id(selected_doc_id)
+            skipped_status = await rag.doc_status.get_by_id(skipped_doc_id)
+            assert selected_status is not None
+            assert selected_status["metadata"]["source"] == "upload"
+            assert skipped_status is not None
+            assert skipped_status["updated_at"] == "2026-05-09T00:00:00+00:00"
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_marks_doc_status_failed_on_error(self):
+        """When the graph upsert blows up, doc_status must be flipped to FAILED."""
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            graph = rag.chunk_entity_relation_graph
+            graph.upsert_nodes_batch = AsyncMock(side_effect=RuntimeError("kaboom"))
+            graph.has_nodes_batch = AsyncMock(return_value=set())
+            graph.upsert_edges_batch = AsyncMock()
+
+            custom_kg = {
+                "chunks": [
+                    {
+                        "content": "chunk content",
+                        "chunk_order_index": 0,
+                        "source_id": "src-1",
+                    }
+                ],
+                "entities": [
+                    {
+                        "entity_name": "EntityA",
+                        "entity_type": "CONCEPT",
+                        "description": "Entity A",
+                        "source_id": "src-1",
+                        "file_path": "test.pdf",
+                    }
+                ],
+                "relationships": [],
+            }
+
+            with pytest.raises(RuntimeError, match="kaboom"):
+                await rag.ainsert_custom_kg(custom_kg, full_doc_id="doc-fail-1")
+
+            status = await rag.doc_status.get_by_id("doc-fail-1")
+            assert status is not None
+            assert status["status"] == DocStatus.FAILED
+            assert "kaboom" in (status.get("error_msg") or "")
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_rejects_missing_required_fields(self):
+        """Required fields must produce ValueError → 400, not bare KeyError → 500."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            with pytest.raises(ValueError):
+                await rag.ainsert_custom_kg(
+                    {"chunks": [], "entities": [], "relationships": []}
+                )
+
+            with pytest.raises(ValueError):
+                await rag.ainsert_custom_kg(
+                    {
+                        "chunks": [{"content": "x", "source_id": ""}],
+                        "entities": [],
+                        "relationships": [],
+                    }
+                )
+
+            with pytest.raises(ValueError):
+                await rag.ainsert_custom_kg(
+                    {
+                        "chunks": [],
+                        "entities": [{"entity_type": "X"}],
+                        "relationships": [],
+                    }
+                )
+
+            with pytest.raises(ValueError):
+                await rag.ainsert_custom_kg(
+                    {
+                        "chunks": [],
+                        "entities": [],
+                        "relationships": [{"src_id": "A", "tgt_id": ""}],
+                    }
+                )
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_placeholder_source_id_aggregates_chunks(self):
+        """Placeholder nodes inherit GRAPH_FIELD_SEP-joined sources from all relations."""
+        from lightrag import LightRAG
+        from lightrag.constants import GRAPH_FIELD_SEP
+        from lightrag.utils import compute_mdhash_id
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            graph = rag.chunk_entity_relation_graph
+            graph.upsert_nodes_batch = AsyncMock()
+            graph.has_nodes_batch = AsyncMock(return_value=set())
+            graph.upsert_edges_batch = AsyncMock()
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            content_a = "chunk one"
+            content_b = "chunk two"
+            chunk_id_a = compute_mdhash_id(content_a, prefix="chunk-")
+            chunk_id_b = compute_mdhash_id(content_b, prefix="chunk-")
+
+            custom_kg = {
+                "chunks": [
+                    {"content": content_a, "chunk_order_index": 0, "source_id": "s1"},
+                    {"content": content_b, "chunk_order_index": 1, "source_id": "s2"},
+                ],
+                "entities": [],
+                "relationships": [
+                    {
+                        "src_id": "Implicit",
+                        "tgt_id": "OtherImplicit",
+                        "description": "first relation",
+                        "keywords": "rel",
+                        "weight": 1.0,
+                        "source_id": "s1",
+                    },
+                    {
+                        "src_id": "Implicit",
+                        "tgt_id": "ThirdImplicit",
+                        "description": "second relation",
+                        "keywords": "rel",
+                        "weight": 1.0,
+                        "source_id": "s2",
+                    },
+                ],
+            }
+
+            await rag.ainsert_custom_kg(custom_kg)
+
+            # Placeholder upsert is the second nodes_batch call (after entity_nodes,
+            # which is empty here). Find the placeholder batch that contains "Implicit".
+            placeholder_batch = None
+            for call in graph.upsert_nodes_batch.await_args_list:
+                names = [name for name, _ in call.args[0]]
+                if "Implicit" in names:
+                    placeholder_batch = dict(call.args[0])
+                    break
+            assert placeholder_batch is not None, "Placeholder batch not found"
+            implicit_node = placeholder_batch["Implicit"]
+            sources = implicit_node["source_id"].split(GRAPH_FIELD_SEP)
+            assert set(sources) == {chunk_id_a, chunk_id_b}
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_handles_duplicate_source_id_chunks(self):
+        """Two chunks sharing the same source_id must both map back from chunk_to_source_map."""
+        from lightrag import LightRAG
+        from lightrag.constants import GRAPH_FIELD_SEP
+        from lightrag.utils import compute_mdhash_id
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            graph = rag.chunk_entity_relation_graph
+            graph.upsert_nodes_batch = AsyncMock()
+            graph.has_nodes_batch = AsyncMock(return_value=set())
+            graph.upsert_edges_batch = AsyncMock()
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            content_a = "alpha chunk"
+            content_b = "beta chunk"
+            chunk_id_a = compute_mdhash_id(content_a, prefix="chunk-")
+            chunk_id_b = compute_mdhash_id(content_b, prefix="chunk-")
+
+            custom_kg = {
+                "chunks": [
+                    {"content": content_a, "chunk_order_index": 0, "source_id": "src-1"},
+                    {"content": content_b, "chunk_order_index": 1, "source_id": "src-1"},
+                ],
+                "entities": [
+                    {
+                        "entity_name": "EntityA",
+                        "entity_type": "CONCEPT",
+                        "description": "Entity A",
+                        "source_id": "src-1",
+                    }
+                ],
+                "relationships": [],
+            }
+
+            await rag.ainsert_custom_kg(custom_kg)
+
+            entity_batch = graph.upsert_nodes_batch.await_args_list[0].args[0]
+            entity_node = dict(entity_batch)["EntityA"]
+            sources = entity_node["source_id"].split(GRAPH_FIELD_SEP)
+            assert set(sources) == {chunk_id_a, chunk_id_b}
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_returns_dict_summary(self):
+        """The new return contract: dict with full_doc_id, track_id, counts."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            graph = rag.chunk_entity_relation_graph
+            graph.upsert_nodes_batch = AsyncMock()
+            graph.has_nodes_batch = AsyncMock(return_value=set())
+            graph.upsert_edges_batch = AsyncMock()
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            result = await rag.ainsert_custom_kg(
+                {
+                    "chunks": [
+                        {"content": "x", "chunk_order_index": 0, "source_id": "s"}
+                    ],
+                    "entities": [
+                        {"entity_name": "X", "entity_type": "C", "description": "x"}
+                    ],
+                    "relationships": [],
+                }
+            )
+
+            assert set(result.keys()) == {
+                "full_doc_id",
+                "track_id",
+                "chunk_count",
+                "entity_count",
+                "relationship_count",
+            }
+            assert result["full_doc_id"].startswith("doc-")
+            assert result["track_id"]
+            assert result["chunk_count"] == 1
+            assert result["entity_count"] == 1
+            assert result["relationship_count"] == 0
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_chunkless_import_still_writes_full_docs(self):
+        """Chunkless custom KG import must still produce a readable full_docs entry."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            graph = rag.chunk_entity_relation_graph
+            graph.upsert_nodes_batch = AsyncMock()
+            graph.has_nodes_batch = AsyncMock(return_value=set())
+            graph.upsert_edges_batch = AsyncMock()
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            result = await rag.ainsert_custom_kg(
+                {
+                    "chunks": [],
+                    "entities": [
+                        {
+                            "entity_name": "EntityA",
+                            "entity_type": "CONCEPT",
+                            "description": "Entity only import",
+                        }
+                    ],
+                    "relationships": [],
+                }
+            )
+
+            full_doc = await rag.full_docs.get_by_id(result["full_doc_id"])
+            assert full_doc is not None
+            assert full_doc["file_path"] == "custom_kg"
+            assert isinstance(full_doc["content"], str)
+            assert full_doc["content"]
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_writes_full_entity_and_relation_indexes(self):
+        """Custom KG import must populate full_entities/full_relations for delete chain."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            result = await rag.ainsert_custom_kg(
+                {
+                    "chunks": [
+                        {"content": "chunk text", "source_id": "s1", "chunk_order_index": 0}
+                    ],
+                    "entities": [
+                        {"entity_name": "EntityA", "description": "A", "source_id": "s1"},
+                        {"entity_name": "EntityB", "description": "B", "source_id": "s1"},
+                    ],
+                    "relationships": [
+                        {
+                            "src_id": "EntityA",
+                            "tgt_id": "EntityB",
+                            "description": "A to B",
+                            "keywords": "link",
+                            "source_id": "s1",
+                        }
+                    ],
+                }
+            )
+
+            full_entities = await rag.full_entities.get_by_id(result["full_doc_id"])
+            full_relations = await rag.full_relations.get_by_id(result["full_doc_id"])
+
+            assert full_entities is not None
+            assert full_entities["entity_names"] == ["EntityA", "EntityB"]
+            assert full_entities["count"] == 2
+
+            assert full_relations is not None
+            assert full_relations["relation_pairs"] == [["EntityA", "EntityB"]]
+            assert full_relations["count"] == 1
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_full_entity_index_includes_placeholder_nodes(self):
+        """Relation-only imports must index placeholder endpoints for later deletion."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            result = await rag.ainsert_custom_kg(
+                {
+                    "chunks": [],
+                    "entities": [],
+                    "relationships": [
+                        {
+                            "src_id": "ImplicitA",
+                            "tgt_id": "ImplicitB",
+                            "description": "A to B",
+                            "keywords": "link",
+                        }
+                    ],
+                }
+            )
+
+            full_entities = await rag.full_entities.get_by_id(result["full_doc_id"])
+            assert full_entities is not None
+            assert full_entities["entity_names"] == ["ImplicitA", "ImplicitB"]
+            assert full_entities["count"] == 2
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_adelete_by_doc_id_removes_custom_kg_graph_metadata(self):
+        """End-to-end: deleting a custom KG doc must clear all document-level indexes."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            result = await rag.ainsert_custom_kg(
+                {
+                    "chunks": [
+                        {"content": "chunk text", "source_id": "s1", "chunk_order_index": 0}
+                    ],
+                    "entities": [
+                        {"entity_name": "EntityA", "description": "A", "source_id": "s1"},
+                        {"entity_name": "EntityB", "description": "B", "source_id": "s1"},
+                    ],
+                    "relationships": [
+                        {
+                            "src_id": "EntityA",
+                            "tgt_id": "EntityB",
+                            "description": "A to B",
+                            "keywords": "link",
+                            "source_id": "s1",
+                        }
+                    ],
+                }
+            )
+
+            doc_id = result["full_doc_id"]
+            delete_result = await rag.adelete_by_doc_id(doc_id)
+            assert delete_result.status == "success"
+
+            assert await rag.doc_status.get_by_id(doc_id) is None
+            assert await rag.full_docs.get_by_id(doc_id) is None
+            assert await rag.full_entities.get_by_id(doc_id) is None
+            assert await rag.full_relations.get_by_id(doc_id) is None
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
+    async def test_adelete_by_doc_id_removes_chunkless_custom_kg_graph_metadata(self):
+        """Chunkless custom KG delete must remove doc indexes and graph nodes."""
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            result = await rag.ainsert_custom_kg(
+                {
+                    "chunks": [],
+                    "entities": [],
+                    "relationships": [
+                        {
+                            "src_id": "ImplicitA",
+                            "tgt_id": "ImplicitB",
+                            "description": "A to B",
+                            "keywords": "link",
+                        }
+                    ],
+                }
+            )
+
+            doc_id = result["full_doc_id"]
+            delete_result = await rag.adelete_by_doc_id(doc_id)
+            assert delete_result.status == "success"
+
+            assert await rag.doc_status.get_by_id(doc_id) is None
+            assert await rag.full_docs.get_by_id(doc_id) is None
+            assert await rag.full_entities.get_by_id(doc_id) is None
+            assert await rag.full_relations.get_by_id(doc_id) is None
+            assert not await rag.chunk_entity_relation_graph.has_node("ImplicitA")
+            assert not await rag.chunk_entity_relation_graph.has_node("ImplicitB")
+            assert not await rag.chunk_entity_relation_graph.has_edge(
+                "ImplicitA", "ImplicitB"
+            )
 
             await rag.finalize_storages()
 

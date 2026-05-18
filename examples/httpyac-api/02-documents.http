@@ -62,6 +62,11 @@ Accept: application/json
 
 ### Import Custom Chunks
 # 用途：导入上游已切分好的 chunks。
+# 说明：
+# - 该接口同步执行 chunk 持久化、抽取、图谱合并
+# - 导入后的 doc_status.metadata.source 会被标记为 custom_chunks
+# - 可选传入 file_path，用于文档列表展示和 chunk 元数据记录
+# - 不会返回后台 track_id
 # @ref login
 POST {{BASE_URL}}/documents/import/custom-chunks
 Authorization: Bearer {{login.access_token}}
@@ -72,12 +77,38 @@ Accept: application/json
 
 {
   "doc_id": "httpyac-custom-doc",
+  "file_path": "docs/custom/httpyac-custom-doc.md",
   "full_text": "Tesla is an electric vehicle company founded in the United States.",
   "text_chunks": [
     "Tesla is an electric vehicle company.",
     "Tesla was founded in the United States."
   ]
 }
+
+### Document Chunks
+# 用途：查看指定文档已持久化的 chunks 内容。
+# 说明：
+# - 返回顺序与文档原始 chunks_list 一致
+# - 可用于文档详情查看和问题排查
+# @ref login
+GET {{BASE_URL}}/documents/{{DOC_ID}}/chunks
+Authorization: Bearer {{login.access_token}}
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Accept: application/json
+
+### Rebuild Custom Chunk Graphs
+# 用途：后台重建所有 metadata.source=custom_chunks 文档的图谱。
+# 说明：
+# - 复用已存 text_chunks，不重新切块
+# - 如果已有其他 pipeline 任务在执行，会返回 busy
+# @ref login
+POST {{BASE_URL}}/documents/rebuild_custom_chunks_graph
+Authorization: Bearer {{login.access_token}}
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
 
 ### Documents By IDs
 # 用途：按文档 ID 批量查询文档状态。

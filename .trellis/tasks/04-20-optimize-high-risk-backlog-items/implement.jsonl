@@ -1,4 +1,0 @@
-{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
-{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "workspace deletion and query params touch multiple layers"}
-{"file": ".nexus-map/hotspots/optimization_backlog.md", "reason": "backlog risk contract for this task"}

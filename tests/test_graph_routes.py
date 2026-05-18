@@ -50,12 +50,17 @@ class _DummyRAG:
         self.chunk_entity_relation_graph = self
 
     async def get_knowledge_graph(
-        self, node_label: str, max_depth: int, max_nodes: int
+        self,
+        node_label: str,
+        max_depth: int,
+        max_nodes: int,
+        direction: str = "both",
     ) -> dict[str, Any]:
         self.last_graph_call = {
             "node_label": node_label,
             "max_depth": max_depth,
             "max_nodes": max_nodes,
+            "direction": direction,
         }
         if self.graph_result is not None:
             return self.graph_result
@@ -226,10 +231,19 @@ class _DummyRAG:
 
     async def ainsert_custom_kg(
         self, custom_kg: dict[str, Any], full_doc_id: str | None = None
-    ) -> None:
+    ) -> dict[str, Any]:
         self.last_custom_kg_request = {
             "custom_kg": custom_kg,
             "full_doc_id": full_doc_id,
+        }
+        # Mirror the real method's structured return so the route handler
+        # can populate the response body deterministically.
+        return {
+            "full_doc_id": full_doc_id or "doc-test-generated",
+            "track_id": "track-test-1",
+            "chunk_count": len(custom_kg.get("chunks", [])),
+            "entity_count": len(custom_kg.get("entities", [])),
+            "relationship_count": len(custom_kg.get("relationships", [])),
         }
 
     async def get_entity_info(
@@ -341,6 +355,7 @@ def test_get_graphs_route_remains_backward_compatible(graph_client):
         "node_label": "Tesla",
         "max_depth": 2,
         "max_nodes": 128,
+        "direction": "both",
     }
 
 
@@ -357,6 +372,7 @@ def test_get_graphs_route_uses_10000_default_limit(graph_client):
         "node_label": "Tesla",
         "max_depth": 2,
         "max_nodes": DEFAULT_MAX_GRAPH_NODES,
+        "direction": "both",
     }
 
 
@@ -465,6 +481,7 @@ def test_graph_query_accepts_v1_filter_shape_and_returns_meta_truncation(graph_c
         "node_label": "Tesla",
         "max_depth": 2,
         "max_nodes": 128,
+        "direction": "both",
     }
 
 
@@ -488,6 +505,7 @@ def test_graph_query_uses_10000_default_limit(graph_client):
         "node_label": "Tesla",
         "max_depth": 3,
         "max_nodes": DEFAULT_MAX_GRAPH_NODES,
+        "direction": "both",
     }
 
 
@@ -523,6 +541,30 @@ def test_graph_query_caps_edges_to_max_nodes(monkeypatch):
     assert len(body["data"]["edges"]) == 3
     assert body["data"]["is_truncated"] is True
     assert body["truncation"]["effective_max_nodes"] == 3
+
+
+def test_graph_query_accepts_scope_direction_and_forwards_it(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/query",
+        json={
+            "scope": {
+                "label": "Tesla",
+                "max_depth": 2,
+                "max_nodes": 128,
+                "direction": "outbound",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert rag.last_graph_call == {
+        "node_label": "Tesla",
+        "max_depth": 2,
+        "max_nodes": 128,
+        "direction": "outbound",
+    }
 
 
 def test_delete_entity_route_exists_and_returns_expected_structure(graph_client):
@@ -804,17 +846,93 @@ def test_graph_import_custom_kg_route_calls_core_method(graph_client):
     body = response.json()
     assert body["status"] == "success"
     assert body["full_doc_id"] == "doc-custom-kg-1"
+    assert body["track_id"] == "track-test-1"
     assert body["entity_count"] == 1
     assert body["relationship_count"] == 0
     assert body["chunk_count"] == 1
-    assert rag.last_custom_kg_request == {
-        "custom_kg": {
-            "chunks": [{"content": "Tesla text", "source_id": "Source1"}],
-            "entities": [{"entity_name": "Tesla", "source_id": "Source1"}],
-            "relationships": [],
+    assert rag.last_custom_kg_request is not None
+    assert rag.last_custom_kg_request["full_doc_id"] == "doc-custom-kg-1"
+    payload = rag.last_custom_kg_request["custom_kg"]
+    assert payload["chunks"][0]["content"] == "Tesla text"
+    assert payload["chunks"][0]["source_id"] == "Source1"
+    assert payload["entities"][0]["entity_name"] == "Tesla"
+    assert payload["relationships"] == []
+
+
+def test_graph_import_custom_kg_route_rejects_missing_fields(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/import/custom-kg",
+        json={
+            "custom_kg": {
+                "chunks": [{"content": "Tesla text"}],
+                "entities": [],
+                "relationships": [],
+            }
         },
-        "full_doc_id": "doc-custom-kg-1",
-    }
+    )
+
+    assert response.status_code == 422
+    assert rag.last_custom_kg_request is None
+
+
+def test_graph_import_custom_kg_route_rejects_empty_payload(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/import/custom-kg",
+        json={
+            "custom_kg": {
+                "chunks": [],
+                "entities": [],
+                "relationships": [],
+            }
+        },
+    )
+
+    assert response.status_code == 422
+    assert rag.last_custom_kg_request is None
+
+
+def test_graph_import_custom_kg_route_rejects_blank_strings(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/import/custom-kg",
+        json={
+            "custom_kg": {
+                "chunks": [{"content": "  ", "source_id": "Source1"}],
+                "entities": [],
+                "relationships": [],
+            }
+        },
+    )
+
+    assert response.status_code == 422
+    assert rag.last_custom_kg_request is None
+
+
+def test_graph_import_custom_kg_route_normalizes_full_doc_id(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/import/custom-kg",
+        json={
+            "custom_kg": {
+                "chunks": [{"content": "Tesla text", "source_id": "Source1"}],
+                "entities": [],
+                "relationships": [],
+            },
+            "full_doc_id": "  ",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    # Empty-after-strip becomes None; route falls back to core method's value
+    assert body["full_doc_id"] == "doc-test-generated"
+    assert rag.last_custom_kg_request["full_doc_id"] is None
 
 
 def test_graph_entity_detail_route_returns_entity_payload(graph_client):

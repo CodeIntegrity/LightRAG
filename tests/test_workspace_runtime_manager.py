@@ -140,3 +140,28 @@ async def test_concurrent_different_workspaces_cold_start_in_parallel():
 
     assert bundle1.workspace == "books"
     assert bundle2.workspace == "notes"
+
+
+@pytest.mark.asyncio
+async def test_acquire_cached_runtime_reuses_existing_bundle_without_factory_call():
+    from lightrag.api.workspace_runtime import WorkspaceRuntimeBundle, WorkspaceRuntimeManager
+
+    factory_calls: list[str] = []
+
+    async def factory(workspace: str) -> WorkspaceRuntimeBundle:
+        factory_calls.append(workspace)
+        return WorkspaceRuntimeBundle(
+            workspace=workspace,
+            rag=SimpleNamespace(name=f"rag:{workspace}"),
+            doc_manager=SimpleNamespace(name=f"doc:{workspace}"),
+        )
+
+    manager = WorkspaceRuntimeManager(factory)
+    bundle1 = await manager.acquire_runtime("books")
+    await manager.release_runtime("books")
+
+    bundle2 = await manager.acquire_cached_runtime("books")
+
+    assert bundle2 is bundle1
+    assert bundle2.active_requests == 1
+    assert factory_calls == ["books"]

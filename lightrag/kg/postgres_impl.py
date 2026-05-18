@@ -1969,6 +1969,18 @@ class ClientManager:
         config = configparser.ConfigParser()
         config.read("config.ini", "utf-8")
 
+        # Deprecation notice: POSTGRES_ENABLE_VECTOR was removed in favor of
+        # auto-deriving enable_vector from LIGHTRAG_VECTOR_STORAGE. Warn loudly
+        # so users who carry the legacy variable forward know it is ignored.
+        if "POSTGRES_ENABLE_VECTOR" in os.environ:
+            logger.warning(
+                "POSTGRES_ENABLE_VECTOR is deprecated and ignored; pgvector "
+                "support is now auto-detected from LIGHTRAG_VECTOR_STORAGE. "
+                "Set LIGHTRAG_VECTOR_STORAGE=PGVectorStorage to enable it, or "
+                "remove POSTGRES_ENABLE_VECTOR from your environment to clear "
+                "this warning."
+            )
+
         return {
             "host": os.environ.get(
                 "POSTGRES_HOST",
@@ -3407,7 +3419,9 @@ class PGVectorStorage(BaseVectorStorage):
             len(batches),
         )
 
-        embedding_tasks = [self.embedding_func(batch) for batch in batches]
+        embedding_tasks = [
+            self.embedding_func(batch, context="document") for batch in batches
+        ]
         embedding_generation_start = time.perf_counter()
         embeddings_list = await asyncio.gather(*embedding_tasks)
         performance_timing_log(
@@ -3489,26 +3503,26 @@ class PGVectorStorage(BaseVectorStorage):
             embedding = query_embedding
         else:
             embeddings = await self.embedding_func(
-                [query], _priority=5
+                [query], context="query", _priority=5
             )  # higher priority for query
             embedding = embeddings[0]
 
-        embedding_string = ",".join(map(str, embedding))
-
+        # Use positional $4 parameter instead of string-interpolated literal.
+        # asyncpg sends the embedding via register_vector binary codec, avoiding
+        # per-query text serialization and PostgreSQL text-to-vector parsing.
         vector_cast = (
             "halfvec"
             if getattr(self.db, "vector_index_type", None) == "HNSW_HALFVEC"
             else "vector"
         )
         sql = SQL_TEMPLATES[self.namespace].format(
-            embedding_string=embedding_string,
-            table_name=self.table_name,
-            vector_cast=vector_cast,
+            table_name=self.table_name, vector_cast=vector_cast
         )
         params = {
             "workspace": self.workspace,
             "closer_than_threshold": 1 - self.cosine_better_than_threshold,
             "top_k": top_k,
+            "embedding": embedding,
         }
         results = await self.db.query(sql, params=list(params.values()), multirows=True)
         return results
@@ -5160,14 +5174,21 @@ class PGGraphStorage(BaseGraphStorage):
             edge_data (dict): dictionary of properties to set on the edge
         """
         # AGE does not support binding a full agtype map in ``SET r += $props``
-        # (verified on AGE 1.5.0). Keep endpoint identifiers parameterized and
-        # inline a safely escaped property map literal for the relationship payload.
-        props_literal = self._format_properties(edge_data)
+        # (verified on AGE 1.5.0), and the inlined literal form ``SET r += {map}``
+        # is also silently ignored for edges (though it works for nodes). Individual
+        # ``SET r.key = value`` assignments run without error but also do not persist.
+        # The only reliable way to write edge properties in AGE is to inline them
+        # directly in a CREATE clause. We use OPTIONAL MATCH to delete any existing
+        # edge first so the operation remains idempotent.
+        props_literal = self._format_properties(edge_data) if edge_data else "{}"
         cypher_query = f"""MATCH (source:base {{entity_id: $src_id}})
                      WITH source
                      MATCH (target:base {{entity_id: $tgt_id}})
-                     MERGE (source)-[r:DIRECTED]-(target)
-                     SET r += {props_literal}
+                     WITH source, target
+                     OPTIONAL MATCH (source)-[old:DIRECTED]-(target)
+                     DELETE old
+                     WITH source, target
+                     CREATE (source)-[r:DIRECTED {props_literal}]->(target)
                      RETURN r"""
 
         query = (
@@ -5965,6 +5986,7 @@ class PGGraphStorage(BaseGraphStorage):
         node_label: str,
         max_depth: int = 3,
         max_nodes: int = None,
+        direction: str = "both",
     ) -> KnowledgeGraph:
         """
         Retrieve a connected subgraph of nodes where the label includes the specified `node_label`.
@@ -6637,33 +6659,33 @@ SQL_TEMPLATES = {
                       update_time = EXCLUDED.update_time
                      """,
     "relationships": """
-                     SELECT r.source_id AS src_id,
-                            r.target_id AS tgt_id,
-                            EXTRACT(EPOCH FROM r.create_time)::BIGINT AS created_at
-                     FROM {table_name} r
-                     WHERE r.workspace = $1
-                       AND r.content_vector <=> '[{embedding_string}]'::{vector_cast} < $2
-                     ORDER BY r.content_vector <=> '[{embedding_string}]'::{vector_cast}
+                     SELECT source_id AS src_id,
+                            target_id AS tgt_id,
+                            EXTRACT(EPOCH FROM create_time)::BIGINT AS created_at
+                     FROM {table_name}
+                     WHERE workspace = $1
+                       AND content_vector <=> $4::{vector_cast} < $2
+                     ORDER BY content_vector <=> $4::{vector_cast}
                      LIMIT $3;
                      """,
     "entities": """
-                SELECT e.entity_name,
-                       EXTRACT(EPOCH FROM e.create_time)::BIGINT AS created_at
-                FROM {table_name} e
-                WHERE e.workspace = $1
-                  AND e.content_vector <=> '[{embedding_string}]'::{vector_cast} < $2
-                ORDER BY e.content_vector <=> '[{embedding_string}]'::{vector_cast}
+                SELECT entity_name,
+                       EXTRACT(EPOCH FROM create_time)::BIGINT AS created_at
+                FROM {table_name}
+                WHERE workspace = $1
+                  AND content_vector <=> $4::{vector_cast} < $2
+                ORDER BY content_vector <=> $4::{vector_cast}
                 LIMIT $3;
                 """,
     "chunks": """
-              SELECT c.id,
-                     c.content,
-                     c.file_path,
-                     EXTRACT(EPOCH FROM c.create_time)::BIGINT AS created_at
-              FROM {table_name} c
-              WHERE c.workspace = $1
-                AND c.content_vector <=> '[{embedding_string}]'::{vector_cast} < $2
-              ORDER BY c.content_vector <=> '[{embedding_string}]'::{vector_cast}
+              SELECT id,
+                     content,
+                     file_path,
+                     EXTRACT(EPOCH FROM create_time)::BIGINT AS created_at
+              FROM {table_name}
+              WHERE workspace = $1
+                AND content_vector <=> $4::{vector_cast} < $2
+              ORDER BY content_vector <=> $4::{vector_cast}
               LIMIT $3;
               """,
     # DROP tables

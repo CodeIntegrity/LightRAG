@@ -268,12 +268,28 @@
         "fileName": "文件名",
         "summary": "摘要",
         "status": "状态",
+        "source": "来源",
         "length": "长度",
         "chunks": "分块",
         "created": "创建时间",
         "updated": "更新时间",
         "metadata": "元数据",
         "select": "选择"
+      },
+      "source": {
+        "customChunks": "自定义分块"
+      },
+      "customChunksRebuild": {
+        "button": "重建图谱",
+        "tooltip": "重建图谱",
+        "confirmTitle": "确认重建图谱",
+        "confirmSelected": "将重建选中的 {{count}} 个文件图谱",
+        "confirmAll": "将重建全部图谱",
+        "confirmButton": "确认重建",
+        "started": "已开始重建全部图谱",
+        "startedSelected": "已开始重建选中的 {{count}} 个文件图谱",
+        "busy": "当前有其他流水线任务正在运行",
+        "failed": "重建图谱失败\n{{error}}"
       },
       "status": {
         "all": "全部",
@@ -296,7 +312,29 @@
       "showButton": "显示",
       "hideButton": "隐藏",
       "showFileNameTooltip": "显示文件名",
-      "hideFileNameTooltip": "隐藏文件名"
+      "hideFileNameTooltip": "隐藏文件名",
+      "details": {
+        "title": "文档详情",
+        "openTooltip": "查看文档详情",
+        "copyTooltip": "复制详情",
+        "copySuccess": "状态详情已复制",
+        "copyFailed": "复制状态详情失败",
+        "copyChunksTooltip": "复制全部分块",
+        "copyChunksSuccess": "分块内容已复制",
+        "copyChunksFailed": "复制分块内容失败",
+        "copyChunkTooltip": "复制分块文本",
+        "copyChunkSuccess": "分块文本已复制",
+        "copyChunkFailed": "复制分块文本失败",
+        "loadingChunks": "正在加载分块...",
+        "noChunks": "暂无分块内容",
+        "noDetails": "暂无状态详情",
+        "chunksLoadFailed": "加载文档分块失败\n{{error}}",
+        "chunkLabel": "分块 {{index}}",
+        "tabs": {
+          "details": "详情",
+          "chunks": "分块"
+        }
+      }
     },
     "pipelineStatus": {
       "title": "流水线状态",
@@ -377,13 +415,26 @@
         "showPropertyPanel": "显示属性面板",
         "showSearchBar": "显示搜索栏",
         "showNodeLabel": "显示节点标签",
+        "graphLabelFontSize": "节点/边标签字体大小",
         "nodeDraggable": "节点可拖动",
+        "searchLinkedDrag": "搜索选中节点联动拖拽",
         "showEdgeLabel": "显示边标签",
+        "showDirectionalArrows": "显示方向箭头",
         "hideUnselectedEdges": "隐藏未选中的边",
         "edgeEvents": "边事件",
         "maxQueryDepth": "最大查询深度",
         "maxNodes": "最大返回节点数",
         "maxLayoutIterations": "最大布局迭代次数",
+        "layoutRepulsion": "布局排斥力",
+        "layoutGravity": "布局重力",
+        "layoutMargin": "布局边距",
+        "layoutAttraction": "布局吸引力",
+        "layoutInertia": "布局惯性",
+        "layoutMaxMove": "布局最大位移",
+        "layoutExpansion": "布局扩张系数",
+        "layoutGridSize": "布局网格尺寸",
+        "layoutRatio": "布局比例",
+        "layoutSpeed": "布局速度",
         "resetToDefault": "重置为默认值",
         "edgeSizeRange": "边粗细范围",
         "depth": "深",
@@ -568,6 +619,7 @@
           "startLabel": "起始标签",
           "maxDepth": "最大深度",
           "maxNodes": "最大节点数",
+          "direction": "检索方向",
           "onlyMatchedNeighborhood": "仅匹配邻域",
           "sourceIdQuery": "来源 ID 查询",
           "filePaths": "文件路径",
@@ -590,6 +642,11 @@
         "messages": {
           "noEntityTypeResults": "未找到匹配的实体类型。",
           "noLabelResults": "未找到匹配的标签。"
+        },
+        "direction": {
+          "both": "双向",
+          "outbound": "下级",
+          "inbound": "上级"
         },
         "actions": {
           "collapse": "收起筛选器",

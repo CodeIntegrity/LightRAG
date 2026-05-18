@@ -93,6 +93,14 @@ def _short_hash_suffix(value: str, *, length: int = 8) -> str:
     return hashlib.sha1(value.encode("utf-8")).hexdigest()[:length]
 
 
+def _nebula_vid(entity_id: str) -> str:
+    return f"ent_{hashlib.sha1(str(entity_id).encode('utf-8')).hexdigest()}"
+
+
+def _nebula_edge_vids(source_node_id: str, target_node_id: str) -> tuple[str, str]:
+    return _nebula_vid(source_node_id), _nebula_vid(target_node_id)
+
+
 def _normalize_space_name(prefix: str, workspace: str) -> str:
     safe_prefix = _sanitize_workspace_component(prefix, fallback=_DEFAULT_SPACE_PREFIX)
     safe_workspace = _sanitize_workspace_component(
@@ -937,18 +945,18 @@ class NebulaGraphStorage(BaseGraphStorage):
     async def has_node(self, node_id: str) -> bool:
         result = await self._execute_in_space(
             "MATCH (v:entity) "
-            f"WHERE id(v) == {_ngql_literal(node_id)} "
-            "RETURN id(v) AS entity_id "
+            f"WHERE v.entity.entity_id == {_ngql_literal(node_id)} "
+            "RETURN v.entity.entity_id AS entity_id "
             "LIMIT 1;"
         )
         return _first_row(result) is not None
 
     async def has_edge(self, source_node_id: str, target_node_id: str) -> bool:
-        src_id, tgt_id = _canonical_edge_pair(source_node_id, target_node_id)
         result = await self._execute_in_space(
             "MATCH (a:entity)-[e:relation]->(b:entity) "
-            f"WHERE id(a) == {_ngql_literal(src_id)} AND id(b) == {_ngql_literal(tgt_id)} "
-            "RETURN id(a) AS source, id(b) AS target "
+            f"WHERE a.entity.entity_id == {_ngql_literal(source_node_id)} AND "
+            f"b.entity.entity_id == {_ngql_literal(target_node_id)} "
+            "RETURN a.entity.entity_id AS source, b.entity.entity_id AS target "
             "LIMIT 1;"
         )
         return _first_row(result) is not None
@@ -973,7 +981,12 @@ class NebulaGraphStorage(BaseGraphStorage):
         conditions: list[str] = []
         for node_id in node_ids:
             literal = _ngql_literal(node_id)
-            conditions.append(f"(id(a) == {literal} OR id(b) == {literal})")
+            conditions.append(
+                "("
+                f"a.entity.entity_id == {literal} OR "
+                f"b.entity.entity_id == {literal}"
+                ")"
+            )
         return " OR ".join(conditions)
 
     @staticmethod
@@ -982,8 +995,8 @@ class NebulaGraphStorage(BaseGraphStorage):
         for src_id, tgt_id in pairs:
             conditions.append(
                 "("
-                f"id(a) == {_ngql_literal(src_id)} AND "
-                f"id(b) == {_ngql_literal(tgt_id)}"
+                f"a.entity.entity_id == {_ngql_literal(src_id)} AND "
+                f"b.entity.entity_id == {_ngql_literal(tgt_id)}"
                 ")"
             )
         return " OR ".join(conditions)
@@ -1207,7 +1220,9 @@ class NebulaGraphStorage(BaseGraphStorage):
         )
         return [label for _, label in ranked[:limit]]
 
-    async def _build_global_knowledge_graph(self, max_nodes: int) -> KnowledgeGraph:
+    async def _build_global_knowledge_graph(
+        self, max_nodes: int, direction: str = "both"
+    ) -> KnowledgeGraph:
         result = KnowledgeGraph()
         if max_nodes <= 0:
             result.is_truncated = bool(await self.get_all_labels())
@@ -1230,7 +1245,7 @@ class NebulaGraphStorage(BaseGraphStorage):
             node_data = node_payloads.get(node_id, {"entity_id": node_id})
             result.nodes.append(self._to_knowledge_graph_node(node_id, node_data))
 
-        adjacency = await self.get_nodes_edges_batch(selected_ids)
+        adjacency = await self.get_nodes_edges_batch(selected_ids, direction=direction)
         edge_pairs: list[dict[str, str]] = []
         seen_pairs: set[tuple[str, str]] = set()
         for node_id in selected_ids:
@@ -1240,11 +1255,11 @@ class NebulaGraphStorage(BaseGraphStorage):
                 target = str(tgt)
                 if source not in selected_set or target not in selected_set:
                     continue
-                canonical = _canonical_edge_pair(source, target)
-                if canonical in seen_pairs:
+                edge_key = (source, target)
+                if edge_key in seen_pairs:
                     continue
-                seen_pairs.add(canonical)
-                edge_pairs.append({"src": canonical[0], "tgt": canonical[1]})
+                seen_pairs.add(edge_key)
+                edge_pairs.append({"src": source, "tgt": target})
 
         edge_payloads = await self.get_edges_batch(edge_pairs) if edge_pairs else {}
         for pair in edge_pairs:
@@ -1258,7 +1273,11 @@ class NebulaGraphStorage(BaseGraphStorage):
         return result
 
     async def _build_bounded_subgraph(
-        self, node_label: str, max_depth: int, max_nodes: int
+        self,
+        node_label: str,
+        max_depth: int,
+        max_nodes: int,
+        direction: str = "both",
     ) -> KnowledgeGraph:
         result = KnowledgeGraph()
         if max_nodes <= 0:
@@ -1292,7 +1311,9 @@ class NebulaGraphStorage(BaseGraphStorage):
             if len(bfs_order) >= max_nodes:
                 hit_node_limit = bool(frontier)
                 if not hit_node_limit:
-                    adjacency = await self.get_nodes_edges_batch(current_layer)
+                    adjacency = await self.get_nodes_edges_batch(
+                        current_layer, direction=direction
+                    )
                     for node_id in current_layer:
                         for edge in adjacency.get(node_id, []):
                             neighbor = self._extract_neighbor(node_id, edge)
@@ -1304,7 +1325,9 @@ class NebulaGraphStorage(BaseGraphStorage):
                 break
 
             if current_depth >= max_depth:
-                adjacency = await self.get_nodes_edges_batch(current_layer)
+                adjacency = await self.get_nodes_edges_batch(
+                    current_layer, direction=direction
+                )
                 for node_id in current_layer:
                     for edge in adjacency.get(node_id, []):
                         neighbor = self._extract_neighbor(node_id, edge)
@@ -1315,7 +1338,9 @@ class NebulaGraphStorage(BaseGraphStorage):
                         break
                 continue
 
-            adjacency = await self.get_nodes_edges_batch(current_layer)
+            adjacency = await self.get_nodes_edges_batch(
+                current_layer, direction=direction
+            )
             next_candidates: list[str] = []
             seen_next: set[str] = set()
             for node_id in current_layer:
@@ -1342,7 +1367,7 @@ class NebulaGraphStorage(BaseGraphStorage):
                 node_data = {"entity_id": node_id}
             result.nodes.append(self._to_knowledge_graph_node(node_id, node_data))
 
-        adjacency = await self.get_nodes_edges_batch(selected_ids)
+        adjacency = await self.get_nodes_edges_batch(selected_ids, direction=direction)
         edge_pairs: list[dict[str, str]] = []
         seen_pairs: set[tuple[str, str]] = set()
         for node_id in selected_ids:
@@ -1352,11 +1377,11 @@ class NebulaGraphStorage(BaseGraphStorage):
                 target = str(tgt)
                 if source not in selected_set or target not in selected_set:
                     continue
-                canonical = _canonical_edge_pair(source, target)
-                if canonical in seen_pairs:
+                edge_key = (source, target)
+                if edge_key in seen_pairs:
                     continue
-                seen_pairs.add(canonical)
-                edge_pairs.append({"src": canonical[0], "tgt": canonical[1]})
+                seen_pairs.add(edge_key)
+                edge_pairs.append({"src": source, "tgt": target})
 
         edge_payloads = (
             await self.get_edges_batch(edge_pairs)
@@ -1381,21 +1406,21 @@ class NebulaGraphStorage(BaseGraphStorage):
         return int(degrees.get(src_id, 0)) + int(degrees.get(tgt_id, 0))
 
     async def get_node(self, node_id: str) -> dict[str, str] | None:
-        vid = _ngql_quote(node_id)
         result = await self._execute_in_space(
-            "FETCH PROP ON entity "
-            f"{vid} "
-            "YIELD "
-            "properties(vertex).entity_id AS entity_id, "
-            "properties(vertex).name AS name, "
-            "properties(vertex).entity_type AS entity_type, "
-            "properties(vertex).description AS description, "
-            "properties(vertex).keywords AS keywords, "
-            "properties(vertex).source_id AS source_id, "
-            "properties(vertex).file_path AS file_path, "
-            "properties(vertex).created_at AS created_at, "
-            "properties(vertex).truncate AS truncate, "
-            "properties(vertex).custom_properties_json AS custom_properties_json;"
+            "MATCH (v:entity) "
+            f"WHERE v.entity.entity_id == {_ngql_literal(node_id)} "
+            "RETURN "
+            "v.entity.entity_id AS entity_id, "
+            "v.entity.name AS name, "
+            "v.entity.entity_type AS entity_type, "
+            "v.entity.description AS description, "
+            "v.entity.keywords AS keywords, "
+            "v.entity.source_id AS source_id, "
+            "v.entity.file_path AS file_path, "
+            "v.entity.created_at AS created_at, "
+            "v.entity.truncate AS truncate, "
+            "v.entity.custom_properties_json AS custom_properties_json "
+            "LIMIT 1;"
         )
         row = _first_row(result)
         if row is None:
@@ -1405,13 +1430,13 @@ class NebulaGraphStorage(BaseGraphStorage):
     async def get_edge(
         self, source_node_id: str, target_node_id: str
     ) -> dict[str, Any] | None:
-        src_id, tgt_id = _canonical_edge_pair(source_node_id, target_node_id)
         result = await self._execute_in_space(
             "MATCH (a:entity)-[e:relation]->(b:entity) "
-            f"WHERE id(a) == {_ngql_literal(src_id)} AND id(b) == {_ngql_literal(tgt_id)} "
+            f"WHERE a.entity.entity_id == {_ngql_literal(source_node_id)} AND "
+            f"b.entity.entity_id == {_ngql_literal(target_node_id)} "
             "RETURN "
-            "id(a) AS source, "
-            "id(b) AS target, "
+            "a.entity.entity_id AS source, "
+            "b.entity.entity_id AS target, "
             "e.source_id AS source_id, "
             "e.target_id AS target_id, "
             "e.relationship AS relationship, "
@@ -1444,12 +1469,12 @@ class NebulaGraphStorage(BaseGraphStorage):
 
         rows: list[dict[str, Any]] = []
         for id_chunk in _chunk_items(unique_ids, _MAX_BATCH_FILTER_ITEMS):
-            where_clause = self._build_or_equals_clause("id(v)", id_chunk)
+            where_clause = self._build_or_equals_clause("v.entity.entity_id", id_chunk)
             result = await self._execute_in_space(
                 "MATCH (v:entity) "
                 f"WHERE {where_clause} "
                 "RETURN "
-                "id(v) AS entity_id, "
+                "v.entity.entity_id AS entity_id, "
                 "v.entity.name AS name, "
                 "v.entity.entity_type AS entity_type, "
                 "v.entity.description AS description, "
@@ -1493,8 +1518,8 @@ class NebulaGraphStorage(BaseGraphStorage):
                 "MATCH (a:entity)-[e:relation]->(b:entity) "
                 f"WHERE {where_clause} "
                 "RETURN "
-                "id(a) AS source, "
-                "id(b) AS target;"
+                "a.entity.entity_id AS source, "
+                "b.entity.entity_id AS target;"
             )
             rows = _result_to_rows(result)
             for row in rows:
@@ -1512,31 +1537,27 @@ class NebulaGraphStorage(BaseGraphStorage):
 
     async def get_edges_batch(self, pairs: list[dict[str, str]]) -> dict[tuple[str, str], dict]:
         requested_pairs: list[tuple[str, str]] = []
-        canonical_to_requested: dict[tuple[str, str], list[tuple[str, str]]] = {}
         for pair in pairs:
             src = str(pair.get("src", ""))
             tgt = str(pair.get("tgt", ""))
             if not src or not tgt:
                 continue
-            request_key = (src, tgt)
-            requested_pairs.append(request_key)
-            canonical = _canonical_edge_pair(src, tgt)
-            canonical_to_requested.setdefault(canonical, []).append(request_key)
+            requested_pairs.append((src, tgt))
 
         if not requested_pairs:
             return {}
 
-        by_canonical: dict[tuple[str, str], dict[str, Any]] = {}
+        output: dict[tuple[str, str], dict] = {}
         for pair_chunk in _chunk_items(
-            list(canonical_to_requested), _MAX_BATCH_FILTER_ITEMS
+            list(dict.fromkeys(requested_pairs)), _MAX_BATCH_FILTER_ITEMS
         ):
             where_clause = self._build_relation_pair_clause(pair_chunk)
             result = await self._execute_in_space(
                 "MATCH (a:entity)-[e:relation]->(b:entity) "
                 f"WHERE {where_clause} "
                 "RETURN "
-                "id(a) AS source, "
-                "id(b) AS target, "
+                "a.entity.entity_id AS source, "
+                "b.entity.entity_id AS target, "
                 "e.source_id AS source_id, "
                 "e.target_id AS target_id, "
                 "e.relationship AS relationship, "
@@ -1552,19 +1573,11 @@ class NebulaGraphStorage(BaseGraphStorage):
                 tgt = row.get("target")
                 if src is None or tgt is None:
                     continue
-                canonical = _canonical_edge_pair(str(src), str(tgt))
+                request_key = (str(src), str(tgt))
                 props = self._extract_edge_props(row)
                 props["source"] = str(src)
                 props["target"] = str(tgt)
-                by_canonical[canonical] = props
-
-        output: dict[tuple[str, str], dict] = {}
-        for canonical, request_keys in canonical_to_requested.items():
-            props = by_canonical.get(canonical)
-            if props is None:
-                continue
-            for request_key in request_keys:
-                output[request_key] = dict(props)
+                output[request_key] = props
         return output
 
     async def get_node_edges(self, source_node_id: str) -> list[tuple[str, str]] | None:
@@ -1575,7 +1588,7 @@ class NebulaGraphStorage(BaseGraphStorage):
         return batched.get(source_node_id, [])
 
     async def get_nodes_edges_batch(
-        self, node_ids: list[str]
+        self, node_ids: list[str], direction: str = "both"
     ) -> dict[str, list[tuple[str, str]]]:
         requested_ids = [str(node_id) for node_id in node_ids]
         output = {node_id: [] for node_id in requested_ids}
@@ -1585,6 +1598,9 @@ class NebulaGraphStorage(BaseGraphStorage):
         if not unique_ids:
             return output
 
+        normalized_direction = str(direction or "both").strip().lower()
+        if normalized_direction not in {"both", "outbound", "inbound"}:
+            normalized_direction = "both"
         requested_set = set(output)
         for id_chunk in _chunk_items(unique_ids, _MAX_BATCH_FILTER_ITEMS):
             where_clause = self._build_relation_endpoint_clause(id_chunk)
@@ -1592,8 +1608,8 @@ class NebulaGraphStorage(BaseGraphStorage):
                 "MATCH (a:entity)-[e:relation]->(b:entity) "
                 f"WHERE {where_clause} "
                 "RETURN "
-                "id(a) AS source, "
-                "id(b) AS target;"
+                "a.entity.entity_id AS source, "
+                "b.entity.entity_id AS target;"
             )
             rows = _result_to_rows(result)
             for row in rows:
@@ -1604,14 +1620,19 @@ class NebulaGraphStorage(BaseGraphStorage):
                 src_id = str(src)
                 tgt_id = str(tgt)
                 edge = (src_id, tgt_id)
-                if src_id in requested_set:
+                if normalized_direction in {"both", "outbound"} and src_id in requested_set:
                     output[src_id].append(edge)
-                if tgt_id in requested_set and tgt_id != src_id:
+                if (
+                    normalized_direction in {"both", "inbound"}
+                    and tgt_id in requested_set
+                    and tgt_id != src_id
+                ):
                     output[tgt_id].append(edge)
         return output
 
     async def upsert_node(self, node_id: str, node_data: dict[str, str]) -> None:
-        entity_id = str(node_id)
+        entity_id = str(node_data.get("entity_id", node_id))
+        vertex_vid = _nebula_vid(entity_id)
         name = str(node_data.get("name", ""))
         entity_type = str(node_data.get("entity_type", ""))
         description = str(node_data.get("description", ""))
@@ -1635,7 +1656,7 @@ class NebulaGraphStorage(BaseGraphStorage):
 
         await self._execute_in_space(
             "INSERT VERTEX entity(entity_id, name, entity_type, description, keywords, source_id, file_path, created_at, truncate, custom_properties_json) "
-            f"VALUES {_ngql_quote(entity_id)}:"
+            f"VALUES {_ngql_quote(vertex_vid)}:"
             "("
             f"{_ngql_literal(entity_id)}, "
             f"{_ngql_literal(name)}, "
@@ -1653,7 +1674,9 @@ class NebulaGraphStorage(BaseGraphStorage):
     async def upsert_edge(
         self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
     ) -> None:
-        src_id, tgt_id = _canonical_edge_pair(source_node_id, target_node_id)
+        src_id = str(source_node_id)
+        tgt_id = str(target_node_id)
+        src_vid, tgt_vid = _nebula_edge_vids(src_id, tgt_id)
         source_id = str(edge_data.get("source_id", ""))
         target_id = str(edge_data.get("target_id", ""))
         relationship = str(edge_data.get("relationship", ""))
@@ -1669,7 +1692,7 @@ class NebulaGraphStorage(BaseGraphStorage):
 
         await self._execute_in_space(
             "INSERT EDGE relation(source_id, target_id, relationship, description, keywords, weight, file_path, custom_properties_json) "
-            f"VALUES {_ngql_quote(src_id)}->{_ngql_quote(tgt_id)}:"
+            f"VALUES {_ngql_quote(src_vid)}->{_ngql_quote(tgt_vid)}:"
             "("
             f"{_ngql_literal(source_id)}, "
             f"{_ngql_literal(target_id)}, "
@@ -1683,7 +1706,9 @@ class NebulaGraphStorage(BaseGraphStorage):
         )
 
     async def delete_node(self, node_id: str) -> None:
-        await self._execute_in_space(f"DELETE VERTEX {_ngql_quote(node_id)} WITH EDGE;")
+        await self._execute_in_space(
+            f"DELETE VERTEX {_ngql_quote(_nebula_vid(node_id))} WITH EDGE;"
+        )
 
     async def remove_nodes(self, nodes: list[str]):
         unique_nodes = self._unique_preserve_order(
@@ -1691,7 +1716,7 @@ class NebulaGraphStorage(BaseGraphStorage):
         )
         for node_id in unique_nodes:
             await self._execute_in_space(
-                f"DELETE VERTEX {_ngql_quote(node_id)} WITH EDGE;"
+                f"DELETE VERTEX {_ngql_quote(_nebula_vid(node_id))} WITH EDGE;"
             )
 
     async def remove_edges(self, edges: list[tuple[str, str]]):
@@ -1699,38 +1724,51 @@ class NebulaGraphStorage(BaseGraphStorage):
         for src, tgt in edges:
             unique_pairs.add(_canonical_edge_pair(src, tgt))
         for src_id, tgt_id in unique_pairs:
+            src_vid, tgt_vid = _nebula_edge_vids(src_id, tgt_id)
             await self._execute_in_space(
-                f"DELETE EDGE relation {_ngql_quote(src_id)}->{_ngql_quote(tgt_id)};"
+                f"DELETE EDGE relation {_ngql_quote(src_vid)}->{_ngql_quote(tgt_vid)};"
             )
 
     async def get_all_labels(self) -> list[str]:
         result = await self._execute_in_space(
             "MATCH (v:entity) "
-            "RETURN id(v) AS entity_id;"
+            "RETURN v.entity.entity_id AS entity_id;"
         )
         rows = _result_to_rows(result)
         labels = {str(row["entity_id"]) for row in rows if row.get("entity_id") is not None}
         return sorted(labels)
 
     async def get_knowledge_graph(
-        self, node_label: str, max_depth: int = 3, max_nodes: int = 1000
+        self,
+        node_label: str,
+        max_depth: int = 3,
+        max_nodes: int = 1000,
+        direction: str = "both",
     ) -> KnowledgeGraph:
+        normalized_direction = str(direction or "both").strip().lower()
+        if normalized_direction not in {"both", "outbound", "inbound"}:
+            normalized_direction = "both"
         resolved_max_nodes = self._resolve_max_nodes(self.global_config, max_nodes)
         resolved_max_depth = max(0, int(max_depth))
         label = str(node_label).strip()
         if not label:
             return KnowledgeGraph()
         if label == "*":
-            return await self._build_global_knowledge_graph(resolved_max_nodes)
+            return await self._build_global_knowledge_graph(
+                resolved_max_nodes, direction=normalized_direction
+            )
         return await self._build_bounded_subgraph(
-            label, resolved_max_depth, resolved_max_nodes
+            label,
+            resolved_max_depth,
+            resolved_max_nodes,
+            direction=normalized_direction,
         )
 
     async def get_all_nodes(self) -> list[dict]:
         result = await self._execute_in_space(
             "MATCH (v:entity) "
             "RETURN "
-            "id(v) AS entity_id, "
+            "v.entity.entity_id AS entity_id, "
             "v.entity.name AS name, "
             "v.entity.entity_type AS entity_type, "
             "v.entity.description AS description, "
@@ -1757,8 +1795,8 @@ class NebulaGraphStorage(BaseGraphStorage):
         result = await self._execute_in_space(
             "MATCH (a:entity)-[e:relation]->(b:entity) "
             "RETURN "
-            "id(a) AS source, "
-            "id(b) AS target, "
+            "a.entity.entity_id AS source, "
+            "b.entity.entity_id AS target, "
             "e.source_id AS source_id, "
             "e.target_id AS target_id, "
             "e.relationship AS relationship, "
@@ -1793,7 +1831,7 @@ class NebulaGraphStorage(BaseGraphStorage):
             return []
         result = await self._execute_in_space(
             "MATCH (a:entity)-[e:relation]->(b:entity) "
-            "WITH [id(a), id(b)] AS endpoints "
+            "WITH [a.entity.entity_id, b.entity.entity_id] AS endpoints "
             "UNWIND endpoints AS label "
             "RETURN label AS label, count(*) AS degree "
             "ORDER BY degree DESC, label ASC "
@@ -1845,7 +1883,7 @@ class NebulaGraphStorage(BaseGraphStorage):
             f"OR v.entity.name STARTS WITH {query_literal} "
             f"OR v.entity.name CONTAINS {query_literal} "
             "RETURN "
-            "id(v) AS entity_id, "
+            "v.entity.entity_id AS entity_id, "
             "v.entity.name AS name "
             f"LIMIT {int(limit)};"
         )
@@ -1861,14 +1899,14 @@ class NebulaGraphStorage(BaseGraphStorage):
         query_literal = _ngql_literal(query_strip)
         result = await self._execute_in_space(
             "MATCH (v:entity) "
-            f"WHERE id(v) == {query_literal} "
-            f"OR id(v) STARTS WITH {query_literal} "
-            f"OR id(v) CONTAINS {query_literal} "
+            f"WHERE v.entity.entity_id == {query_literal} "
+            f"OR v.entity.entity_id STARTS WITH {query_literal} "
+            f"OR v.entity.entity_id CONTAINS {query_literal} "
             f"OR v.entity.name == {query_literal} "
             f"OR v.entity.name STARTS WITH {query_literal} "
             f"OR v.entity.name CONTAINS {query_literal} "
             "RETURN "
-            "id(v) AS entity_id, "
+            "v.entity.entity_id AS entity_id, "
             "v.entity.name AS name "
             f"LIMIT {max(int(limit) * 4, int(limit))};"
         )

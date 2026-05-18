@@ -109,6 +109,7 @@ export const getDefaultGraphWorkbenchFilterDraft = (): GraphWorkbenchQueryReques
     label: '*',
     max_depth: 3,
     max_nodes: 10000,
+    direction: 'both',
     only_matched_neighborhood: false
   },
   node_filters: {

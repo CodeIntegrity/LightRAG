@@ -268,12 +268,28 @@
         "fileName": "File Name",
         "summary": "Summary",
         "status": "Status",
+        "source": "Source",
         "length": "Length",
         "chunks": "Chunks",
         "created": "Created",
         "updated": "Updated",
         "metadata": "Metadata",
         "select": "Select"
+      },
+      "source": {
+        "customChunks": "Custom Chunks"
+      },
+      "customChunksRebuild": {
+        "button": "Rebuild Graphs",
+        "tooltip": "Rebuild graphs",
+        "confirmTitle": "Confirm graph rebuild",
+        "confirmSelected": "This will rebuild graphs for {{count}} selected documents",
+        "confirmAll": "This will rebuild all graphs",
+        "confirmButton": "Confirm Rebuild",
+        "started": "Started rebuilding all graphs",
+        "startedSelected": "Started rebuilding graphs for {{count}} selected documents",
+        "busy": "Another pipeline job is already running",
+        "failed": "Failed to rebuild graphs\n{{error}}"
       },
       "status": {
         "all": "All",
@@ -296,7 +312,29 @@
       "showButton": "Show",
       "hideButton": "Hide",
       "showFileNameTooltip": "Show file name",
-      "hideFileNameTooltip": "Hide file name"
+      "hideFileNameTooltip": "Hide file name",
+      "details": {
+        "title": "Document details",
+        "openTooltip": "View document details",
+        "copyTooltip": "Copy details",
+        "copySuccess": "Status details copied",
+        "copyFailed": "Failed to copy status details",
+        "copyChunksTooltip": "Copy chunks",
+        "copyChunksSuccess": "Chunk content copied",
+        "copyChunksFailed": "Failed to copy chunk content",
+        "copyChunkTooltip": "Copy chunk text",
+        "copyChunkSuccess": "Chunk text copied",
+        "copyChunkFailed": "Failed to copy chunk text",
+        "loadingChunks": "Loading chunks...",
+        "noChunks": "No chunk content available.",
+        "noDetails": "No status details available.",
+        "chunksLoadFailed": "Failed to load document chunks\n{{error}}",
+        "chunkLabel": "Chunk {{index}}",
+        "tabs": {
+          "details": "Details",
+          "chunks": "Chunks"
+        }
+      }
     },
     "pipelineStatus": {
       "title": "Pipeline Status",
@@ -377,13 +415,26 @@
         "showPropertyPanel": "Show Property Panel",
         "showSearchBar": "Show Search Bar",
         "showNodeLabel": "Show Node Label",
+        "graphLabelFontSize": "Node/Edge Label Font Size",
         "nodeDraggable": "Node Draggable",
+        "searchLinkedDrag": "Search Linked Drag",
         "showEdgeLabel": "Show Edge Label",
+        "showDirectionalArrows": "Show Directional Arrows",
         "hideUnselectedEdges": "Hide Unselected Edges",
         "edgeEvents": "Edge Events",
         "maxQueryDepth": "Max Query Depth",
         "maxNodes": "Max Nodes",
         "maxLayoutIterations": "Max Layout Iterations",
+        "layoutRepulsion": "Layout Repulsion",
+        "layoutGravity": "Layout Gravity",
+        "layoutMargin": "Layout Margin",
+        "layoutAttraction": "Layout Attraction",
+        "layoutInertia": "Layout Inertia",
+        "layoutMaxMove": "Layout Max Move",
+        "layoutExpansion": "Layout Expansion",
+        "layoutGridSize": "Layout Grid Size",
+        "layoutRatio": "Layout Ratio",
+        "layoutSpeed": "Layout Speed",
         "resetToDefault": "Reset to default",
         "edgeSizeRange": "Edge Size Range",
         "depth": "D",
@@ -568,6 +619,7 @@
           "startLabel": "Start Label",
           "maxDepth": "Max Depth",
           "maxNodes": "Max Nodes",
+          "direction": "Traversal Direction",
           "onlyMatchedNeighborhood": "Only Matched Neighborhood",
           "sourceIdQuery": "Source ID Query",
           "filePaths": "File Paths",
@@ -590,6 +642,11 @@
         "messages": {
           "noEntityTypeResults": "No matching entity types found.",
           "noLabelResults": "No matching labels found."
+        },
+        "direction": {
+          "both": "Both",
+          "outbound": "Downstream",
+          "inbound": "Upstream"
         },
         "actions": {
           "collapse": "Collapse Filters",

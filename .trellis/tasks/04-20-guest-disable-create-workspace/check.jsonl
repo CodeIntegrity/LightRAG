@@ -1,5 +1,0 @@
-{"file": ".claude/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
-{"file": ".claude/commands/trellis/check.md", "reason": "Code quality check spec"}
-{"file": "lightrag_webui/src/components/workspace/WorkspaceManagerDialog.tsx", "reason": "校验游客创建工作区禁用逻辑"}
-{"file": "lightrag_webui/src/components/workspace/WorkspaceManagerDialog.test.tsx", "reason": "校验工作区创建权限测试覆盖"}
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "确认登录态与后端能力边界一致"}

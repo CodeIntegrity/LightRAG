@@ -1,11 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 // import { MiniMap } from '@react-sigma/minimap'
-import { SigmaContainer, useRegisterEvents, useSigma } from '@react-sigma/core'
-import { Settings as SigmaSettings } from 'sigma/settings'
+import { SigmaContainer } from '@react-sigma/core'
 import { GraphSearchOption, OptionItem } from '@react-sigma/graph-search'
-import { EdgeArrowProgram, NodePointProgram, NodeCircleProgram } from 'sigma/rendering'
-import { NodeBorderProgram } from '@sigma/node-border'
-import { EdgeCurvedArrowProgram, createEdgeCurveProgram } from '@sigma/edge-curve'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 import FocusOnNode from '@/components/graph/FocusOnNode'
@@ -28,83 +24,14 @@ import useLightragGraph from '@/hooks/useLightragGraph'
 
 import { useSettingsStore } from '@/stores/settings'
 import { useGraphStore } from '@/stores/graph'
-import { labelColorDarkTheme, labelColorLightTheme } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import Button from '@/components/ui/Button'
 import { useTranslation } from 'react-i18next'
+import { DEFAULT_GRAPH_LABEL_FONT_SIZE } from '@/utils/graphLabelSize'
+import { createSigmaSettings } from '@/utils/graphSigmaSettings'
 
 import '@react-sigma/core/lib/style.css'
 import '@react-sigma/graph-search/lib/style.css'
-
-// Function to create sigma settings based on theme
-const createSigmaSettings = (isDarkTheme: boolean): Partial<SigmaSettings> => ({
-  allowInvalidContainer: true,
-  defaultNodeType: 'default',
-  defaultEdgeType: 'curvedNoArrow',
-  renderEdgeLabels: false,
-  edgeProgramClasses: {
-    arrow: EdgeArrowProgram,
-    curvedArrow: EdgeCurvedArrowProgram,
-    curvedNoArrow: createEdgeCurveProgram()
-  },
-  nodeProgramClasses: {
-    default: NodeBorderProgram,
-    circel: NodeCircleProgram,
-    point: NodePointProgram
-  },
-  labelGridCellSize: 60,
-  labelRenderedSizeThreshold: 12,
-  enableEdgeEvents: true,
-  labelColor: {
-    color: isDarkTheme ? labelColorDarkTheme : labelColorLightTheme,
-    attribute: 'labelColor'
-  },
-  edgeLabelColor: {
-    color: isDarkTheme ? labelColorDarkTheme : labelColorLightTheme,
-    attribute: 'labelColor'
-  },
-  edgeLabelSize: 8,
-  labelSize: 12
-  // minEdgeThickness: 2
-  // labelFont: 'Lato, sans-serif'
-})
-
-const GraphEvents = () => {
-  const registerEvents = useRegisterEvents()
-  const sigma = useSigma()
-  const [draggedNode, setDraggedNode] = useState<string | null>(null)
-
-  useEffect(() => {
-    registerEvents({
-      downNode: (e) => {
-        setDraggedNode(e.node)
-        sigma.getGraph().setNodeAttribute(e.node, 'highlighted', true)
-      },
-      mousemovebody: (e) => {
-        if (!draggedNode) return
-        const pos = sigma.viewportToGraph(e)
-        sigma.getGraph().setNodeAttribute(draggedNode, 'x', pos.x)
-        sigma.getGraph().setNodeAttribute(draggedNode, 'y', pos.y)
-        e.preventSigmaDefault()
-        e.original.preventDefault()
-        e.original.stopPropagation()
-      },
-      mouseup: () => {
-        if (draggedNode) {
-          setDraggedNode(null)
-          sigma.getGraph().removeNodeAttribute(draggedNode, 'highlighted')
-        }
-      },
-      mousedown: () => {
-        if (!sigma.getCustomBBox()) {
-          sigma.setCustomBBox(sigma.getBBox())
-        }
-      }
-    })
-  }, [registerEvents, sigma, draggedNode])
-
-  return null
-}
 
 const GraphViewer = () => {
   useLightragGraph()
@@ -123,8 +50,10 @@ const GraphViewer = () => {
 
   const showPropertyPanel = useSettingsStore.use.showPropertyPanel()
   const showNodeSearchBar = useSettingsStore.use.showNodeSearchBar()
-  const enableNodeDrag = useSettingsStore.use.enableNodeDrag()
   const showLegend = useSettingsStore.use.showLegend()
+  const graphLabelFontSize = useSettingsStore.use.graphLabelFontSize()
+  const enableEdgeEvents = useSettingsStore.use.enableEdgeEvents()
+  const showDirectionalArrows = useSettingsStore.use.showDirectionalArrows()
   const theme = useSettingsStore.use.theme()
 
   const [isThemeSwitching, setIsThemeSwitching] = useState(false)
@@ -132,8 +61,13 @@ const GraphViewer = () => {
   // Memoize sigma settings to prevent unnecessary re-creation
   const memoizedSigmaSettings = useMemo(() => {
     const isDarkTheme = theme === 'dark'
-    return createSigmaSettings(isDarkTheme)
-  }, [theme])
+    return createSigmaSettings(
+      isDarkTheme,
+      graphLabelFontSize || DEFAULT_GRAPH_LABEL_FONT_SIZE,
+      enableEdgeEvents,
+      showDirectionalArrows
+    )
+  }, [theme, graphLabelFontSize, enableEdgeEvents, showDirectionalArrows])
 
   // Detect theme changes and briefly show a loading overlay to avoid flash of
   // unstyled content. setState is inside setTimeout (async), not synchronously
@@ -187,7 +121,7 @@ const GraphViewer = () => {
     if (value === null) {
       useGraphStore.getState().setSelectedNode(null)
     } else if (value.type === 'nodes') {
-      useGraphStore.getState().setSelectedNode(value.id, true)
+      useGraphStore.getState().setSelectedNode(value.id, true, 'search')
     }
   }, [])
 
@@ -228,8 +162,6 @@ const GraphViewer = () => {
             ref={sigmaRef}
           >
             <GraphControl />
-
-            {enableNodeDrag && <GraphEvents />}
 
             <FocusOnNode node={autoFocusedNode} move={moveToSelectedNode} />
 

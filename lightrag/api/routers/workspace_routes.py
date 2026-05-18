@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import inspect
+from importlib import import_module
 from typing import Any, Awaitable, Callable, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from lightrag.api.auth import auth_handler
 from lightrag.api.utils_api import get_combined_auth_dependency
 from lightrag.utils import logger
 from lightrag.api.workspace_registry import (
@@ -21,6 +21,10 @@ from lightrag.api.workspace_registry import (
 
 
 WorkspaceVisibility = Literal["public", "private"]
+
+
+def _get_auth_handler():
+    return import_module("lightrag.api.auth").auth_handler
 
 
 class WorkspaceCreateRequest(BaseModel):
@@ -51,7 +55,7 @@ def _identity_from_request(request: Request) -> dict[str, str | bool | None]:
             detail="Invalid authorization header",
         )
     token = authorization.removeprefix("Bearer ").strip()
-    token_info = auth_handler.validate_token(token)
+    token_info = _get_auth_handler().validate_token(token)
     return {
         "username": token_info.get("username"),
         "role": token_info.get("role", "user"),
@@ -75,7 +79,7 @@ def workspace_create_allowed(
         identity["role"] == "guest"
         and bool(identity.get("authenticated"))
         and allow_guest_create
-        and not bool(auth_handler.accounts)
+        and not bool(_get_auth_handler().accounts)
     ):
         return True
     return False

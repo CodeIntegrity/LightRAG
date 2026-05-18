@@ -121,6 +121,7 @@ class AuthHandler:
         )
 
         return jwt.encode(payload.model_dump(), self.secret, algorithm=self.algorithm)
+
     def resolve_role(self, username: str) -> str:
         """Resolve the JWT role for an authenticated user."""
         return "admin" if username in self.admin_users else "user"

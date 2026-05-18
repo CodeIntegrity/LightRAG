@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Loader2 } from 'lucide-react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { Loader2, X } from 'lucide-react'
 import { useDebounce } from '@/hooks/useDebounce'
 
 import { cn } from '@/lib/utils'
@@ -59,6 +59,8 @@ export interface AsyncSearchProps<T> {
   noResultsMessage?: string
   /** Allow clearing the selection */
   clearable?: boolean
+  /** Callback when clear is triggered */
+  onClear?: () => void
 }
 
 export function AsyncSearch<T>({
@@ -78,19 +80,16 @@ export function AsyncSearch<T>({
   disabled = false,
   className,
   noResultsMessage
+  ,
+  onClear
 }: AsyncSearchProps<T>) {
-  const [mounted, setMounted] = useState(false)
   const [open, setOpen] = useState(false)
-  const [options, setOptions] = useState<T[]>([])
+  const [fetchedOptions, setFetchedOptions] = useState<T[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const debouncedSearchTerm = useDebounce(searchTerm, preload ? 0 : debounceTime)
   const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
 
   // Handle clicks outside of the component
   useEffect(() => {
@@ -115,7 +114,7 @@ export function AsyncSearch<T>({
       setLoading(true)
       setError(null)
       const data = await fetcher(query)
-      setOptions(data)
+      setFetchedOptions(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch options')
     } finally {
@@ -123,28 +122,29 @@ export function AsyncSearch<T>({
     }
   }, [fetcher])
 
-  // Load options when search term changes
+  // Fetch options from server when not in preload mode (search term changes).
+  // The fetch is a genuine external side effect; setState happens inside fetchOptions
+  // after the async call resolves, so the rule fires on the synchronous loading flag.
   useEffect(() => {
-    if (!mounted) return
-
-    if (preload) {
-      if (debouncedSearchTerm) {
-        setOptions((prev) =>
-          prev.filter((option) =>
-            filterFn ? filterFn(option, debouncedSearchTerm) : true
-          )
-        )
-      }
-    } else {
-      fetchOptions(debouncedSearchTerm)
-    }
-  }, [mounted, debouncedSearchTerm, preload, filterFn, fetchOptions])
+    if (preload) return
+    fetchOptions(debouncedSearchTerm)
+  }, [preload, debouncedSearchTerm, fetchOptions])
 
   // Load initial value
   useEffect(() => {
-    if (!mounted || !value) return
+    if (!value) return
     fetchOptions(value)
-  }, [mounted, value, fetchOptions])
+  }, [value, fetchOptions])
+
+  // In preload mode, derive filtered options without mutating state
+  const options = useMemo(() => {
+    if (preload && debouncedSearchTerm) {
+      return fetchedOptions.filter((option) =>
+        filterFn ? filterFn(option, debouncedSearchTerm) : true
+      )
+    }
+    return fetchedOptions
+  }, [preload, debouncedSearchTerm, filterFn, fetchedOptions])
 
   const handleSelect = useCallback((currentValue: string) => {
     onChange(currentValue)
@@ -170,6 +170,13 @@ export function AsyncSearch<T>({
     }
   }, [])
 
+  const handleClear = useCallback(() => {
+    setSearchTerm('')
+    setOpen(false)
+    onFocus('')
+    onClear?.()
+  }, [onClear, onFocus])
+
   return (
     <div
       ref={containerRef}
@@ -177,7 +184,7 @@ export function AsyncSearch<T>({
       onMouseDown={handleMouseDown}
     >
       <Command shouldFilter={false} className="bg-transparent">
-        <div>
+        <div className="relative">
           <CommandInput
             placeholder={placeholder}
             value={searchTerm}
@@ -193,6 +200,16 @@ export function AsyncSearch<T>({
             <div className="absolute top-1/2 right-2 flex -translate-y-1/2 transform items-center">
               <Loader2 className="h-4 w-4 animate-spin" />
             </div>
+          )}
+          {!loading && onClear && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 flex h-5 w-5 -translate-y-1/2 items-center justify-center"
+              onClick={handleClear}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           )}
         </div>
         <CommandList hidden={!open}>

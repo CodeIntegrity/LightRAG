@@ -697,7 +697,11 @@ class BaseGraphStorage(StorageNameSpace, ABC):
 
     @abstractmethod
     async def get_knowledge_graph(
-        self, node_label: str, max_depth: int = 3, max_nodes: int = 1000
+        self,
+        node_label: str,
+        max_depth: int = 3,
+        max_nodes: int = 1000,
+        direction: str = "both",
     ) -> KnowledgeGraph:
         """
         Retrieve a connected subgraph of nodes where the label includes the specified `node_label`.
@@ -706,6 +710,7 @@ class BaseGraphStorage(StorageNameSpace, ABC):
             node_label: Label(entity name) of the starting node，* means all nodes
             max_depth: Maximum depth of the subgraph, Defaults to 3
             max_nodes: Maxiumu nodes to return, Defaults to 1000（BFS if possible)
+            direction: Traversal direction, supports both/inbound/outbound
 
         Returns:
             KnowledgeGraph object containing nodes and edges, with an is_truncated flag

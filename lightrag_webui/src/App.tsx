@@ -190,13 +190,15 @@ function App() {
     []
   )
 
-  useEffect(() => {
-    if (message) {
-      if (message.includes(InvalidApiKeyError) || message.includes(RequireApiKeError)) {
-        setApiKeyAlertOpen(true)
-      }
+  // React to backend message changes during render rather than via useEffect
+  // (avoids cascading renders flagged by react-hooks/set-state-in-effect)
+  const [previousMessage, setPreviousMessage] = useState(message)
+  if (message !== previousMessage) {
+    setPreviousMessage(message)
+    if (message && (message.includes(InvalidApiKeyError) || message.includes(RequireApiKeError))) {
+      setApiKeyAlertOpen(true)
     }
-  }, [message])
+  }
 
   const tabFallback = (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

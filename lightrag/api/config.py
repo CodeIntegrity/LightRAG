@@ -6,7 +6,7 @@ import os
 import argparse
 import logging
 from dotenv import load_dotenv
-from lightrag.utils import get_env_value
+from lightrag.utils import get_env_value, logger
 from lightrag.api.workspace_registry import sanitize_workspace_identifier
 from lightrag.llm.binding_options import (
     GeminiEmbeddingOptions,
@@ -52,6 +52,12 @@ load_dotenv(dotenv_path=".env", override=False)
 
 ollama_server_infos = OllamaServerInfos()
 DEFAULT_TOKEN_SECRET = "lightrag-jwt-default-secret-key!"
+DEFAULT_SAMPLE_AUTH_ACCOUNTS = (
+    "admin:admin123,user1:{bcrypt}$2b$12$S8Yu.gCbuAbNTJFB.231gegTwr5pgrFxc8H9kXQ4/sduFBHkhM8Ka"
+)
+NO_PREFIX_SENTINEL = "NO_PREFIX"
+PROVIDER_ASYMMETRIC_EMBEDDING_BINDINGS = {"gemini", "jina", "voyageai"}
+PREFIX_ASYMMETRIC_EMBEDDING_BINDINGS = {"azure_openai", "ollama", "openai"}
 
 
 class DefaultRAGStorageConfig:
@@ -74,6 +80,76 @@ def get_default_host(binding_type: str) -> str:
     return default_hosts.get(
         binding_type, os.getenv("LLM_BINDING_HOST", "http://localhost:11434")
     )  # fallback to ollama if unknown
+
+
+def resolve_asymmetric_embedding_opt_in(
+    *,
+    binding: str,
+    embedding_asymmetric: bool,
+    embedding_asymmetric_configured: bool,
+    query_prefix: str | None,
+    document_prefix: str | None,
+    query_prefix_configured: bool = False,
+    document_prefix_configured: bool = False,
+) -> bool:
+    """Resolve whether query/document-aware embedding behavior should be enabled."""
+    has_non_empty_prefix = bool(query_prefix or document_prefix)
+    has_prefix_config = query_prefix_configured or document_prefix_configured
+
+    if not embedding_asymmetric:
+        if has_prefix_config:
+            state = "false" if embedding_asymmetric_configured else "unset"
+            logger.warning(
+                f"EMBEDDING_ASYMMETRIC is {state}; "
+                "EMBEDDING_QUERY_PREFIX and EMBEDDING_DOCUMENT_PREFIX will be ignored."
+            )
+        return False
+
+    if binding in PROVIDER_ASYMMETRIC_EMBEDDING_BINDINGS:
+        if has_prefix_config:
+            logger.warning(
+                f"{binding} embeddings use provider task parameters for asymmetric "
+                "mode; EMBEDDING_QUERY_PREFIX and EMBEDDING_DOCUMENT_PREFIX will be ignored."
+            )
+        return True
+
+    if binding in PREFIX_ASYMMETRIC_EMBEDDING_BINDINGS:
+        if not query_prefix_configured or not document_prefix_configured:
+            raise ValueError(
+                f"EMBEDDING_ASYMMETRIC=true for {binding} embeddings requires both "
+                "EMBEDDING_QUERY_PREFIX and EMBEDDING_DOCUMENT_PREFIX. Use "
+                f"{NO_PREFIX_SENTINEL} for a side that should intentionally have no prefix."
+            )
+
+        if not has_non_empty_prefix:
+            raise ValueError(
+                "At least one of EMBEDDING_QUERY_PREFIX or EMBEDDING_DOCUMENT_PREFIX "
+                f"must be non-empty. Use {NO_PREFIX_SENTINEL} only for the side that "
+                "should intentionally have no prefix."
+            )
+        return True
+
+    raise ValueError(
+        f"EMBEDDING_ASYMMETRIC=true is not supported for {binding} embeddings."
+    )
+
+
+def get_embedding_prefix_config(env_key: str) -> tuple[str | None, bool]:
+    """Read an embedding prefix and whether it was explicitly configured."""
+    if env_key not in os.environ:
+        return None, False
+
+    value = os.environ[env_key]
+    if value == "None":
+        return None, False
+    if value == NO_PREFIX_SENTINEL:
+        return "", True
+    if value == "":
+        raise ValueError(
+            f"{env_key} is empty. Use {NO_PREFIX_SENTINEL} to explicitly request "
+            "no prefix, or remove the variable to leave it unconfigured."
+        )
+    return value, True
 
 
 def validate_auth_configuration(args: argparse.Namespace) -> None:
@@ -224,6 +300,14 @@ def parse_args() -> argparse.Namespace:
         help="Default workspace for all storage",
     )
 
+    # Path prefix configuration
+    parser.add_argument(
+        "--api-prefix",
+        type=str,
+        default=get_env_value("LIGHTRAG_API_PREFIX", ""),
+        help="API path prefix (e.g., /api/v1). Prepended to all API routes. Default: none (root).",
+    )
+
     # Server workers configuration
     parser.add_argument(
         "--workers",
@@ -260,6 +344,7 @@ def parse_args() -> argparse.Namespace:
             "aws_bedrock",
             "jina",
             "gemini",
+            "voyageai",
         ],
         help="Embedding binding type (default: from env or ollama)",
     )
@@ -404,6 +489,11 @@ def parse_args() -> argparse.Namespace:
 
     # For JWT Auth
     args.auth_accounts = get_env_value("AUTH_ACCOUNTS", "")
+    if args.auth_accounts == DEFAULT_SAMPLE_AUTH_ACCOUNTS:
+        logging.warning(
+            "AUTH_ACCOUNTS matches the documented sample value; treating it as unset."
+        )
+        args.auth_accounts = ""
     args.auth_admin_users = get_env_value("AUTH_ADMIN_USERS", "")
     args.token_secret = get_env_value("TOKEN_SECRET", None)
     args.token_expire_hours = get_env_value("TOKEN_EXPIRE_HOURS", 48, float)
@@ -485,9 +575,13 @@ def parse_args() -> argparse.Namespace:
     )
 
     # Workspace management configuration
-    args.workspace_registry_path = get_env_value(
-        "LIGHTRAG_WORKSPACE_REGISTRY_PATH", "./workspaces/registry.sqlite3"
-    )
+    workspace_registry_path = get_env_value("LIGHTRAG_WORKSPACE_REGISTRY_PATH", None)
+    if workspace_registry_path:
+        args.workspace_registry_path = workspace_registry_path
+    else:
+        args.workspace_registry_path = os.path.join(
+            args.working_dir, "workspaces", "registry.sqlite3"
+        )
     args.workspace_registry_busy_timeout_ms = get_env_value(
         "LIGHTRAG_WORKSPACE_REGISTRY_BUSY_TIMEOUT_MS", 5000, int
     )
@@ -507,6 +601,25 @@ def parse_args() -> argparse.Namespace:
         "ALLOW_GUEST_WORKSPACE_CREATE", False, bool
     )
 
+    # Embedding prefix configuration for context-aware embeddings. Empty prefixes
+    # must be explicit via NO_PREFIX so missing config is distinguishable.
+    (
+        args.embedding_document_prefix,
+        args.embedding_document_prefix_configured,
+    ) = get_embedding_prefix_config("EMBEDDING_DOCUMENT_PREFIX")
+    (
+        args.embedding_query_prefix,
+        args.embedding_query_prefix_configured,
+    ) = get_embedding_prefix_config("EMBEDDING_QUERY_PREFIX")
+    args.embedding_prefix_no_prefix_sentinel = NO_PREFIX_SENTINEL
+    args.embedding_prefixes_configured = (
+        args.embedding_document_prefix_configured
+        or args.embedding_query_prefix_configured
+    )
+    # Asymmetric embedding behavior toggle
+    args.embedding_asymmetric_configured = "EMBEDDING_ASYMMETRIC" in os.environ
+    args.embedding_asymmetric = get_env_value("EMBEDDING_ASYMMETRIC", False, bool)
+
     ollama_server_infos.LIGHTRAG_NAME = args.simulated_model_name
     ollama_server_infos.LIGHTRAG_TAG = args.simulated_model_tag
 
@@ -523,6 +636,29 @@ def parse_args() -> argparse.Namespace:
 
     if args.workspace_registry_path:
         args.workspace_registry_path = os.path.abspath(args.workspace_registry_path)
+
+    # Migration notice: the default registry path moved from
+    # ./workspaces/registry.sqlite3 (relative to CWD) to
+    # {working_dir}/workspaces/registry.sqlite3. Warn when the active default
+    # is empty but a legacy registry sits at the old location, so users do not
+    # silently lose workspace metadata after upgrading.
+    if not workspace_registry_path:
+        legacy_registry = os.path.abspath(
+            os.path.join("workspaces", "registry.sqlite3")
+        )
+        if (
+            legacy_registry != args.workspace_registry_path
+            and os.path.exists(legacy_registry)
+            and not os.path.exists(args.workspace_registry_path)
+        ):
+            logger.warning(
+                "Workspace registry default path changed: an existing registry "
+                f"was found at the legacy location '{legacy_registry}', but the "
+                f"current default is '{args.workspace_registry_path}' (derived "
+                "from working_dir). Move the file or set "
+                "LIGHTRAG_WORKSPACE_REGISTRY_PATH to preserve workspace metadata."
+            )
+
     validate_auth_configuration(args)
     return args
 

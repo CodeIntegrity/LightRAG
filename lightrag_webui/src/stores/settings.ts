@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import { createSelectors } from '@/lib/utils'
 import { defaultQueryLabel } from '@/lib/constants'
 import { Message, PromptConfigGroup, QueryPromptOverrides, QueryRequest } from '@/api/lightrag'
+import { DEFAULT_LAYOUT_PARAMS } from '@/utils/graphViewPersistence'
 
 type Theme = 'dark' | 'light' | 'system'
 type Language = 'en' | 'zh' | 'fr' | 'ar' | 'zh_TW' | 'ru' | 'ja' | 'de' | 'uk' | 'ko' | 'vi'
@@ -34,9 +35,12 @@ interface SettingsState {
   setShowLegend: (show: boolean) => void
 
   showNodeLabel: boolean
+  graphLabelFontSize: number
   enableNodeDrag: boolean
+  enableSearchLinkedDrag: boolean
 
   showEdgeLabel: boolean
+  showDirectionalArrows: boolean
   enableHideUnselectedEdges: boolean
   enableEdgeEvents: boolean
 
@@ -57,6 +61,36 @@ interface SettingsState {
 
   graphLayoutMaxIterations: number
   setGraphLayoutMaxIterations: (iterations: number) => void
+
+  graphLayoutRepulsion: number
+  setGraphLayoutRepulsion: (repulsion: number) => void
+
+  graphLayoutGravity: number
+  setGraphLayoutGravity: (gravity: number) => void
+
+  graphLayoutMargin: number
+  setGraphLayoutMargin: (margin: number) => void
+
+  graphLayoutAttraction: number
+  setGraphLayoutAttraction: (attraction: number) => void
+
+  graphLayoutInertia: number
+  setGraphLayoutInertia: (inertia: number) => void
+
+  graphLayoutMaxMove: number
+  setGraphLayoutMaxMove: (maxMove: number) => void
+
+  graphLayoutExpansion: number
+  setGraphLayoutExpansion: (expansion: number) => void
+
+  graphLayoutGridSize: number
+  setGraphLayoutGridSize: (gridSize: number) => void
+
+  graphLayoutRatio: number
+  setGraphLayoutRatio: (ratio: number) => void
+
+  graphLayoutSpeed: number
+  setGraphLayoutSpeed: (speed: number) => void
 
   // Retrieval settings
   queryLabel: string
@@ -108,9 +142,12 @@ const useSettingsStoreBase = create<SettingsState>()(
       showLegend: false,
 
       showNodeLabel: true,
+      graphLabelFontSize: 12,
       enableNodeDrag: true,
+      enableSearchLinkedDrag: false,
 
       showEdgeLabel: false,
+      showDirectionalArrows: false,
       enableHideUnselectedEdges: true,
       enableEdgeEvents: false,
 
@@ -120,7 +157,17 @@ const useSettingsStoreBase = create<SettingsState>()(
       graphQueryMaxDepth: 3,
       graphMaxNodes: 10000,
       backendMaxGraphNodes: null,
-      graphLayoutMaxIterations: 15,
+      graphLayoutMaxIterations: DEFAULT_LAYOUT_PARAMS.maxIterations,
+      graphLayoutRepulsion: DEFAULT_LAYOUT_PARAMS.repulsion,
+      graphLayoutGravity: DEFAULT_LAYOUT_PARAMS.gravity,
+      graphLayoutMargin: DEFAULT_LAYOUT_PARAMS.margin,
+      graphLayoutAttraction: DEFAULT_LAYOUT_PARAMS.attraction,
+      graphLayoutInertia: DEFAULT_LAYOUT_PARAMS.inertia,
+      graphLayoutMaxMove: DEFAULT_LAYOUT_PARAMS.maxMove,
+      graphLayoutExpansion: DEFAULT_LAYOUT_PARAMS.expansion,
+      graphLayoutGridSize: DEFAULT_LAYOUT_PARAMS.gridSize,
+      graphLayoutRatio: DEFAULT_LAYOUT_PARAMS.ratio,
+      graphLayoutSpeed: DEFAULT_LAYOUT_PARAMS.speed,
 
       queryLabel: defaultQueryLabel,
 
@@ -168,6 +215,56 @@ const useSettingsStoreBase = create<SettingsState>()(
       setGraphLayoutMaxIterations: (iterations: number) =>
         set({
           graphLayoutMaxIterations: iterations
+        }),
+
+      setGraphLayoutRepulsion: (repulsion: number) =>
+        set({
+          graphLayoutRepulsion: repulsion
+        }),
+
+      setGraphLayoutGravity: (gravity: number) =>
+        set({
+          graphLayoutGravity: gravity
+        }),
+
+      setGraphLayoutMargin: (margin: number) =>
+        set({
+          graphLayoutMargin: margin
+        }),
+
+      setGraphLayoutAttraction: (attraction: number) =>
+        set({
+          graphLayoutAttraction: attraction
+        }),
+
+      setGraphLayoutInertia: (inertia: number) =>
+        set({
+          graphLayoutInertia: inertia
+        }),
+
+      setGraphLayoutMaxMove: (maxMove: number) =>
+        set({
+          graphLayoutMaxMove: maxMove
+        }),
+
+      setGraphLayoutExpansion: (expansion: number) =>
+        set({
+          graphLayoutExpansion: expansion
+        }),
+
+      setGraphLayoutGridSize: (gridSize: number) =>
+        set({
+          graphLayoutGridSize: gridSize
+        }),
+
+      setGraphLayoutRatio: (ratio: number) =>
+        set({
+          graphLayoutRatio: ratio
+        }),
+
+      setGraphLayoutSpeed: (speed: number) =>
+        set({
+          graphLayoutSpeed: speed
         }),
 
       setQueryLabel: (queryLabel: string) =>
@@ -286,7 +383,7 @@ const useSettingsStoreBase = create<SettingsState>()(
     {
       name: 'settings-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 25,
+      version: 30,
       migrate: (state: any, version: number) => {
         if (version < 2) {
           state.showEdgeLabel = false
@@ -417,6 +514,29 @@ const useSettingsStoreBase = create<SettingsState>()(
             include_references: state.querySettings?.include_references ?? true,
             include_chunk_content: state.querySettings?.include_chunk_content ?? false
           }
+        }
+        if (version < 26) {
+          state.graphLayoutRepulsion = DEFAULT_LAYOUT_PARAMS.repulsion
+          state.graphLayoutGravity = DEFAULT_LAYOUT_PARAMS.gravity
+          state.graphLayoutMargin = DEFAULT_LAYOUT_PARAMS.margin
+        }
+        if (version < 27) {
+          state.graphLayoutAttraction = DEFAULT_LAYOUT_PARAMS.attraction
+          state.graphLayoutInertia = DEFAULT_LAYOUT_PARAMS.inertia
+          state.graphLayoutMaxMove = DEFAULT_LAYOUT_PARAMS.maxMove
+          state.graphLayoutExpansion = DEFAULT_LAYOUT_PARAMS.expansion
+          state.graphLayoutGridSize = DEFAULT_LAYOUT_PARAMS.gridSize
+          state.graphLayoutRatio = DEFAULT_LAYOUT_PARAMS.ratio
+          state.graphLayoutSpeed = DEFAULT_LAYOUT_PARAMS.speed
+        }
+        if (version < 28) {
+          state.enableSearchLinkedDrag = false
+        }
+        if (version < 29) {
+          state.graphLabelFontSize = 12
+        }
+        if (version < 30) {
+          state.showDirectionalArrows = false
         }
         return state
       }

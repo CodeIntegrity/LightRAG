@@ -78,10 +78,26 @@ def format_datetime(dt: Any) -> Optional[str]:
     return dt.isoformat()
 
 
-router = APIRouter(
-    prefix="/documents",
-    tags=["documents"],
-)
+def _map_custom_chunks_import_error(exc: Exception) -> HTTPException | None:
+    message = str(exc)
+    if "exceeds embedding token limit" not in message:
+        return None
+
+    return HTTPException(
+        status_code=400,
+        detail=(
+            "Custom chunk exceeds embedding token limit. "
+            f"Split oversized chunks and retry. Details: {message}"
+        ),
+    )
+
+
+# NOTE: the APIRouter instance is created INSIDE `create_document_routes`
+# (not at module scope). A module-level router is shared across processes,
+# and re-running the factory — which the test suite does to validate
+# create_app for different `--api-prefix` values — would re-decorate the
+# same router each time, accumulating duplicate routes and triggering
+# FastAPI's "Duplicate Operation ID" warnings.
 
 # Temporary file prefix
 temp_prefix = "__tmp__"
@@ -259,6 +275,52 @@ class RebuildDocumentsResponse(BaseModel):
             }
         }
     )
+
+
+class CustomChunksGraphRebuildResponse(BaseModel):
+    status: Literal["rebuild_started", "busy"] = Field(
+        description="Status of the custom chunk graph rebuild operation"
+    )
+    message: str = Field(description="Human-readable message describing the operation")
+    track_id: str = Field(
+        default="",
+        description="Reserved tracking ID field, empty for this operation",
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "status": "rebuild_started",
+                "message": "Custom chunk graph rebuild has been initiated in the background.",
+                "track_id": "",
+            }
+        }
+    )
+
+
+class RebuildGraphsRequest(BaseModel):
+    doc_ids: Optional[list[str]] = Field(
+        default=None,
+        description="Optional list of document IDs to rebuild. When omitted, rebuild all custom chunk graphs.",
+    )
+
+    @field_validator("doc_ids", mode="after")
+    @classmethod
+    def validate_doc_ids(
+        cls, doc_ids: Optional[list[str]]
+    ) -> Optional[list[str]]:
+        if doc_ids is None:
+            return None
+
+        validated_ids: list[str] = []
+        for doc_id in doc_ids:
+            if not isinstance(doc_id, str) or not doc_id.strip():
+                raise ValueError("Document ID cannot be empty")
+            normalized = doc_id.strip()
+            if normalized not in validated_ids:
+                validated_ids.append(normalized)
+
+        return validated_ids
 
 
 class InsertTextRequest(BaseModel):
@@ -803,6 +865,10 @@ class CustomChunksImportRequest(BaseModel):
         default=None,
         description="Optional document ID. If omitted, it will be derived from full_text.",
     )
+    file_path: Optional[str] = Field(
+        default=None,
+        description="Optional source file path for display and metadata.",
+    )
 
     @field_validator("full_text", mode="after")
     @classmethod
@@ -825,12 +891,37 @@ class CustomChunksImportRequest(BaseModel):
         normalized = doc_id.strip()
         return normalized or None
 
+    @field_validator("file_path", mode="before")
+    @classmethod
+    def normalize_file_path_before(cls, file_path: Optional[str]) -> Optional[str]:
+        if file_path is None:
+            return None
+        normalized = file_path.strip()
+        return normalized or None
+
 
 class CustomChunksImportResponse(BaseModel):
     status: Literal["success"] = Field(description="Import status")
     message: str = Field(description="Result message")
     doc_id: str = Field(description="Resolved document ID used for import")
     requested_chunk_count: int = Field(description="Number of chunks submitted")
+
+
+class DocumentChunkResponse(BaseModel):
+    id: str = Field(description="Chunk identifier")
+    content: str = Field(description="Chunk text content")
+    tokens: Optional[int] = Field(
+        default=None, description="Token count for the chunk if available"
+    )
+    order: int = Field(description="Original chunk order within the document")
+
+
+class DocumentChunksResponse(BaseModel):
+    doc_id: str = Field(description="Document identifier")
+    chunk_count: int = Field(description="Number of chunks returned")
+    chunks: list[DocumentChunkResponse] = Field(
+        default_factory=list, description="Chunk payloads in document order"
+    )
 
 
 class DocumentsByIdsRequest(BaseModel):
@@ -2338,6 +2429,12 @@ async def background_delete_documents(
 def create_document_routes(
     rag: LightRAG, doc_manager: DocumentManager, api_key: Optional[str] = None
 ):
+    # Fresh router per call — see the note above the temp_prefix constant.
+    router = APIRouter(
+        prefix="/documents",
+        tags=["documents"],
+    )
+
     # Create combined auth dependency for document routes
     combined_auth = get_combined_auth_dependency(api_key)
 
@@ -2762,6 +2859,50 @@ def create_document_routes(
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.post(
+        "/rebuild_custom_chunks_graph",
+        response_model=CustomChunksGraphRebuildResponse,
+        dependencies=[Depends(combined_auth)],
+    )
+    async def rebuild_custom_chunks_graph(
+        background_tasks: BackgroundTasks,
+        request: Optional[RebuildGraphsRequest] = None,
+    ):
+        try:
+            from lightrag.kg.shared_storage import (
+                get_namespace_data,
+                get_namespace_lock,
+            )
+
+            current_rag, _ = _current_runtime_objects()
+            workspace = getattr(current_rag, "workspace", "")
+            pipeline_status = await get_namespace_data(
+                "pipeline_status", workspace=workspace
+            )
+            pipeline_status_lock = get_namespace_lock(
+                "pipeline_status", workspace=workspace
+            )
+
+            async with pipeline_status_lock:
+                if pipeline_status.get("busy", False):
+                    return CustomChunksGraphRebuildResponse(
+                        status="busy",
+                        message="Cannot rebuild custom chunk graphs while pipeline is busy.",
+                    )
+
+            background_tasks.add_task(
+                current_rag.arebuild_all_custom_chunks_graphs,
+                request.doc_ids if request and request.doc_ids else None,
+            )
+            return CustomChunksGraphRebuildResponse(
+                status="rebuild_started",
+                message="Custom chunk graph rebuild has been initiated in the background.",
+            )
+        except Exception as e:
+            logger.error(f"Error /documents/rebuild_custom_chunks_graph: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post(
         "/import/custom-chunks",
         response_model=CustomChunksImportResponse,
         dependencies=[Depends(combined_auth)],
@@ -2776,6 +2917,7 @@ def create_document_routes(
                 request.full_text,
                 request.text_chunks,
                 resolved_doc_id,
+                request.file_path,
             )
             return CustomChunksImportResponse(
                 status="success",
@@ -2784,6 +2926,9 @@ def create_document_routes(
                 requested_chunk_count=len(request.text_chunks),
             )
         except Exception as e:
+            mapped_error = _map_custom_chunks_import_error(e)
+            if mapped_error is not None:
+                raise mapped_error
             logger.error(f"Error /documents/import/custom-chunks: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
@@ -2815,6 +2960,74 @@ def create_document_routes(
             )
         except Exception as e:
             logger.error(f"Error /documents/by-ids: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get(
+        "/{doc_id:path}/chunks",
+        response_model=DocumentChunksResponse,
+        dependencies=[Depends(combined_auth)],
+    )
+    async def get_document_chunks(doc_id: str) -> DocumentChunksResponse:
+        try:
+            normalized_doc_id = doc_id.strip()
+            if not normalized_doc_id:
+                raise HTTPException(status_code=400, detail="Document ID cannot be empty")
+
+            current_rag, _ = _current_runtime_objects()
+            doc_status = await current_rag.doc_status.get_by_id(normalized_doc_id)
+            if doc_status is None:
+                raise HTTPException(status_code=404, detail="Document not found")
+
+            raw_chunks_list = (
+                doc_status.get("chunks_list", [])
+                if isinstance(doc_status, dict)
+                else getattr(doc_status, "chunks_list", [])
+            )
+            chunk_ids = [
+                chunk_id.strip()
+                for chunk_id in (raw_chunks_list or [])
+                if isinstance(chunk_id, str) and chunk_id.strip()
+            ]
+            if not chunk_ids:
+                return DocumentChunksResponse(
+                    doc_id=normalized_doc_id,
+                    chunk_count=0,
+                    chunks=[],
+                )
+
+            chunk_payloads = await current_rag.text_chunks.get_by_ids(chunk_ids)
+            chunks: list[DocumentChunkResponse] = []
+            for fallback_order, (chunk_id, chunk_data) in enumerate(
+                zip(chunk_ids, chunk_payloads)
+            ):
+                if not isinstance(chunk_data, dict):
+                    continue
+
+                content = chunk_data.get("content")
+                if not isinstance(content, str):
+                    continue
+
+                tokens = chunk_data.get("tokens")
+                order = chunk_data.get("chunk_order_index")
+                chunks.append(
+                    DocumentChunkResponse(
+                        id=chunk_id,
+                        content=content,
+                        tokens=tokens if isinstance(tokens, int) else None,
+                        order=order if isinstance(order, int) else fallback_order,
+                    )
+                )
+
+            return DocumentChunksResponse(
+                doc_id=normalized_doc_id,
+                chunk_count=len(chunks),
+                chunks=chunks,
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error /documents/{doc_id}/chunks: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
 

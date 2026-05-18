@@ -20,8 +20,15 @@ import { createGraphRequestState, isAbortError } from '@/utils/graphRequestState
 
 import seedrandom from 'seedrandom'
 import { resolveNodeColor, DEFAULT_NODE_COLOR } from '@/utils/graphColor'
+import { getGraphEdgeType } from '@/utils/graphEdgeType'
 import { resolveNodeDisplayName } from '@/utils/graphLabel'
 import { normalizeGraphEdgePayload, normalizeGraphNodePayload } from '@/utils/graphPayload'
+import {
+  applyPersistedLayoutParams,
+  applyPersistedNodePositions,
+  loadGraphLayoutParams,
+  loadGraphNodePositions,
+} from '@/utils/graphViewPersistence'
 
 // Select color based on node type
 const getNodeColorByType = (nodeType: string | undefined): string => {
@@ -221,6 +228,7 @@ const createSigmaGraph = (rawGraph: RawGraph | null) => {
   // Get edge size settings from store
   const minEdgeSize = useSettingsStore.getState().minEdgeSize
   const maxEdgeSize = useSettingsStore.getState().maxEdgeSize
+  const showDirectionalArrows = useSettingsStore.getState().showDirectionalArrows
   // Skip graph creation if no data or empty nodes
   if (!rawGraph || !rawGraph.nodes.length) {
     console.log('No graph data available, skipping sigma graph creation');
@@ -232,16 +240,11 @@ const createSigmaGraph = (rawGraph: RawGraph | null) => {
 
   // Add nodes from raw graph data
   for (const rawNode of rawGraph?.nodes ?? []) {
-    // Use local PRNG to avoid polluting global Math.random
-    const rng = seedrandom(rawNode.id + Date.now().toString())
-    const x = rng()
-    const y = rng()
-
     graph.addNode(rawNode.id, {
       label: resolveNodeDisplayName(rawNode),
       color: rawNode.color,
-      x: x,
-      y: y,
+      x: rawNode.x,
+      y: rawNode.y,
       size: rawNode.size,
       // for node-border
       borderColor: Constants.nodeBorderColor,
@@ -258,7 +261,7 @@ const createSigmaGraph = (rawGraph: RawGraph | null) => {
       label: rawEdge.properties?.keywords || undefined,
       size: weight, // Set initial size based on weight
       originalWeight: weight, // Store original weight for recalculation
-      type: 'curvedNoArrow' // Explicitly set edge type to no arrow
+      type: getGraphEdgeType(showDirectionalArrows)
     })
   }
 
@@ -358,8 +361,9 @@ const useLightrangeGraph = () => {
   }, [appliedWorkbenchQuery, workbenchQueryVersion, queryLabel, maxQueryDepth, maxNodes])
 
   useEffect(() => {
+    const requestState = requestStateRef.current
     return () => {
-      requestStateRef.current.reset()
+      requestState.reset()
     }
   }, [])
 
@@ -441,6 +445,22 @@ const useLightrangeGraph = () => {
           nextState.setViewState('empty')
           nextState.setLastSuccessfulQueryLabel('')
         } else {
+          const currentWorkspace = useSettingsStore.getState().currentWorkspace
+          const context = {
+            workspace: currentWorkspace,
+            queryLabel: currentQueryLabel
+          }
+          const nodePositions = loadGraphNodePositions(context)
+          const layoutParams = loadGraphLayoutParams(context)
+
+          if (Object.keys(nodePositions).length > 0) {
+            applyPersistedNodePositions(data.nodes, nodePositions)
+          }
+
+          if (layoutParams) {
+            applyPersistedLayoutParams(layoutParams, useSettingsStore.getState())
+          }
+
           const newSigmaGraph = createSigmaGraph(data)
           data.buildDynamicMap()
           nextState.setSigmaGraph(newSigmaGraph)
@@ -481,9 +501,10 @@ const useLightrangeGraph = () => {
 
     void loadGraph()
 
+    const requestState = requestStateRef.current
     return () => {
-      if (requestStateRef.current.isCurrent(requestId)) {
-        requestStateRef.current.abortCurrent()
+      if (requestState.isCurrent(requestId)) {
+        requestState.abortCurrent()
       }
     }
   }, [
@@ -621,7 +642,7 @@ const useLightrangeGraph = () => {
             label: newEdge.properties?.keywords || undefined,
             size: weight,
             originalWeight: weight,
-            type: 'curvedNoArrow'
+            type: getGraphEdgeType(useSettingsStore.getState().showDirectionalArrows)
           })
 
           if (!currentRawGraph.getEdge(newEdge.id, false)) {

@@ -31,6 +31,7 @@ export type GraphQueryScope = {
   label: string
   max_depth: number
   max_nodes: number
+  direction: 'both' | 'outbound' | 'inbound'
   only_matched_neighborhood: boolean
 }
 
@@ -473,6 +474,19 @@ export type DocStatusResponse = {
   file_path: string
 }
 
+export type DocumentChunkResponse = {
+  id: string
+  content: string
+  tokens?: number | null
+  order: number
+}
+
+export type DocumentChunksResponse = {
+  doc_id: string
+  chunk_count: number
+  chunks: DocumentChunkResponse[]
+}
+
 export type DocsStatusesResponse = {
   statuses: Record<DocStatus, DocStatusResponse[]>
 }
@@ -482,6 +496,16 @@ export type TrackStatusResponse = {
   documents: DocStatusResponse[]
   total_count: number
   status_summary: Record<string, number>
+}
+
+export type CustomChunksGraphRebuildResponse = {
+  status: 'rebuild_started' | 'busy'
+  message: string
+  track_id: string
+}
+
+export type RebuildGraphsRequest = {
+  doc_ids?: string[]
 }
 
 export type DocumentsRequest = {
@@ -554,6 +578,20 @@ const isPaginatedDocsResponse = (value: unknown): value is PaginatedDocsResponse
   isPaginationInfo(value.pagination) &&
   isRecord(value.status_counts)
 
+const isDocumentChunkResponse = (value: unknown): value is DocumentChunkResponse =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.content === 'string' &&
+  typeof value.order === 'number' &&
+  (value.tokens === undefined || value.tokens === null || typeof value.tokens === 'number')
+
+const isDocumentChunksResponse = (value: unknown): value is DocumentChunksResponse =>
+  isRecord(value) &&
+  typeof value.doc_id === 'string' &&
+  typeof value.chunk_count === 'number' &&
+  Array.isArray(value.chunks) &&
+  value.chunks.every(isDocumentChunkResponse)
+
 const normalizePaginatedDocumentsResponse = (
   payload: unknown
 ): PaginatedDocsResponse => {
@@ -562,6 +600,16 @@ const normalizePaginatedDocumentsResponse = (
   }
 
   throw new Error('Unexpected paginated documents response format')
+}
+
+const normalizeDocumentChunksResponse = (
+  payload: unknown
+): DocumentChunksResponse => {
+  if (isDocumentChunksResponse(payload)) {
+    return payload
+  }
+
+  throw new Error('Unexpected document chunks response format')
 }
 
 export type AuthStatusResponse = {
@@ -1051,6 +1099,20 @@ export const reprocessFailedDocuments = async (): Promise<ReprocessFailedRespons
   return response.data
 }
 
+export const rebuildCustomChunksGraph = async (
+  docIds?: string[]
+): Promise<CustomChunksGraphRebuildResponse> => {
+  const payload: RebuildGraphsRequest | undefined =
+    docIds && docIds.length > 0 ? { doc_ids: docIds } : undefined
+  const response = await axiosInstance.post('/documents/rebuild_custom_chunks_graph', payload)
+  return response.data
+}
+
+export const getDocumentChunks = async (docId: string): Promise<DocumentChunksResponse> => {
+  const response = await axiosInstance.get(`/documents/${encodeURIComponent(docId)}/chunks`)
+  return normalizeDocumentChunksResponse(response.data)
+}
+
 export const rebuildDocumentsFromIndexingVersion = async (
   versionId: string
 ): Promise<RebuildDocumentsResponse> => {
@@ -1412,7 +1474,7 @@ export const getAuthStatus = async (): Promise<AuthStatusResponse> => {
     });
 
     // Check if response is HTML (which indicates a redirect or wrong endpoint)
-    const contentType = response.headers['content-type'] || '';
+    const contentType = String(response.headers['content-type'] ?? '');
     if (contentType.includes('text/html')) {
       console.warn('Received HTML response instead of JSON for auth-status endpoint');
       return {

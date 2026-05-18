@@ -162,6 +162,27 @@ class WorkspaceRuntimeManager:
 
         return bundle
 
+    async def acquire_cached_runtime(
+        self, workspace: str
+    ) -> WorkspaceRuntimeBundle | None:
+        async with self._lock:
+            if workspace in self._draining_workspaces:
+                raise WorkspaceStateError(
+                    f"Workspace '{workspace}' is draining and cannot accept new requests"
+                )
+
+            bundle = self._cache.get(workspace)
+            if bundle is None:
+                return None
+            if not bundle.accepting_requests:
+                raise WorkspaceStateError(
+                    f"Workspace '{workspace}' is not accepting new requests"
+                )
+
+            bundle.active_requests += 1
+            bundle.last_used_at = self._time_fn()
+            return bundle
+
     async def release_runtime(self, workspace: str) -> None:
         async with self._lock:
             bundle = self._cache.get(workspace)

@@ -1,5 +1,0 @@
-{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
-{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
-{"file": "lightrag_webui/src/components/workspace/WorkspaceManagerDialog.tsx", "reason": "工作区创建按钮与游客提示逻辑"}
-{"file": "lightrag_webui/src/components/workspace/WorkspaceManagerDialog.test.tsx", "reason": "工作区创建权限回归测试"}
-{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "避免重复实现权限判断"}
