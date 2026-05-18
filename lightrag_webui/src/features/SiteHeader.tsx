@@ -91,7 +91,7 @@ export default function SiteHeader() {
     <header className="border-border/40 bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 flex h-10 w-full border-b px-4 backdrop-blur">
       <div className="min-w-[200px] w-auto flex items-center">
         <a href={webuiPrefix} className="flex items-center gap-2">
-          <img src="/webui/ajrlogo.png" alt="Logo" className="h-6 w-auto object-contain" />
+          <img src="/webui/logo.jpg" alt="Logo" className="h-6 w-auto object-contain" />
           <span className="font-bold md:inline-block">{SiteInfo.name}</span>
         </a>
         {webuiTitle && (
