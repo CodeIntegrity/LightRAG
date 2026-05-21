@@ -1,0 +1,356 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "用于 Dify 的 LightRAG 查询工具",
+    "version": "1.0.0",
+    "description": "用于将 LightRAG 的 /query 接口以 Dify 自定义工具方式导入的 OpenAPI Schema，尽量覆盖 QueryRequest 支持的全部参数。"
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:9621",
+      "description": "默认的本地 LightRAG 服务地址。导入 Dify 前请替换为你实际部署的 LightRAG 地址。"
+    }
+  ],
+  "tags": [
+    {
+      "name": "query",
+      "description": "LightRAG 问答接口。"
+    }
+  ],
+  "paths": {
+    "/query": {
+      "post": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "queryLightRAG",
+        "summary": "查询 LightRAG",
+        "description": "向 LightRAG 发送自然语言问题并获取非流式答案。这个 Schema 尽量覆盖完整 QueryRequest 的支持参数，同时保留适合 Dify 导入的结构。",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryToolRequest"
+              },
+              "examples": {
+                "basic": {
+                  "summary": "基础问题",
+                  "value": {
+                    "query": "LightRAG 的主要能力是什么？",
+                    "mode": "mix"
+                  }
+                },
+                "with_references": {
+                  "summary": "带引用结果",
+                  "value": {
+                    "query": "总结 LightRAG 的查询模式，并给出引用来源。",
+                    "mode": "mix",
+                    "response_type": "Bullet Points",
+                    "include_references": true
+                  }
+                },
+                "advanced": {
+                  "summary": "高级参数示例",
+                  "value": {
+                    "query": "结合已有上下文继续回答这个问题。",
+                    "mode": "hybrid",
+                    "response_type": "Multiple Paragraphs",
+                    "top_k": 20,
+                    "chunk_top_k": 15,
+                    "max_entity_tokens": 4000,
+                    "max_relation_tokens": 4000,
+                    "max_total_tokens": 12000,
+                    "hl_keywords": [
+                      "LightRAG",
+                      "查询模式"
+                    ],
+                    "ll_keywords": [
+                      "mix",
+                      "hybrid",
+                      "naive"
+                    ],
+                    "conversation_history": [
+                      {
+                        "role": "user",
+                        "content": "先介绍一下 LightRAG。"
+                      },
+                      {
+                        "role": "assistant",
+                        "content": "LightRAG 是一个轻量级图增强检索框架。"
+                      }
+                    ],
+                    "user_prompt": "优先按对比方式组织答案。",
+                    "enable_rerank": true,
+                    "include_references": true,
+                    "include_chunk_content": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "查询成功响应",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryToolResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "需要 JWT 登录或令牌无效"
+          },
+          "403": {
+            "description": "API Key 缺失或无效"
+          },
+          "500": {
+            "description": "服务端错误"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "使用 LightRAG 服务端的 API Key。若你的部署依赖 JWT 登录而不是固定 API Key，请调整此 Schema 或增加代理层。"
+      }
+    },
+    "schemas": {
+      "ConversationMessage": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "消息角色，如 user 或 assistant。"
+          },
+          "content": {
+            "type": "string",
+            "description": "消息内容。"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ]
+      },
+      "ReferenceItem": {
+        "type": "object",
+        "properties": {
+          "reference_id": {
+            "type": "string",
+            "description": "引用标识。"
+          },
+          "file_path": {
+            "type": "string",
+            "description": "源文档路径。"
+          },
+          "content": {
+            "type": "array",
+            "description": "检索到的分块文本，仅在 include_chunk_content=true 时返回。",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "QueryPromptQueryOverrides": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "覆盖 query 相关提示词模板。",
+        "properties": {
+          "rag_response": {
+            "type": "string",
+            "description": "覆盖常规 RAG 回答模板。"
+          },
+          "naive_rag_response": {
+            "type": "string",
+            "description": "覆盖 naive 模式的回答模板。"
+          },
+          "kg_query_context": {
+            "type": "string",
+            "description": "覆盖知识图谱检索上下文模板。"
+          },
+          "naive_query_context": {
+            "type": "string",
+            "description": "覆盖 naive 检索上下文模板。"
+          }
+        }
+      },
+      "QueryPromptKeywordsOverrides": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "覆盖关键词提取相关提示词模板。",
+        "properties": {
+          "keywords_extraction": {
+            "type": "string",
+            "description": "覆盖关键词提取模板。"
+          },
+          "keywords_extraction_examples": {
+            "type": "array",
+            "description": "覆盖关键词提取示例列表。",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "QueryPromptOverridesPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "按请求覆盖提示词模板。只有服务端显式允许时才会生效。",
+        "properties": {
+          "query": {
+            "$ref": "#/components/schemas/QueryPromptQueryOverrides"
+          },
+          "keywords": {
+            "$ref": "#/components/schemas/QueryPromptKeywordsOverrides"
+          }
+        }
+      },
+      "QueryToolRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "description": "发送给 LightRAG 的用户问题。"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "local",
+              "global",
+              "hybrid",
+              "naive",
+              "mix",
+              "bypass"
+            ],
+            "default": "mix",
+            "description": "检索模式。"
+          },
+          "only_need_context": {
+            "type": "boolean",
+            "description": "若为 true，仅返回检索到的上下文，不生成最终回答。"
+          },
+          "only_need_prompt": {
+            "type": "boolean",
+            "description": "若为 true，仅返回生成的提示词，不生成最终回答。"
+          },
+          "response_type": {
+            "type": "string",
+            "description": "可选的回答风格，例如 Multiple Paragraphs、Single Paragraph 或 Bullet Points。"
+          },
+          "top_k": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "可选的检索深度。"
+          },
+          "chunk_top_k": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "向量检索阶段初始召回并在重排后保留的文本块数量。"
+          },
+          "max_entity_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "实体上下文可使用的最大 token 数。"
+          },
+          "max_relation_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "关系上下文可使用的最大 token 数。"
+          },
+          "max_total_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "整个查询上下文的总 token 预算。"
+          },
+          "hl_keywords": {
+            "type": "array",
+            "description": "高层关键词列表。为空时由 LLM 自动生成。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ll_keywords": {
+            "type": "array",
+            "description": "低层关键词列表。为空时由 LLM 自动生成。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "conversation_history": {
+            "type": "array",
+            "description": "可选的历史消息，会传给 LLM 作为上下文。",
+            "items": {
+              "$ref": "#/components/schemas/ConversationMessage"
+            }
+          },
+          "user_prompt": {
+            "type": "string",
+            "description": "用户额外补充的提示词，会覆盖默认模板中的对应变量。"
+          },
+          "prompt_overrides": {
+            "$ref": "#/components/schemas/QueryPromptOverridesPayload"
+          },
+          "enable_rerank": {
+            "type": "boolean",
+            "description": "是否启用检索结果重排。若服务端未配置重排模型，则可能被忽略或回退。"
+          },
+          "include_references": {
+            "type": "boolean",
+            "default": true,
+            "description": "是否在响应中包含来源引用。"
+          },
+          "include_chunk_content": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否在每条引用中包含检索到的分块文本。"
+          },
+          "stream": {
+            "type": "boolean",
+            "default": true,
+            "description": "是否启用流式输出。该字段用于对齐 QueryRequest；对当前 /query 非流式端点通常没有实际作用。"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "QueryToolResponse": {
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "string",
+            "description": "LightRAG 生成的回答。"
+          },
+          "references": {
+            "type": "array",
+            "description": "当 include_references=true 时返回的来源引用。",
+            "items": {
+              "$ref": "#/components/schemas/ReferenceItem"
+            }
+          }
+        },
+        "required": [
+          "response"
+        ]
+      }
+    }
+  }
+}
