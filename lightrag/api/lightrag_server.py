@@ -40,6 +40,7 @@ from .config import (
 )
 from lightrag.utils import get_env_value
 from lightrag import LightRAG, __version__ as core_version
+from lightrag.api import __api_version__
 from lightrag.utils import EmbeddingFunc
 from lightrag.base import DocStatus
 from lightrag.constants import (
@@ -948,7 +949,7 @@ def create_app(args):
         ) -> str:
             from lightrag.llm.openai import openai_complete_if_cache
 
-            keyword_extraction = kwargs.pop("keyword_extraction", None)
+            kwargs.pop("keyword_extraction", None)
             if history_messages is None:
                 history_messages = []
 
@@ -983,7 +984,7 @@ def create_app(args):
         ) -> str:
             from lightrag.llm.azure_openai import azure_openai_complete_if_cache
 
-            keyword_extraction = kwargs.pop("keyword_extraction", None)
+            kwargs.pop("keyword_extraction", None)
             if history_messages is None:
                 history_messages = []
 
@@ -1422,9 +1423,7 @@ def create_app(args):
         # Lazy import
         from lightrag.llm.bedrock import bedrock_complete_if_cache
 
-        keyword_extraction = kwargs.pop("keyword_extraction", None)
-        if keyword_extraction:
-            kwargs["response_format"] = GPTKeywordExtractionFormat
+        kwargs.pop("keyword_extraction", None)
         if history_messages is None:
             history_messages = []
 

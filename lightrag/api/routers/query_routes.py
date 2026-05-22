@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from lightrag.base import QueryParam
 from lightrag.api.utils_api import get_combined_auth_dependency
 from lightrag.utils import logger
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 # Compatibility shim for tests that clear module-level routes before
 # reloading the factory. Real route registration happens inside
@@ -683,8 +683,6 @@ def create_query_routes(
             Use streaming mode for real-time interfaces and non-streaming for batch processing.
         """
         try:
-            _assert_prompt_override_capability(request)
-            _validate_prompt_overrides_payload(request)
             # Use the stream parameter from the request, defaulting to True if not specified
             stream_mode = request.stream if request.stream is not None else True
             param = request.to_query_params(stream_mode)
