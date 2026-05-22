@@ -1,8 +1,10 @@
 # LightRAG Workspace Prompt Version Management Design
 
+> **状态变更 (2025)**: Prompt Management 功能已于 `c59ba2e5` 退役，回归上游 `lightrag/prompt.py` + `prompts/` 文件型定制机制。本文档保留为历史参考。
+
 **Date:** 2026-03-25
 
-**Status:** Approved for implementation planning
+**Status:** Retired (was: Approved for implementation planning)
 
 ## Goal
 
