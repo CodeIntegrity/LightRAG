@@ -7,7 +7,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from difflib import SequenceMatcher
-from functools import partial
+
 from typing import Any, cast
 
 import json_repair
@@ -347,6 +347,7 @@ async def adelete_by_entity(
     entity_name: str,
     entity_chunks_storage=None,
     relation_chunks_storage=None,
+    expected_revision_token: str | None = None,
 ) -> DeletionResult:
     """Asynchronously delete an entity and all its relationships.
 
@@ -359,6 +360,7 @@ async def adelete_by_entity(
         entity_name: Name of the entity to delete
         entity_chunks_storage: Optional KV storage for tracking chunks that reference this entity
         relation_chunks_storage: Optional KV storage for tracking chunks that reference relations
+        expected_revision_token: Optional revision token for optimistic concurrency control
     """
     # Use keyed lock for entity to ensure atomic graph and vector db operations
     workspace = entities_vdb.global_config.get("workspace", "")
@@ -375,6 +377,15 @@ async def adelete_by_entity(
                     doc_id=entity_name,
                     message=f"Entity '{entity_name}' not found.",
                     status_code=404,
+                )
+            if expected_revision_token:
+                node_data = await chunk_entity_relation_graph.get_node(entity_name)
+                _validate_expected_revision_token(
+                    current_payload=_build_entity_revision_payload(
+                        entity_name, node_data
+                    ),
+                    expected_revision_token=expected_revision_token,
+                    object_type="entity",
                 )
             # Retrieve related relationships before deleting the node
             edges = await chunk_entity_relation_graph.get_node_edges(entity_name)
@@ -2551,8 +2562,6 @@ async def _rerank_merge_suggestion_candidates_with_llm(
     llm_model_func = getattr(rag, "llm_model_func", None)
     if not callable(llm_model_func):
         return candidates, False, "llm_model_func unavailable"
-
-    llm_model_func = cast(Any, partial(llm_model_func, _priority=5))
 
     llm_candidates = candidates[:llm_limit]
     prompt_payload = {

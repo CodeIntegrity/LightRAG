@@ -116,8 +116,16 @@ class _DummyRAG:
             "is_truncated": False,
         }
 
-    async def adelete_by_entity(self, entity_name: str) -> DeletionResult:
+    async def adelete_by_entity(
+        self,
+        entity_name: str,
+        expected_revision_token: str | None = None,
+    ) -> DeletionResult:
         self.last_deleted_entity = entity_name
+        self.last_entity_delete_request = {
+            "entity_name": entity_name,
+            "expected_revision_token": expected_revision_token,
+        }
         return DeletionResult(
             status=self.entity_delete_status,  # type: ignore[arg-type]
             doc_id="legacy-doc-id",

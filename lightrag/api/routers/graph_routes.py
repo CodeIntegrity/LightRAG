@@ -334,6 +334,7 @@ class GraphDeleteEntityRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     entity_name: str = Field(..., min_length=1)
+    expected_revision_token: Optional[str] = None
 
     @field_validator("entity_name", mode="after")
     @classmethod
@@ -807,7 +808,10 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
     )
     async def delete_graph_entity(request: GraphDeleteEntityRequest):
         try:
-            raw_result = await rag.adelete_by_entity(entity_name=request.entity_name)
+            raw_result = await rag.adelete_by_entity(
+                entity_name=request.entity_name,
+                expected_revision_token=request.expected_revision_token,
+            )
             result = _normalize_deletion_response(raw_result)
             _raise_for_deletion_response(result)
             return result

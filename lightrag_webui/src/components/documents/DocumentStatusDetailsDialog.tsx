@@ -181,7 +181,7 @@ export default function DocumentStatusDetailsDialog({ doc }: { doc: DocStatusRes
           >
             <CopyIcon className="h-4 w-4" />
           </Button>
-          <div className="max-h-[60vh] overflow-y-auto p-3 pr-12">
+          <div className="max-h-[60vh] overflow-y-auto overflow-x-hidden p-3 pr-12">
             {shouldShowChunks ? (
               isLoadingChunks ? (
                 <p className="text-sm text-muted-foreground">
@@ -222,10 +222,12 @@ export default function DocumentStatusDetailsDialog({ doc }: { doc: DocStatusRes
                           <CopyIcon className="h-4 w-4" />
                         </Button>
                       </div>
-                      <MarkdownContent
-                        content={chunk.content}
-                        className={DEFAULT_MARKDOWN_CONTENT_CLASSNAME}
-                      />
+                      <div className="grid overflow-x-auto [&>*]:min-w-0">
+                        <MarkdownContent
+                          content={chunk.content}
+                          className={DEFAULT_MARKDOWN_CONTENT_CLASSNAME}
+                        />
+                      </div>
                     </div>
                   ))}
                 </div>

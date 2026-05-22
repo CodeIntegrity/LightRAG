@@ -4083,11 +4083,14 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                     pipeline_status["history_messages"].append(completion_msg)
                     logger.info(completion_msg)
 
-    async def adelete_by_entity(self, entity_name: str) -> DeletionResult:
+    async def adelete_by_entity(
+        self, entity_name: str, expected_revision_token: str | None = None
+    ) -> DeletionResult:
         """Asynchronously delete an entity and all its relationships.
 
         Args:
             entity_name: Name of the entity to delete.
+            expected_revision_token: Optional revision token for optimistic concurrency.
 
         Returns:
             DeletionResult: An object containing the outcome of the deletion process.
@@ -4099,6 +4102,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             self.entities_vdb,
             self.relationships_vdb,
             entity_name,
+            expected_revision_token=expected_revision_token,
         )
 
     def delete_by_entity(self, entity_name: str) -> DeletionResult:
@@ -4114,13 +4118,17 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         return loop.run_until_complete(self.adelete_by_entity(entity_name))
 
     async def adelete_by_relation(
-        self, source_entity: str, target_entity: str
+        self,
+        source_entity: str,
+        target_entity: str,
+        expected_revision_token: str | None = None,
     ) -> DeletionResult:
         """Asynchronously delete a relation between two entities.
 
         Args:
             source_entity: Name of the source entity.
             target_entity: Name of the target entity.
+            expected_revision_token: Optional revision token for optimistic concurrency.
 
         Returns:
             DeletionResult: An object containing the outcome of the deletion process.
@@ -4132,6 +4140,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             self.relationships_vdb,
             source_entity,
             target_entity,
+            expected_revision_token=expected_revision_token,
         )
 
     def delete_by_relation(
@@ -4400,6 +4409,13 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                 source_entities, target_entity, merge_strategy, target_entity_data
             )
         )
+
+    async def aget_merge_suggestions(
+        self, request: Mapping[str, Any] | dict[str, Any]
+    ) -> dict[str, Any]:
+        from lightrag.utils_graph import aget_merge_suggestions
+
+        return await aget_merge_suggestions(self, request)
 
     async def aexport_data(
         self,

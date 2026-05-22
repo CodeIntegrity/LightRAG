@@ -21,14 +21,7 @@ import CancelPipelineButton from '@/components/documents/CancelPipelineButton'
 import DeleteDocumentsDialog from '@/components/documents/DeleteDocumentsDialog'
 import RebuildGraphsDialog from '@/components/documents/RebuildGraphsDialog'
 import PaginationControls from '@/components/ui/PaginationControls'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger
-} from '@/components/ui/Dialog'
+import DocumentStatusDetailsDialog from '@/components/documents/DocumentStatusDetailsDialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip'
 
 import {
@@ -43,9 +36,8 @@ import {
 import { errorMessage } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useBackendState } from '@/stores/state'
-import { copyToClipboard } from '@/utils/clipboard'
 
-import { RefreshCwIcon, ActivityIcon, ArrowUpIcon, ArrowDownIcon, RotateCcwIcon, CheckSquareIcon, XIcon, AlertTriangle, Info, CopyIcon } from 'lucide-react'
+import { RefreshCwIcon, ActivityIcon, ArrowUpIcon, ArrowDownIcon, RotateCcwIcon, CheckSquareIcon, XIcon } from 'lucide-react'
 import PipelineStatusDialog from '@/components/documents/PipelineStatusDialog'
 import {
   getStatusBucket,
@@ -53,6 +45,7 @@ import {
   type StatusBucket,
   type StatusFilter
 } from '@/features/documentStatusFilters'
+import { hasDocumentDetails } from '@/features/documentDetails'
 
 type StatusDisplayConfig = {
   labelKey: string
@@ -116,145 +109,6 @@ const getDisplayFileName = (doc: DocStatusResponse, maxLength: number = 20): str
 
 const isCustomChunksDoc = (doc: DocStatusResponse): boolean =>
   doc.metadata?.source === 'custom_chunks'
-
-const formatMetadata = (metadata: Record<string, any>): string => {
-  const formattedMetadata = { ...metadata };
-
-  if (formattedMetadata.parsing_start_time && typeof formattedMetadata.parsing_start_time === 'number') {
-    const date = new Date(formattedMetadata.parsing_start_time * 1000);
-    if (!isNaN(date.getTime())) {
-      formattedMetadata.parsing_start_time = date.toLocaleString();
-    }
-  }
-
-  if (formattedMetadata.analyzing_start_time && typeof formattedMetadata.analyzing_start_time === 'number') {
-    const date = new Date(formattedMetadata.analyzing_start_time * 1000);
-    if (!isNaN(date.getTime())) {
-      formattedMetadata.analyzing_start_time = date.toLocaleString();
-    }
-  }
-
-  if (formattedMetadata.processing_start_time && typeof formattedMetadata.processing_start_time === 'number') {
-    const date = new Date(formattedMetadata.processing_start_time * 1000);
-    if (!isNaN(date.getTime())) {
-      formattedMetadata.processing_start_time = date.toLocaleString();
-    }
-  }
-
-  if (formattedMetadata.processing_end_time && typeof formattedMetadata.processing_end_time === 'number') {
-    const date = new Date(formattedMetadata.processing_end_time * 1000);
-    if (!isNaN(date.getTime())) {
-      formattedMetadata.processing_end_time = date.toLocaleString();
-    }
-  }
-
-  // Format JSON and remove outer braces and indentation
-  const jsonStr = JSON.stringify(formattedMetadata, null, 2);
-  const lines = jsonStr.split('\n');
-  // Remove first line ({) and last line (}), and remove leading indentation (2 spaces)
-  return lines.slice(1, -1)
-    .map(line => line.replace(/^ {2}/, ''))
-    .join('\n');
-};
-
-const hasDocumentDetails = (doc: DocStatusResponse): boolean => {
-  return Boolean(
-    doc.track_id ||
-    doc.error_msg ||
-    (doc.metadata && Object.keys(doc.metadata).length > 0)
-  )
-}
-
-const formatDocumentDetails = (doc: DocStatusResponse): string => {
-  const details: string[] = []
-
-  if (doc.track_id) {
-    details.push(`Track ID: ${doc.track_id}`)
-  }
-
-  if (doc.metadata && Object.keys(doc.metadata).length > 0) {
-    details.push(formatMetadata(doc.metadata))
-  }
-
-  if (doc.error_msg) {
-    details.push(`Error Message:\n${doc.error_msg}`)
-  }
-
-  return details.join('\n\n')
-}
-
-const DocumentStatusDetailsDialog = ({ doc }: { doc: DocStatusResponse }) => {
-  const { t } = useTranslation()
-  const details = formatDocumentDetails(doc)
-
-  const openLabel = t('documentPanel.documentManager.details.openTooltip')
-  const copyLabel = t('documentPanel.documentManager.details.copyTooltip')
-
-  const handleCopy = async () => {
-    const result = await copyToClipboard(details)
-
-    if (result.success) {
-      toast.success(t('documentPanel.documentManager.details.copySuccess'))
-    } else {
-      toast.error(t('documentPanel.documentManager.details.copyFailed'))
-    }
-  }
-
-  return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="ml-2 size-7"
-          tooltip={openLabel}
-          side="top"
-          aria-label={openLabel}
-        >
-          {doc.error_msg ? (
-            <AlertTriangle className="h-4 w-4 text-yellow-500" />
-          ) : (
-            <Info className="h-4 w-4 text-blue-500" />
-          )}
-        </Button>
-      </DialogTrigger>
-      <DialogContent
-        className="max-w-2xl"
-        onOpenAutoFocus={(e) => {
-          e.preventDefault()
-          ;(e.currentTarget as HTMLElement | null)?.focus()
-        }}
-        onCloseAutoFocus={(e) => e.preventDefault()}
-      >
-        <DialogHeader>
-          <DialogTitle>{t('documentPanel.documentManager.details.title')}</DialogTitle>
-          <DialogDescription className="break-all">
-            {doc.id}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="relative rounded-md border bg-muted/30">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="absolute top-2 right-2 z-10 size-7 bg-background/80 hover:bg-accent"
-            onClick={handleCopy}
-            tooltip={copyLabel}
-            side="left"
-            aria-label={copyLabel}
-          >
-            <CopyIcon className="h-4 w-4" />
-          </Button>
-          <div className="max-h-[60vh] overflow-y-auto p-3 pr-12">
-            <pre className="whitespace-pre-wrap break-words text-sm">{details}</pre>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 const pulseStyle = `
 @keyframes pulse {

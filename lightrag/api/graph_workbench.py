@@ -47,7 +47,10 @@ def _record_graph_data(record: dict[str, Any]) -> dict[str, Any]:
     graph_data = _model_dump_or_dict(record.get("graph_data"))
     if graph_data:
         return graph_data
-    return _model_dump_or_dict(record.get("properties"))
+    props = _model_dump_or_dict(record.get("properties"))
+    if props:
+        return props
+    return dict(record)
 
 
 def _canonical_node_entity_id(node: dict[str, Any]) -> str:
@@ -67,8 +70,12 @@ def _build_node_revision_token(node: dict[str, Any]) -> str | None:
     entity_id = _canonical_node_entity_id(node)
     if not entity_id:
         return None
+    raw_graph_data = _record_graph_data(node)
     return build_revision_token(
-        {"entity_name": entity_id, "graph_data": _record_graph_data(node)}
+        {
+            "entity_name": entity_id,
+            "graph_data": normalize_graph_node_data(raw_graph_data),
+        }
     )
 
 
@@ -77,14 +84,16 @@ def _build_edge_revision_token(
     canonical_node_ids: Mapping[str, str] | None = None,
 ) -> str | None:
     edge_graph_data = _record_graph_data(edge)
-    source = _normalize_text(edge_graph_data.get("src_id"))
-    target = _normalize_text(edge_graph_data.get("tgt_id"))
+    source = ""
+    target = ""
 
-    if not source and canonical_node_ids is not None:
+    if canonical_node_ids is not None:
         source = canonical_node_ids.get(_normalize_text(edge.get("source")), "")
-    if not target and canonical_node_ids is not None:
         target = canonical_node_ids.get(_normalize_text(edge.get("target")), "")
-
+    if not source:
+        source = _normalize_text(edge_graph_data.get("src_id"))
+    if not target:
+        target = _normalize_text(edge_graph_data.get("tgt_id"))
     if not source:
         source = _normalize_text(edge.get("source"))
     if not target:
@@ -98,7 +107,7 @@ def _build_edge_revision_token(
         {
             "src_entity": normalized_source,
             "tgt_entity": normalized_target,
-            "graph_data": _record_graph_data(edge),
+            "graph_data": normalize_graph_edge_data(edge_graph_data),
         }
     )
 
