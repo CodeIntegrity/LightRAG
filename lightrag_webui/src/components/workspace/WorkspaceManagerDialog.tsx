@@ -554,20 +554,12 @@ export default function WorkspaceManagerDialog({ open, onOpenChange }: Workspace
                               )}
                               {workspaceStats[record.workspace] ? (
                                 <div className="space-y-3 text-xs">
-                                  <div className="grid gap-2 sm:grid-cols-2">
+                                  <div className="grid gap-2">
                                     <div className="bg-muted/40 rounded-md border px-3 py-2">
                                       <div className="text-muted-foreground">
                                         {t('workspaceManager.stats.docs', {
                                           count: workspaceStats[record.workspace].document_count ?? '-',
                                           defaultValue: '{{count}} docs'
-                                        })}
-                                      </div>
-                                    </div>
-                                    <div className="bg-muted/40 rounded-md border px-3 py-2">
-                                      <div className="text-muted-foreground">
-                                        {t('workspaceManager.stats.promptVersions', {
-                                          count: workspaceStats[record.workspace].prompt_version_count ?? '-',
-                                          defaultValue: '{{count}} prompt versions'
                                         })}
                                       </div>
                                     </div>

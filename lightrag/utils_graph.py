@@ -219,7 +219,11 @@ def normalize_graph_node_data(
 def normalize_graph_edge_data(
     payload: Mapping[str, Any] | dict[str, Any] | None,
 ) -> dict[str, Any]:
-    return _normalize_graph_data(payload, system_fields=_GRAPH_EDGE_SYSTEM_FIELDS)
+    return _normalize_graph_data(
+        payload,
+        system_fields=_GRAPH_EDGE_SYSTEM_FIELDS,
+        ignored_fields=frozenset({"source", "target"}),
+    )
 
 
 def _validate_expected_revision_token(

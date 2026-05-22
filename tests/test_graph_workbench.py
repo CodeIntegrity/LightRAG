@@ -10,6 +10,7 @@ from lightrag.api.graph_workbench import (
     get_legacy_graph_payload,
     query_graph_workbench,
 )
+from lightrag.lightrag import LightRAG
 from lightrag import utils_graph
 
 pytestmark = pytest.mark.offline
@@ -49,6 +50,29 @@ class _DummyRAG:
         return self.graph_payload
 
 
+class _CaptureGraphStorage:
+    def __init__(self, result: Any) -> None:
+        self.result = result
+        self.calls: list[dict[str, Any]] = []
+
+    async def get_knowledge_graph(
+        self,
+        node_label: str,
+        max_depth: int = 3,
+        max_nodes: int = 1000,
+        direction: str = "both",
+    ) -> Any:
+        self.calls.append(
+            {
+                "node_label": node_label,
+                "max_depth": max_depth,
+                "max_nodes": max_nodes,
+                "direction": direction,
+            }
+        )
+        return self.result
+
+
 def _node(node_id: str, entity_type: str, description: str = "") -> dict[str, Any]:
     return {
         "id": node_id,
@@ -83,6 +107,28 @@ def _edge(
             "file_path": file_path,
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_lightrag_get_knowledge_graph_forwards_direction_to_storage():
+    storage = _CaptureGraphStorage(result={"nodes": [], "edges": []})
+    rag = LightRAG.__new__(LightRAG)
+    rag.max_graph_nodes = 50
+    rag.chunk_entity_relation_graph = storage
+
+    result = await rag.get_knowledge_graph(
+        "Tesla", max_depth=2, max_nodes=128, direction="outbound"
+    )
+
+    assert storage.calls == [
+        {
+            "node_label": "Tesla",
+            "max_depth": 2,
+            "max_nodes": 50,
+            "direction": "outbound",
+        }
+    ]
+    assert result == {"nodes": [], "edges": []}
 
 
 @pytest.mark.asyncio
@@ -552,6 +598,41 @@ def test_revision_token_changes_when_aliases_change():
     changed_token = utils_graph.build_revision_token(changed_payload)
 
     assert base_token != changed_token
+
+
+def test_relation_revision_token_ignores_transport_source_and_target_fields():
+    query_payload = {
+        "src_entity": "A",
+        "tgt_entity": "B",
+        "graph_data": utils_graph.normalize_graph_edge_data(
+            {
+                "relationship": "works_with",
+                "description": "works with",
+                "keywords": "partnership",
+                "weight": 0.9,
+                "source_id": "chunk-1",
+                "target_id": "chunk-2",
+            }
+        ),
+    }
+    delete_payload = utils_graph._build_relation_revision_payload(
+        "A",
+        "B",
+        {
+            "relationship": "works_with",
+            "description": "works with",
+            "keywords": "partnership",
+            "weight": 0.9,
+            "source_id": "chunk-1",
+            "target_id": "chunk-2",
+            "source": "A",
+            "target": "B",
+        },
+    )
+
+    assert utils_graph.build_revision_token(query_payload) == utils_graph.build_revision_token(
+        delete_payload
+    )
 
 
 @pytest.mark.asyncio

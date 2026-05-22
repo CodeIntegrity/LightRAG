@@ -898,7 +898,6 @@
     },
     "stats": {
       "docs": "{{count}} 篇文档",
-      "promptVersions": "{{count}} 个提示词版本",
       "capabilities": "能力说明"
     },
     "operation": {
@@ -924,8 +923,7 @@
       "entity_count": "实体数量",
       "relation_count": "关系数量",
       "chunk_count": "分块数量",
-      "storage_size_bytes": "存储大小",
-      "prompt_version_count": "提示词版本数"
+      "storage_size_bytes": "存储大小"
     },
     "capabilityStatus": {
       "available": "可用",

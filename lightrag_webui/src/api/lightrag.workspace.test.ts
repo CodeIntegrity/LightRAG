@@ -32,27 +32,17 @@ describe('workspace api helpers', () => {
     expect(resolveWorkspaceHeader('books')).toBe('books')
   })
 
-  test('setCurrentWorkspace resets workspace-sensitive prompt state', async () => {
+  test('setCurrentWorkspace updates the current workspace', async () => {
     const { useSettingsStore } = await import('@/stores/settings')
 
     useSettingsStore.setState({
-      currentWorkspace: '',
-      promptManagementSelectedVersionId: 'version-1',
-      retrievalPromptVersionSelection: 'custom',
-      retrievalPromptDraft: {
-        query: {
-          rag_response: 'draft'
-        }
-      }
+      currentWorkspace: ''
     })
 
     useSettingsStore.getState().setCurrentWorkspace('books')
     const state = useSettingsStore.getState()
 
     expect(state.currentWorkspace).toBe('books')
-    expect(state.promptManagementSelectedVersionId).toBeNull()
-    expect(state.retrievalPromptVersionSelection).toBe('active')
-    expect(state.retrievalPromptDraft).toBeUndefined()
   })
 
   test('clearWorkspaceDisplayNames removes cached workspace labels', async () => {
@@ -87,7 +77,6 @@ describe('workspace api helpers', () => {
       'workspaceManager.restore',
       'workspaceManager.hardDelete',
       'workspaceManager.stats.docs',
-      'workspaceManager.stats.promptVersions',
       'workspaceManager.stats.capabilities',
       'workspaceManager.operation.state',
       'workspaceManager.operation.progress',
@@ -110,6 +99,22 @@ describe('workspace api helpers', () => {
       requiredPaths.forEach((path) => {
         expect(getValueAtPath(locale, path)).toBeTruthy()
       })
+    })
+  })
+
+  test('workspaceManager locale no longer exposes prompt version display copy', () => {
+    const locales = [ar, de, en, fr, ja, ko, ru, uk, vi, zh, zhTW] as Record<string, unknown>[]
+    const getValueAtPath = (obj: Record<string, unknown>, path: string): unknown =>
+      path.split('.').reduce<unknown>((current, segment) => {
+        if (current && typeof current === 'object') {
+          return (current as Record<string, unknown>)[segment]
+        }
+        return undefined
+      }, obj)
+
+    locales.forEach((locale) => {
+      expect(getValueAtPath(locale, 'workspaceManager.stats.promptVersions')).toBeUndefined()
+      expect(getValueAtPath(locale, 'workspaceManager.capabilityLabels.prompt_version_count')).toBeUndefined()
     })
   })
 

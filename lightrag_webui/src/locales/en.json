@@ -900,7 +900,6 @@
     },
     "stats": {
       "docs": "{{count}} docs",
-      "promptVersions": "{{count}} prompt versions",
       "capabilities": "Capabilities"
     },
     "operation": {
@@ -926,8 +925,7 @@
       "entity_count": "Entity count",
       "relation_count": "Relation count",
       "chunk_count": "Chunk count",
-      "storage_size_bytes": "Storage size",
-      "prompt_version_count": "Prompt versions"
+      "storage_size_bytes": "Storage size"
     },
     "capabilityStatus": {
       "available": "Available",

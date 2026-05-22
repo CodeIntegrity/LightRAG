@@ -838,7 +838,7 @@ describe('WorkspaceManagerDialog', () => {
     const normalizedHtml = html.replaceAll('<!-- -->', '')
 
     expect(normalizedHtml).toContain('12 docs')
-    expect(normalizedHtml).toContain('3 prompt versions')
+    expect(normalizedHtml).not.toContain('prompt versions')
     expect(normalizedHtml).toContain('State:')
     expect(normalizedHtml).toContain('Running')
     expect(normalizedHtml).not.toContain('Capabilities')

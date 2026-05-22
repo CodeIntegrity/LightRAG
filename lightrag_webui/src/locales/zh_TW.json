@@ -751,7 +751,6 @@
     "hardDeletePrompt": "請輸入 {{workspace}} 以確認硬刪除",
     "stats": {
       "docs": "{{count}} 份文件",
-      "promptVersions": "{{count}} 個提示詞版本",
       "capabilities": "能力說明"
     },
     "operation": {
@@ -769,8 +768,7 @@
       "entity_count": "實體數量",
       "relation_count": "關係數量",
       "chunk_count": "分塊數量",
-      "storage_size_bytes": "儲存大小",
-      "prompt_version_count": "提示詞版本數"
+      "storage_size_bytes": "儲存大小"
     },
     "capabilityStatus": {
       "available": "可用",

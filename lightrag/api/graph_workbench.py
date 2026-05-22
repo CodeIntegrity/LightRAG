@@ -547,6 +547,7 @@ async def _fetch_base_graph(
         node_label=_normalize_text(scope.get("label")) or "*",
         max_depth=_to_int(scope.get("max_depth"), 3, 1),
         max_nodes=effective_max_nodes,
+        direction=_normalize_query_direction(scope.get("direction")),
     )
 
 

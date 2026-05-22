@@ -1301,6 +1301,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         node_label: str,
         max_depth: int = 3,
         max_nodes: int = None,
+        direction: str = "both",
     ) -> KnowledgeGraph:
         """Get knowledge graph for a given label
 
@@ -1308,6 +1309,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             node_label (str): Label to get knowledge graph for
             max_depth (int): Maximum depth of graph
             max_nodes (int, optional): Maximum number of nodes to return. Defaults to self.max_graph_nodes.
+            direction (str): Traversal direction, supports both/inbound/outbound.
 
         Returns:
             KnowledgeGraph: Knowledge graph containing nodes and edges
@@ -1320,7 +1322,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             max_nodes = min(max_nodes, self.max_graph_nodes)
 
         return await self.chunk_entity_relation_graph.get_knowledge_graph(
-            node_label, max_depth, max_nodes
+            node_label, max_depth, max_nodes, direction=direction
         )
 
     def insert(
