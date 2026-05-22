@@ -704,6 +704,14 @@ class BaseGraphStorage(StorageNameSpace, ABC):
         """
 
     @abstractmethod
+    async def get_all_entity_types(self) -> list[str]:
+        """Get all distinct entity types in the graph.
+
+        Returns:
+            A sorted list of unique entity_type values from all nodes
+        """
+
+    @abstractmethod
     async def get_knowledge_graph(
         self,
         node_label: str,

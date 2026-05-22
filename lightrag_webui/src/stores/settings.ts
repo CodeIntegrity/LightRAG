@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { createSelectors } from '@/lib/utils'
 import { defaultQueryLabel } from '@/lib/constants'
-import { Message, PromptConfigGroup, QueryPromptOverrides, QueryRequest } from '@/api/lightrag'
+import { Message, QueryRequest } from '@/api/lightrag'
 import { DEFAULT_LAYOUT_PARAMS } from '@/utils/graphViewPersistence'
 
 type Theme = 'dark' | 'light' | 'system'
@@ -101,14 +101,6 @@ interface SettingsState {
 
   querySettings: Omit<QueryRequest, 'query'>
   updateQuerySettings: (settings: Partial<QueryRequest>) => void
-  promptManagementGroup: PromptConfigGroup
-  setPromptManagementGroup: (group: PromptConfigGroup) => void
-  promptManagementSelectedVersionId: string | null
-  setPromptManagementSelectedVersionId: (versionId: string | null) => void
-  retrievalPromptVersionSelection: string
-  setRetrievalPromptVersionSelection: (selection: string) => void
-  retrievalPromptDraft: QueryPromptOverrides | undefined
-  setRetrievalPromptDraft: (draft: QueryPromptOverrides | undefined) => void
 
   // Auth settings
   apiKey: string | null
@@ -183,10 +175,6 @@ const useSettingsStoreBase = create<SettingsState>()(
 
       retrievalHistory: [],
       userPromptHistory: [],
-      promptManagementGroup: 'retrieval',
-      promptManagementSelectedVersionId: null,
-      retrievalPromptVersionSelection: 'active',
-      retrievalPromptDraft: undefined,
 
       querySettings: {
         mode: 'mix',
@@ -306,10 +294,7 @@ const useSettingsStoreBase = create<SettingsState>()(
 
       setCurrentWorkspace: (currentWorkspace: string) =>
         set({
-          currentWorkspace,
-          promptManagementSelectedVersionId: null,
-          retrievalPromptVersionSelection: 'active',
-          retrievalPromptDraft: undefined
+          currentWorkspace
         }),
       setWorkspaceDisplayNames: (workspaceDisplayNames: Record<string, string>) =>
         set({
@@ -329,18 +314,6 @@ const useSettingsStoreBase = create<SettingsState>()(
           querySettings: { ...state.querySettings, ...settings }
         }))
       },
-
-      setPromptManagementGroup: (promptManagementGroup: PromptConfigGroup) =>
-        set({ promptManagementGroup }),
-
-      setPromptManagementSelectedVersionId: (promptManagementSelectedVersionId: string | null) =>
-        set({ promptManagementSelectedVersionId }),
-
-      setRetrievalPromptVersionSelection: (retrievalPromptVersionSelection: string) =>
-        set({ retrievalPromptVersionSelection }),
-
-      setRetrievalPromptDraft: (retrievalPromptDraft: QueryPromptOverrides | undefined) =>
-        set({ retrievalPromptDraft }),
 
       setShowFileName: (show: boolean) => set({ showFileName: show }),
       setShowLegend: (show: boolean) => set({ showLegend: show }),
@@ -489,17 +462,6 @@ const useSettingsStoreBase = create<SettingsState>()(
         if (version < 20) {
           if (state.querySettings && !('prompt_overrides' in state.querySettings)) {
             state.querySettings.prompt_overrides = undefined
-          }
-        }
-        if (version < 21) {
-          state.promptManagementGroup = 'retrieval'
-          state.promptManagementSelectedVersionId = null
-          state.retrievalPromptVersionSelection = 'active'
-          state.retrievalPromptDraft = undefined
-        }
-        if (version < 22) {
-          if (!state.retrievalPromptDraft && state.querySettings?.prompt_overrides) {
-            state.retrievalPromptDraft = state.querySettings.prompt_overrides
           }
         }
         if (version < 23) {

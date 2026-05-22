@@ -1738,6 +1738,17 @@ class NebulaGraphStorage(BaseGraphStorage):
         labels = {str(row["entity_id"]) for row in rows if row.get("entity_id") is not None}
         return sorted(labels)
 
+    async def get_all_entity_types(self) -> list[str]:
+        result = await self._execute_in_space(
+            "MATCH (v:entity) "
+            "WHERE v.entity.entity_type IS NOT NULL "
+            "RETURN DISTINCT v.entity.entity_type AS entity_type "
+            "ORDER BY entity_type;"
+        )
+        rows = _result_to_rows(result)
+        entity_types = [str(row["entity_type"]) for row in rows if row.get("entity_type") is not None]
+        return entity_types
+
     async def get_knowledge_graph(
         self,
         node_label: str,

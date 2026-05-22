@@ -61,8 +61,8 @@ export interface GraphCameraStateSnapshot {
 }
 
 export interface GraphCameraController {
-  getState: () => GraphCameraStateSnapshot & Record<string, unknown>
-  setState: (state: GraphCameraStateSnapshot & Record<string, unknown>) => void
+  getState: () => GraphCameraStateSnapshot
+  setState: (state: GraphCameraStateSnapshot) => void
   on: (event: 'updated', listener: () => void) => void
   off: (event: 'updated', listener: () => void) => void
 }

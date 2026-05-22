@@ -17,7 +17,9 @@
     "themeToggle": {
       "switchToLight": "切换到浅色主题",
       "switchToDark": "切换到深色主题"
-    }
+    },
+    "promptManagement": "提示词管理",
+    "login": "登录"
   },
   "login": {
     "description": "请输入您的账号和密码登录系统",
@@ -31,7 +33,10 @@
     "errorEmptyFields": "请输入您的用户名和密码",
     "errorInvalidCredentials": "登录失败，请检查用户名和密码",
     "authDisabled": "认证已禁用，使用无需登陆模式。",
-    "guestMode": "无需登陆"
+    "guestMode": "无需登陆",
+    "errorGuestLogin": "当前无法使用游客登录",
+    "guestLoginEntry": "游客访问",
+    "guestSuccess": "已启用游客访问。"
   },
   "common": {
     "cancel": "取消",
@@ -76,7 +81,8 @@
       "failed": "删除文档失败：\n{{message}}",
       "error": "删除文档失败：\n{{error}}",
       "busy": "流水线被占用，请稍后再试",
-      "notAllowed": "没有操作权限"
+      "notAllowed": "没有操作权限",
+      "deleting": "删除中..."
     },
     "selectDocuments": {
       "selectCurrentPage": "全选当前页 ({{count}})",
@@ -110,7 +116,8 @@
         "dragAndDrop": "拖放文件到此处，或点击选择文件",
         "removeFile": "移除文件",
         "uploadDescription": "您可以上传{{isMultiple ? '多个' : count}}个文件（每个文件最大{{maxSize}}）",
-        "duplicateFile": "文件名与服务器上的缓存重复"
+        "duplicateFile": "文件名与服务器上的缓存重复",
+        "invalidFileName": "文件名包含无效字符"
       }
     },
     "documentManager": {
@@ -129,6 +136,7 @@
         "fileName": "文件名",
         "summary": "摘要",
         "status": "状态",
+        "source": "来源",
         "length": "长度",
         "chunks": "分块",
         "created": "创建时间",
@@ -164,6 +172,9 @@
       "hideButton": "隐藏",
       "showFileNameTooltip": "显示文件名",
       "hideFileNameTooltip": "隐藏文件名",
+      "source": {
+        "customChunks": "自定义分块"
+      },
       "details": {
         "title": "状态详情",
         "openTooltip": "查看状态详情",
@@ -171,7 +182,40 @@
         "copyButton": "复制",
         "copyTooltip": "复制状态详情",
         "copySuccess": "状态详情已复制",
-        "copyFailed": "复制状态详情失败"
+        "copyFailed": "复制状态详情失败",
+        "copyChunksTooltip": "复制全部分块",
+        "copyChunksSuccess": "分块内容已复制",
+        "copyChunksFailed": "复制分块内容失败",
+        "copyChunkTooltip": "复制分块文本",
+        "copyChunkSuccess": "分块文本已复制",
+        "copyChunkFailed": "复制分块文本失败",
+        "loadingChunks": "正在加载分块...",
+        "noChunks": "暂无分块内容",
+        "noDetails": "暂无状态详情",
+        "chunksLoadFailed": "加载文档分块失败\n{{error}}",
+        "chunkLabel": "分块 {{index}}",
+        "tabs": {
+          "details": "详情",
+          "chunks": "分块"
+        }
+      },
+      "cancelPipelineButton": "中断所有 Pipeline",
+      "cancelPipelineTooltip": "请求中断当前所有文档流水线任务",
+      "customChunksRebuild": {
+        "button": "重建图谱",
+        "tooltip": "重建图谱",
+        "confirmTitle": "确认重建图谱",
+        "confirmSelected": "将重建选中的 {{count}} 个文件图谱",
+        "confirmAll": "将重建全部图谱",
+        "confirmButton": "确认重建",
+        "started": "已开始重建全部图谱",
+        "startedSelected": "已开始重建选中的 {{count}} 个文件图谱",
+        "busy": "当前有其他流水线任务正在运行",
+        "failed": "重建图谱失败\n{{error}}"
+      },
+      "legacyFallback": {
+        "title": "兼容模式已启用",
+        "description": "{{message}}"
       }
     },
     "pipelineStatus": {
@@ -196,7 +240,8 @@
       "cancelNotBusy": "流水线未运行，无需中断",
       "errors": {
         "fetchFailed": "获取流水线状态失败\n{{error}}"
-      }
+      },
+      "noActiveJob": "当前没有运行中的流水线任务"
     }
   },
   "graphPanel": {
@@ -257,7 +302,20 @@
         "apiKey": "API密钥",
         "enterYourAPIkey": "输入您的API密钥",
         "save": "保存",
-        "refreshLayout": "刷新布局"
+        "refreshLayout": "刷新布局",
+        "graphLabelFontSize": "节点/边标签字体大小",
+        "searchLinkedDrag": "搜索选中节点联动拖拽",
+        "showDirectionalArrows": "显示方向箭头",
+        "layoutRepulsion": "布局排斥力",
+        "layoutGravity": "布局重力",
+        "layoutMargin": "布局边距",
+        "layoutAttraction": "布局吸引力",
+        "layoutInertia": "布局惯性",
+        "layoutMaxMove": "布局最大位移",
+        "layoutExpansion": "布局扩张系数",
+        "layoutGridSize": "布局网格尺寸",
+        "layoutRatio": "布局比例",
+        "layoutSpeed": "布局速度"
       },
       "zoomControl": {
         "zoomIn": "放大",
@@ -285,6 +343,12 @@
       },
       "legendControl": {
         "toggleLegend": "切换图例显示"
+      },
+      "exportImageControl": {
+        "export": "导出图片",
+        "exporting": "正在导出...",
+        "exportSuccess": "图片导出成功",
+        "exportFailed": "图片导出失败"
       }
     },
     "statusIndicator": {
@@ -316,7 +380,9 @@
       "rerankerBindingHost": "重排序端点",
       "rerankerModel": "重排序模型",
       "lockStatus": "锁状态",
-      "threshold": "阈值"
+      "threshold": "阈值",
+      "maxParallelInsert": "并行处理文档",
+      "maxGraphNodes": "最大图节点数"
     },
     "propertiesView": {
       "editProperty": "编辑{{property}}",
@@ -363,8 +429,10 @@
           "Neighbour": "邻接",
           "file_path": "文件",
           "keywords": "Keys",
-          "weight": "权重"
-        }
+          "weight": "权重",
+          "name": "名称"
+        },
+        "name": "名称"
       },
       "edge": {
         "title": "关系",
@@ -373,7 +441,8 @@
         "source": "源节点",
         "target": "目标节点",
         "properties": "属性"
-      }
+      },
+      "emptySelection": "请选中一个节点或关系以查看属性。"
     },
     "search": {
       "placeholder": "页面内搜索节点...",
@@ -389,7 +458,277 @@
       "refreshCurrentLabelTooltip": "刷新当前页面图数据",
       "refreshingTooltip": "正在刷新数据..."
     },
-    "emptyGraph": "无数据(请重载图形数据)"
+    "emptyGraph": "无数据(请重载图形数据)",
+    "loadingGraph": "正在加载图谱数据...",
+    "switchingTheme": "正在切换主题...",
+    "overlay": {
+      "loadingTitle": "正在准备图谱",
+      "emptyTitle": "暂无图谱数据",
+      "emptyDescription": "调整范围或刷新图谱后再试。",
+      "authErrorTitle": "需要重新登录",
+      "authErrorDescription": "登录后再加载图谱数据。",
+      "errorTitle": "图谱请求失败",
+      "errorDescription": "最新一次图谱请求未成功完成。"
+    },
+    "workbench": {
+      "summary": {
+        "draftStatus": "草稿",
+        "appliedStatus": "已应用",
+        "version": "版本 {{queryVersion}}",
+        "scope": "范围 {{label}} · 深度{{maxDepth}} · 节点{{maxNodes}}",
+        "result": "结果 {{nodeCount}} 个节点 / {{edgeCount}} 条边",
+        "activeGroups": "已激活分组 {{activeGroups}}"
+      },
+      "filter": {
+        "title": "筛选器",
+        "sections": {
+          "nodeFilters": "节点筛选",
+          "edgeFilters": "边筛选",
+          "scopeFilters": "范围筛选",
+          "sourceFilters": "来源筛选",
+          "viewControls": "视图控制"
+        },
+        "fields": {
+          "entityTypes": "实体类型",
+          "nameQuery": "名称查询",
+          "descriptionQuery": "描述查询",
+          "degreeMin": "最小度数",
+          "degreeMax": "最大度数",
+          "isolatedOnly": "仅孤立节点",
+          "relationTypes": "关系类型",
+          "keywordQuery": "关键词查询",
+          "weightMin": "最小权重",
+          "weightMax": "最大权重",
+          "sourceEntityTypes": "源实体类型",
+          "targetEntityTypes": "目标实体类型",
+          "startLabel": "起始标签",
+          "maxDepth": "最大深度",
+          "maxNodes": "最大节点数",
+          "direction": "检索方向",
+          "onlyMatchedNeighborhood": "仅匹配邻域",
+          "sourceIdQuery": "来源 ID 查询",
+          "filePaths": "文件路径",
+          "timeFrom": "起始时间",
+          "timeTo": "结束时间",
+          "showNodesOnly": "仅显示节点",
+          "showEdgesOnly": "仅显示边",
+          "hideLowWeightEdges": "隐藏低权重边",
+          "hideEmptyDescription": "隐藏空描述",
+          "highlightMatches": "高亮匹配项"
+        },
+        "placeholders": {
+          "entityTypes": "PERSON, ORGANIZATION",
+          "searchEntityTypes": "搜索实体类型...",
+          "relationTypes": "owns, partner_of",
+          "startLabel": "* / Tesla",
+          "searchStartLabel": "搜索标签，或直接输入自定义标签...",
+          "filePaths": "/inputs/a.md, /inputs/b.md"
+        },
+        "messages": {
+          "noEntityTypeResults": "未找到匹配的实体类型。",
+          "noLabelResults": "未找到匹配的标签。"
+        },
+        "direction": {
+          "both": "双向",
+          "outbound": "下级",
+          "inbound": "上级"
+        },
+        "actions": {
+          "collapse": "收起筛选器",
+          "expand": "展开筛选器",
+          "removeSelection": "移除 {{value}}",
+          "apply": "应用",
+          "reset": "重置"
+        }
+      },
+      "actionInspector": {
+        "title": "操作检查器",
+        "description": "无需离开工作台即可检查、修改并校验图对象。",
+        "clearError": "清除",
+        "inspectHint": "查看面板固定在上方，创建、删除、合并按需展开。",
+        "actions": {
+          "collapse": "收起操作检查器",
+          "expand": "展开操作检查器"
+        },
+        "tabs": {
+          "inspect": "查看",
+          "create": "创建",
+          "delete": "删除",
+          "merge": "合并"
+        }
+      },
+      "createNode": {
+        "title": "创建节点",
+        "description": "最小载荷：实体名称 + 描述。",
+        "fields": {
+          "entityName": "实体名称",
+          "entityType": "类型",
+          "description": "描述"
+        },
+        "placeholders": {
+          "entityName": "Tesla",
+          "entityType": "选择已有实体类型",
+          "description": "电动汽车制造商"
+        },
+        "errors": {
+          "required": "实体名称和描述为必填项。",
+          "createFailed": "创建节点失败"
+        },
+        "actions": {
+          "creating": "创建中...",
+          "create": "创建节点"
+        },
+        "messages": {
+          "created": "实体“{{entity}}”已创建。"
+        }
+      },
+      "createRelation": {
+        "title": "创建关系",
+        "description": "源/目标默认优先使用当前选中项，也可手动覆盖。",
+        "fields": {
+          "source": "源",
+          "target": "目标",
+          "description": "描述",
+          "keywords": "关键词",
+          "weight": "权重"
+        },
+        "placeholders": {
+          "source": "Elon Musk",
+          "target": "Tesla",
+          "searchEntity": "搜索实体...",
+          "description": "Elon Musk works for Tesla",
+          "keywords": "works_for"
+        },
+        "errors": {
+          "required": "源实体和目标实体为必填项。",
+          "sameEntity": "源实体和目标实体不能相同。",
+          "createFailed": "创建关系失败"
+        },
+        "actions": {
+          "creating": "创建中...",
+          "create": "创建关系"
+        },
+        "messages": {
+          "created": "关系“{{source}} -> {{target}}”已创建。",
+          "noEntityResults": "未找到匹配的实体。"
+        }
+      },
+      "deleteObject": {
+        "title": "删除当前选择",
+        "fields": {
+          "entity": "实体",
+          "description": "描述",
+          "source": "源实体",
+          "target": "目标实体",
+          "summary": "摘要"
+        },
+        "confirmation": {
+          "emptySelection": "请先选择节点或关系。",
+          "node": "你将删除实体“{{entity}}”。相关关系也会被一并删除。",
+          "relationWithSummary": "你将删除关系“{{source}} -> {{target}}”（{{summary}}）。",
+          "relation": "你将删除关系“{{source}} -> {{target}}”。"
+        },
+        "dialog": {
+          "emptyTitle": "没有可删除的对象",
+          "nodeTitle": "删除实体“{{entity}}”",
+          "relationTitle": "删除关系“{{source}} -> {{target}}”"
+        },
+        "errors": {
+          "deleteFailed": "删除失败"
+        },
+        "actions": {
+          "cancel": "取消",
+          "deleting": "删除中...",
+          "delete": "删除",
+          "confirmDelete": "确认删除"
+        },
+        "messages": {
+          "entityDeleted": "实体“{{entity}}”已删除。",
+          "relationDeleted": "关系“{{source}} -> {{target}}”已删除。"
+        }
+      },
+      "merge": {
+        "manual": {
+          "title": "手动合并",
+          "description": "填写源实体和目标实体后提交合并。",
+          "fields": {
+            "sourceEntities": "源实体",
+            "targetEntity": "目标实体"
+          },
+          "placeholders": {
+            "sourceEntities": "Elon Msk, Ellon Musk",
+            "targetEntity": "Elon Musk"
+          },
+          "help": {
+            "sourceEntities": "支持逗号或换行分隔，系统会自动排除目标实体。"
+          },
+          "actions": {
+            "focusSource": "定位第一个源实体：{{entity}}",
+            "focusSourceEmpty": "请先填写源实体",
+            "focusTarget": "定位目标实体：{{entity}}",
+            "focusTargetEmpty": "请先填写目标实体"
+          },
+          "preview": "草稿预览：[{{sourceEntities}}] -> {{targetEntity}}",
+          "targetRequired": "（需填写目标实体）"
+        },
+        "errors": {
+          "loadSuggestionsFailed": "加载合并建议失败",
+          "targetRequired": "目标实体为必填项。",
+          "sourceRequired": "至少需要一个源实体。",
+          "mergeFailed": "实体合并失败"
+        },
+        "actions": {
+          "loading": "加载中...",
+          "loadSuggestions": "加载建议",
+          "merging": "合并中...",
+          "mergeEntities": "合并实体"
+        },
+        "options": {
+          "useLlm": {
+            "label": "启用 LLM 重排",
+            "description": "让 LLM 对启发式候选进一步判断和排序；如果 LLM 不可用或调用失败，系统会自动回退到启发式结果。"
+          }
+        },
+        "messages": {
+          "noSuggestions": "当前范围内未找到合并建议。",
+          "merged": "已将 {{count}} 个源实体合并到“{{target}}”。",
+          "llmFallback": "LLM 重排当前不可用，已自动回退为启发式建议。原因：{{reason}}",
+          "llmFallbackGeneric": "LLM 重排当前不可用，已自动回退为启发式建议。"
+        },
+        "suggestions": {
+          "title": "合并建议",
+          "description": "基于当前查询范围的候选列表，点击导入可自动回填表单。",
+          "loading": "正在加载建议...",
+          "empty": "尚未加载候选项。点击“加载建议”获取候选。",
+          "score": "评分：{{score}}",
+          "evidence": "证据：",
+          "noEvidence": "未提供明确证据。",
+          "reasonScore": "{{reason}}（{{score}}）",
+          "reasonCodes": {
+            "name_similarity": "名称相似",
+            "shared_neighbors": "共享邻居",
+            "shared_sources": "共享来源",
+            "shared_file_paths": "共享文件路径",
+            "same_entity_type": "实体类型一致",
+            "description_overlap": "描述重叠",
+            "alias_overlap": "别名重叠"
+          },
+          "actions": {
+            "import": "导入",
+            "imported": "已导入"
+          }
+        },
+        "followUp": {
+          "title": "合并完成：{{sourceEntities}} -> {{targetEntity}}",
+          "description": "后续操作：聚焦目标实体、刷新结果图谱，或继续审查。",
+          "actions": {
+            "focusTarget": "聚焦合并目标",
+            "refreshResults": "刷新结果",
+            "continueReview": "继续审查"
+          }
+        }
+      }
+    }
   },
   "retrievePanel": {
     "chatMessage": {
@@ -412,7 +751,19 @@
       "placeholder": "输入查询内容 (支持模式前缀: /<Query Mode>)",
       "error": "错误：获取响应失败",
       "queryModeError": "仅支持以下查询模式：{{modes}}",
-      "queryModePrefixInvalid": "无效的查询模式前缀。请使用：/<模式> [空格] 查询内容"
+      "queryModePrefixInvalid": "无效的查询模式前缀。请使用：/<模式> [空格] 查询内容",
+      "stop": "停止",
+      "queryTooShort": "查询至少需要 2 个字符",
+      "references": "{{count}} 个引用",
+      "showSnippet": "显示片段",
+      "showSnippets": "显示 {{count}} 个片段",
+      "retrievalData": "检索数据",
+      "loadingRetrievalData": "正在加载检索数据...",
+      "retrievalDataError": "检索数据加载失败",
+      "retryLoadData": "重试",
+      "resultCount": "显示 {{shown}} / {{total}}",
+      "loadMore": "加载更多",
+      "noData": "无 {{tab}} 数据"
     },
     "querySettings": {
       "parametersTitle": "参数",
@@ -459,7 +810,27 @@
       "userPromptTooltip": "向LLM提供额外的响应要求（与查询内容无关，仅用于处理输出）。",
       "userPromptPlaceholder": "输入自定义提示词（可选）",
       "enableRerank": "启用重排",
-      "enableRerankTooltip": "为检索到的文本块启用重排。如果为True但未配置重排模型，将发出警告。默认为True。"
+      "enableRerankTooltip": "为检索到的文本块启用重排。如果为True但未配置重排模型，将发出警告。默认为True。",
+      "maxEntityTokensPlaceholder": "最大实体 Token 数",
+      "maxRelationTokensPlaceholder": "最大关系 Token 数",
+      "maxTotalTokensPlaceholder": "最大总 Token 数",
+      "includeReferences": "包含引用",
+      "includeReferencesTooltip": "在回答中返回引用条目",
+      "includeChunkContent": "包含文本块内容",
+      "includeChunkContentTooltip": "在引用中包含实际文本块内容，用于调试和评估",
+      "promptVersionLabel": "提示词版本",
+      "promptVersionTooltip": "选择当前生效的 retrieval 提示词、提示词管理中已保存的版本，或仅对本次请求生效的自定义草稿。",
+      "promptVersionModes": {
+        "active": "生效中",
+        "saved": "已保存",
+        "custom": "草稿"
+      },
+      "savedVersionPlaceholder": "选择已保存版本",
+      "promptOverrides": {
+        "disabledHint": "此服务器未启用提示词覆盖",
+        "bypassHint": "直通模式下不可使用提示词覆盖",
+        "savedAsVersion": "已保存为版本: {{name}}"
+      }
     }
   },
   "apiSite": {
@@ -479,5 +850,89 @@
     "prevPage": "上一页",
     "nextPage": "下一页",
     "lastPage": "末页"
+  },
+  "workspaceManager": {
+    "title": "工作区管理",
+    "description": "为当前服务创建、切换并管理工作区。",
+    "readyTitle": "工作区",
+    "deletedTitle": "已删除 / 处理中",
+    "createTitle": "创建工作区",
+    "createDescription": "设置稳定的工作区标识、易读的显示名称，以及需要共享的可见性。",
+    "loading": "加载中...",
+    "refresh": "刷新",
+    "create": "创建工作区",
+    "createSuccess": "工作区已创建",
+    "loadStats": "加载统计",
+    "statsLoadFailed": "加载 {{workspace}} 统计失败",
+    "readyDescription": "快速查看工作区概览，并在不同工作区之间切换。",
+    "deletedDescription": "跟踪已删除工作区、恢复操作，以及仍在运行的硬删除任务。",
+    "workspacePlaceholder": "workspace_name",
+    "workspaceLabel": "工作区标识",
+    "workspaceHint": "仅允许字母、数字和下划线。",
+    "invalidWorkspace": "工作区标识仅允许字母、数字和下划线。",
+    "displayNamePlaceholder": "显示名称",
+    "displayNameLabel": "显示名称",
+    "descriptionPlaceholder": "描述",
+    "descriptionLabel": "描述",
+    "visibilityLabel": "可见性",
+    "private": "私有",
+    "public": "公开",
+    "current": "当前",
+    "switch": "切换",
+    "softDelete": "软删除",
+    "restore": "恢复",
+    "hardDelete": "硬删除",
+    "defaultWorkspace": "默认",
+    "guestHint": "需要先登录，才能创建或修改工作区。",
+    "guestCreateHint": "当前将以 guest 身份创建工作区。",
+    "loginRequiredHint": "请先登录后再创建工作区。",
+    "emptyReady": "当前还没有可用工作区。",
+    "emptyDeleted": "当前没有已删除或处理中的工作区。",
+    "softDeleteConfirm": "确定软删除 {{workspace}} 吗？",
+    "hardDeletePrompt": "请输入 {{workspace}} 以确认硬删除",
+    "summary": {
+      "total": "工作区总数",
+      "current": "当前工作区",
+      "pending": "待处理变更",
+      "none": "未选择"
+    },
+    "stats": {
+      "docs": "{{count}} 篇文档",
+      "promptVersions": "{{count}} 个提示词版本",
+      "capabilities": "能力说明"
+    },
+    "operation": {
+      "state": "状态",
+      "progress": "进度"
+    },
+    "operationStatus": {
+      "idle": "空闲",
+      "running": "运行中",
+      "failed": "失败",
+      "completed": "已完成"
+    },
+    "workspaceStatus": {
+      "creating": "创建中",
+      "create_failed": "创建失败",
+      "soft_deleted": "已软删除",
+      "hard_deleting": "硬删除中",
+      "delete_failed": "删除失败",
+      "ready": "可用"
+    },
+    "capabilityLabels": {
+      "document_count": "文档数量",
+      "entity_count": "实体数量",
+      "relation_count": "关系数量",
+      "chunk_count": "分块数量",
+      "storage_size_bytes": "存储大小",
+      "prompt_version_count": "提示词版本数"
+    },
+    "capabilityStatus": {
+      "available": "可用",
+      "unsupported_by_backend": "当前后端不支持",
+      "not_loaded": "未加载",
+      "temporarily_unavailable": "暂时不可用"
+    },
+    "softDeleteDisabledCurrent": "无法软删除当前工作区"
   }
 }

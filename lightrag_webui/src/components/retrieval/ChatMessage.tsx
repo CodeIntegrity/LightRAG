@@ -39,6 +39,10 @@ export const ChatMessage = ({
 
   const { thinkingContent, displayContent, thinkingTime, isThinking } = message
 
+  const mdRole: 'user' | 'assistant' = (message.role === 'user'
+    ? 'user'
+    : 'assistant') as 'user' | 'assistant'
+
   const finalThinkingContent = thinkingContent
   const finalDisplayContent =
     message.role === 'user'
@@ -111,7 +115,7 @@ export const ChatMessage = ({
                 >
                   <ChatMessageMarkdown
                     content={finalThinkingContent}
-                    messageRole={message.role}
+                    messageRole={mdRole}
                     mermaidRendered={message.mermaidRendered ?? false}
                     latexRendered={message.latexRendered ?? true}
                     variant="thinking"
@@ -138,7 +142,7 @@ export const ChatMessage = ({
           >
             <ChatMessageMarkdown
               content={finalDisplayContent}
-              messageRole={message.role}
+              messageRole={mdRole}
               mermaidRendered={message.mermaidRendered ?? false}
               latexRendered={message.latexRendered ?? true}
               variant="main"

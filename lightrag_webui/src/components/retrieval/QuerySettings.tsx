@@ -541,7 +541,7 @@ export default function QuerySettings() {
                   className="mr-10 cursor-pointer"
                   id="enable_rerank"
                   checked={querySettings.enable_rerank}
-                  onCheckedChange={(checked) => handleChange({ enable_rerank: checked })}
+                  onCheckedChange={(checked) => handleChange({ enable_rerank: checked === true })}
                 />
               </div>
 
@@ -562,7 +562,7 @@ export default function QuerySettings() {
                   className="mr-10 cursor-pointer"
                   id="only_need_context"
                   checked={querySettings.only_need_context}
-                  onCheckedChange={(checked) => handleChange({ only_need_context: checked })}
+                  onCheckedChange={(checked) => handleChange({ only_need_context: checked === true })}
                 />
               </div>
 
@@ -583,7 +583,7 @@ export default function QuerySettings() {
                   className="mr-10 cursor-pointer"
                   id="only_need_prompt"
                   checked={querySettings.only_need_prompt}
-                  onCheckedChange={(checked) => handleChange({ only_need_prompt: checked })}
+                  onCheckedChange={(checked) => handleChange({ only_need_prompt: checked === true })}
                 />
               </div>
 
@@ -605,7 +605,7 @@ export default function QuerySettings() {
                   id="stream"
                   checked={querySettings.stream}
                   disabled={streamLocked}
-                  onCheckedChange={(checked) => handleChange({ stream: checked })}
+                  onCheckedChange={(checked) => handleChange({ stream: checked === true })}
                 />
               </div>
 
@@ -626,7 +626,7 @@ export default function QuerySettings() {
                   className="mr-10 cursor-pointer"
                   id="include_references"
                   checked={querySettings.include_references}
-                  onCheckedChange={(checked) => handleChange({ include_references: checked })}
+                  onCheckedChange={(checked) => handleChange({ include_references: checked === true })}
                 />
               </div>
 
@@ -648,7 +648,7 @@ export default function QuerySettings() {
                   id="include_chunk_content"
                   checked={querySettings.include_chunk_content}
                   disabled={!querySettings.include_references}
-                  onCheckedChange={(checked) => handleChange({ include_chunk_content: checked })}
+                  onCheckedChange={(checked) => handleChange({ include_chunk_content: checked === true })}
                 />
               </div>
             </>

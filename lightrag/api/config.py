@@ -508,6 +508,10 @@ def parse_args() -> argparse.Namespace:
     # Get MAX_GRAPH_NODES from environment
     args.max_graph_nodes = get_env_value("MAX_GRAPH_NODES", 10000, int)
 
+    args.document_loading_engine = get_env_value(
+        "DOCUMENT_LOADING_ENGINE", "DOCLING"
+    )
+
     # Handle openai-ollama special case
     if args.llm_binding == "openai-ollama":
         args.llm_binding = "openai"

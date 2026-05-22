@@ -123,6 +123,7 @@ from lightrag.utils import (
     sanitize_text_for_encoding,
     check_storage_env_vars,
     generate_track_id,
+    get_content_summary,
     convert_to_user_format,
     logger,
     make_relation_vdb_ids,
@@ -1284,6 +1285,17 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         text = await self.chunk_entity_relation_graph.get_all_labels()
         return text
 
+    async def get_graph_entity_types(self):
+        """Get all distinct entity types from the knowledge graph.
+
+        Triggers implicit storage initialization if needed (same as test expectation).
+
+        Returns:
+            list[str]: Sorted list of unique entity types
+        """
+        await self.initialize_storages()
+        return await self.chunk_entity_relation_graph.get_all_entity_types()
+
     async def get_knowledge_graph(
         self,
         node_label: str,
@@ -1404,22 +1416,51 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         full_text: str,
         text_chunks: list[str],
         doc_id: str | list[str] | None = None,
+        file_path: str | None = None,
     ) -> None:
         loop = always_get_an_event_loop()
         loop.run_until_complete(
-            self.ainsert_custom_chunks(full_text, text_chunks, doc_id)
+            self.ainsert_custom_chunks(full_text, text_chunks, doc_id, file_path)
         )
+
+    def _validate_custom_chunks_against_embedding_limit(
+        self, inserting_chunks: dict[str, Any]
+    ) -> None:
+        embedding_token_limit = self.embedding_token_limit
+        if embedding_token_limit is None:
+            return
+
+        for chunk_data in inserting_chunks.values():
+            token_count = chunk_data["tokens"]
+            if token_count <= embedding_token_limit:
+                continue
+
+            raise ValueError(
+                "Custom chunk at chunk index "
+                f"{chunk_data['chunk_order_index']} exceeds embedding token limit "
+                f"({token_count} > {embedding_token_limit})"
+            )
 
     # TODO: deprecated, use ainsert instead
     async def ainsert_custom_chunks(
-        self, full_text: str, text_chunks: list[str], doc_id: str | None = None
+        self,
+        full_text: str,
+        text_chunks: list[str],
+        doc_id: str | None = None,
+        file_path: str | None = None,
     ) -> None:
         update_storage = False
+        doc_status_initialized = False
+        doc_status_payload: dict[str, Any] | None = None
         try:
+            await self.initialize_storages()
+
             # Clean input texts
             full_text = sanitize_text_for_encoding(full_text)
             text_chunks = [sanitize_text_for_encoding(chunk) for chunk in text_chunks]
-            file_path = normalize_document_file_path("")
+            file_path = file_path.strip() if isinstance(file_path, str) else ""
+            track_id = generate_track_id("insert")
+            created_at_iso = datetime.now(timezone.utc).isoformat()
 
             # Process cleaned texts
             if doc_id is None:
@@ -1458,13 +1499,79 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                 logger.warning("All chunks are already in the storage.")
                 return
 
-            tasks = [
+            doc_status_payload = {
+                "status": DocStatus.PROCESSING,
+                "content_summary": get_content_summary(full_text),
+                "content_length": len(full_text),
+                "chunks_count": len(inserting_chunks),
+                "chunks_list": list(inserting_chunks.keys()),
+                "created_at": created_at_iso,
+                "updated_at": created_at_iso,
+                "file_path": file_path,
+                "track_id": track_id,
+                "metadata": {
+                    "source": "custom_chunks",
+                },
+            }
+            await self.doc_status.upsert({doc_key: doc_status_payload})
+            doc_status_initialized = True
+
+            self._validate_custom_chunks_against_embedding_limit(inserting_chunks)
+
+            await asyncio.gather(
                 self.chunks_vdb.upsert(inserting_chunks),
-                self._process_extract_entities(inserting_chunks),
                 self.full_docs.upsert(new_docs),
                 self.text_chunks.upsert(inserting_chunks),
-            ]
-            await asyncio.gather(*tasks)
+            )
+            chunk_results = await self._process_extract_entities(inserting_chunks)
+            merge_pipeline_status = {
+                "latest_message": "",
+                "history_messages": [],
+                "cancellation_requested": False,
+            }
+            merge_pipeline_status_lock = asyncio.Lock()
+            await merge_nodes_and_edges(
+                chunk_results=chunk_results,
+                knowledge_graph_inst=self.chunk_entity_relation_graph,
+                entity_vdb=self.entities_vdb,
+                relationships_vdb=self.relationships_vdb,
+                global_config=self._build_global_config(),
+                full_entities_storage=self.full_entities,
+                full_relations_storage=self.full_relations,
+                doc_id=doc_key,
+                pipeline_status=merge_pipeline_status,
+                pipeline_status_lock=merge_pipeline_status_lock,
+                llm_response_cache=self.llm_response_cache,
+                entity_chunks_storage=self.entity_chunks,
+                relation_chunks_storage=self.relation_chunks,
+                current_file_number=1,
+                total_files=1,
+                file_path=file_path or "unknown_source",
+            )
+
+            await self.doc_status.upsert(
+                {
+                    doc_key: {
+                        **doc_status_payload,
+                        "status": DocStatus.PROCESSED,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                }
+            )
+
+        except Exception:
+            if doc_status_initialized and doc_status_payload is not None:
+                await self.doc_status.upsert(
+                    {
+                        doc_key: {
+                            **doc_status_payload,
+                            "status": DocStatus.FAILED,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                            "error_msg": traceback.format_exc(limit=1).strip(),
+                        }
+                    }
+                )
+            raise
 
         finally:
             if update_storage:
@@ -1704,7 +1811,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                             knowledge_graph_inst=self.chunk_entity_relation_graph,
                             entity_vdb=self.entities_vdb,
                             relationships_vdb=self.relationships_vdb,
-                            global_config=self._build_runtime_global_config(),
+                            global_config=self._build_global_config(),
                             full_entities_storage=self.full_entities,
                             full_relations_storage=self.full_relations,
                             doc_id=doc_id,

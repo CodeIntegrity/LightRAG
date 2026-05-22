@@ -1,4 +1,5 @@
 import type MiniSearch from 'minisearch'
+import type { RawGraph } from '@/stores/graph'
 import { createMergeEntityNavigationPlan } from '@/utils/mergeEntity'
 
 type SearchableGraph = {
@@ -11,13 +12,7 @@ type SearchResultLike = {
   id: string
 }
 
-type SearchableRawGraph = {
-  getNode: (nodeId: string) => { id: string } | undefined
-  nodes: Array<{
-    id: string
-    properties?: Record<string, unknown>
-  }>
-}
+type SearchableRawGraph = Pick<RawGraph, 'getNode' | 'nodes'>
 
 export const graphSearchMessageId = '__message_item'
 

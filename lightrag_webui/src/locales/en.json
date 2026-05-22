@@ -17,7 +17,9 @@
     "themeToggle": {
       "switchToLight": "Switch to light theme",
       "switchToDark": "Switch to dark theme"
-    }
+    },
+    "promptManagement": "Prompt Management",
+    "login": "Login"
   },
   "login": {
     "description": "Please enter your account and password to log in to the system",
@@ -31,7 +33,10 @@
     "errorEmptyFields": "Please enter your username and password",
     "errorInvalidCredentials": "Login failed, please check username and password",
     "authDisabled": "Authentication is disabled. Using login free mode.",
-    "guestMode": "Login Free"
+    "guestMode": "Login Free",
+    "errorGuestLogin": "Guest login is currently unavailable",
+    "guestLoginEntry": "Continue as guest",
+    "guestSuccess": "Guest access enabled."
   },
   "common": {
     "cancel": "Cancel",
@@ -76,7 +81,8 @@
       "failed": "Delete Documents Failed:\n{{message}}",
       "error": "Delete Documents Failed:\n{{error}}",
       "busy": "Pipeline is busy, please try again later",
-      "notAllowed": "No permission to perform this operation"
+      "notAllowed": "No permission to perform this operation",
+      "deleting": "Deleting..."
     },
     "selectDocuments": {
       "selectCurrentPage": "Select Current Page ({{count}})",
@@ -110,7 +116,8 @@
         "dragAndDrop": "Drag and drop files here, or click to select files",
         "removeFile": "Remove file",
         "uploadDescription": "You can upload {{isMultiple ? 'multiple' : count}} files (up to {{maxSize}} each)",
-        "duplicateFile": "File name already exists in server cache"
+        "duplicateFile": "File name already exists in server cache",
+        "invalidFileName": "File name contains invalid characters"
       }
     },
     "documentManager": {
@@ -129,6 +136,7 @@
         "fileName": "File Name",
         "summary": "Summary",
         "status": "Status",
+        "source": "Source",
         "length": "Length",
         "chunks": "Chunks",
         "created": "Created",
@@ -164,6 +172,9 @@
       "hideButton": "Hide",
       "showFileNameTooltip": "Show file name",
       "hideFileNameTooltip": "Hide file name",
+      "source": {
+        "customChunks": "Custom Chunks"
+      },
       "details": {
         "title": "Status Details",
         "openTooltip": "View status details",
@@ -171,7 +182,40 @@
         "copyButton": "Copy",
         "copyTooltip": "Copy status details",
         "copySuccess": "Status details copied",
-        "copyFailed": "Failed to copy status details"
+        "copyFailed": "Failed to copy status details",
+        "copyChunksTooltip": "Copy chunks",
+        "copyChunksSuccess": "Chunk content copied",
+        "copyChunksFailed": "Failed to copy chunk content",
+        "copyChunkTooltip": "Copy chunk text",
+        "copyChunkSuccess": "Chunk text copied",
+        "copyChunkFailed": "Failed to copy chunk text",
+        "loadingChunks": "Loading chunks...",
+        "noChunks": "No chunk content available.",
+        "noDetails": "No status details available.",
+        "chunksLoadFailed": "Failed to load document chunks\n{{error}}",
+        "chunkLabel": "Chunk {{index}}",
+        "tabs": {
+          "details": "Details",
+          "chunks": "Chunks"
+        }
+      },
+      "cancelPipelineButton": "Cancel All Pipelines",
+      "cancelPipelineTooltip": "Request cancellation for all active document pipeline work",
+      "customChunksRebuild": {
+        "button": "Rebuild Graphs",
+        "tooltip": "Rebuild graphs",
+        "confirmTitle": "Confirm graph rebuild",
+        "confirmSelected": "This will rebuild graphs for {{count}} selected documents",
+        "confirmAll": "This will rebuild all graphs",
+        "confirmButton": "Confirm Rebuild",
+        "started": "Started rebuilding all graphs",
+        "startedSelected": "Started rebuilding graphs for {{count}} selected documents",
+        "busy": "Another pipeline job is already running",
+        "failed": "Failed to rebuild graphs\n{{error}}"
+      },
+      "legacyFallback": {
+        "title": "Compatibility mode is active",
+        "description": "{{message}}"
       }
     },
     "pipelineStatus": {
@@ -196,7 +240,8 @@
       "cancelNotBusy": "Pipeline is not running, no need to cancel",
       "errors": {
         "fetchFailed": "Failed to fetch pipeline status\n{{error}}"
-      }
+      },
+      "noActiveJob": "No active pipeline job"
     }
   },
   "graphPanel": {
@@ -257,7 +302,20 @@
         "apiKey": "API Key",
         "enterYourAPIkey": "Enter your API key",
         "save": "Save",
-        "refreshLayout": "Refresh Layout"
+        "refreshLayout": "Refresh Layout",
+        "graphLabelFontSize": "Node/Edge Label Font Size",
+        "searchLinkedDrag": "Search Linked Drag",
+        "showDirectionalArrows": "Show Directional Arrows",
+        "layoutRepulsion": "Layout Repulsion",
+        "layoutGravity": "Layout Gravity",
+        "layoutMargin": "Layout Margin",
+        "layoutAttraction": "Layout Attraction",
+        "layoutInertia": "Layout Inertia",
+        "layoutMaxMove": "Layout Max Move",
+        "layoutExpansion": "Layout Expansion",
+        "layoutGridSize": "Layout Grid Size",
+        "layoutRatio": "Layout Ratio",
+        "layoutSpeed": "Layout Speed"
       },
       "zoomControl": {
         "zoomIn": "Zoom In",
@@ -285,6 +343,12 @@
       },
       "legendControl": {
         "toggleLegend": "Toggle Legend"
+      },
+      "exportImageControl": {
+        "export": "Export Image",
+        "exporting": "Exporting...",
+        "exportSuccess": "Image exported successfully",
+        "exportFailed": "Failed to export image"
       }
     },
     "statusIndicator": {
@@ -316,7 +380,9 @@
       "rerankerBindingHost": "Reranker Endpoint",
       "rerankerModel": "Reranker Model",
       "lockStatus": "Lock Status",
-      "threshold": "Threshold"
+      "threshold": "Threshold",
+      "maxParallelInsert": "Concurrent Doc Processing",
+      "maxGraphNodes": "Max Graph Nodes"
     },
     "propertiesView": {
       "editProperty": "Edit {{property}}",
@@ -363,8 +429,10 @@
           "Neighbour": "Neigh",
           "file_path": "File",
           "keywords": "Keys",
-          "weight": "Weight"
-        }
+          "weight": "Weight",
+          "name": "Name"
+        },
+        "name": "Name"
       },
       "edge": {
         "title": "Relationship",
@@ -373,7 +441,8 @@
         "source": "Source",
         "target": "Target",
         "properties": "Properties"
-      }
+      },
+      "emptySelection": "Select a node or relation to inspect."
     },
     "search": {
       "placeholder": "Search nodes in page...",
@@ -389,7 +458,277 @@
       "refreshCurrentLabelTooltip": "Refresh current page graph data",
       "refreshingTooltip": "Refreshing data..."
     },
-    "emptyGraph": "Empty(Try Reload Again)"
+    "emptyGraph": "Empty(Try Reload Again)",
+    "loadingGraph": "Loading graph data...",
+    "switchingTheme": "Switching theme...",
+    "overlay": {
+      "loadingTitle": "Preparing graph",
+      "emptyTitle": "No graph data",
+      "emptyDescription": "Adjust the scope or refresh the graph to load results.",
+      "authErrorTitle": "Authentication required",
+      "authErrorDescription": "Sign in again to load graph data.",
+      "errorTitle": "Graph request failed",
+      "errorDescription": "The latest graph request did not complete."
+    },
+    "workbench": {
+      "summary": {
+        "draftStatus": "Draft",
+        "appliedStatus": "Applied",
+        "version": "Version {{queryVersion}}",
+        "scope": "Scope {{label}} · D{{maxDepth}} · N{{maxNodes}}",
+        "result": "Result {{nodeCount}} nodes / {{edgeCount}} edges",
+        "activeGroups": "Active Groups {{activeGroups}}"
+      },
+      "filter": {
+        "title": "Filters",
+        "sections": {
+          "nodeFilters": "Node Filters",
+          "edgeFilters": "Edge Filters",
+          "scopeFilters": "Scope Filters",
+          "sourceFilters": "Source Filters",
+          "viewControls": "View Controls"
+        },
+        "fields": {
+          "entityTypes": "Entity Types",
+          "nameQuery": "Name Query",
+          "descriptionQuery": "Description Query",
+          "degreeMin": "Degree Min",
+          "degreeMax": "Degree Max",
+          "isolatedOnly": "Isolated Only",
+          "relationTypes": "Relation Types",
+          "keywordQuery": "Keyword Query",
+          "weightMin": "Weight Min",
+          "weightMax": "Weight Max",
+          "sourceEntityTypes": "Source Entity Types",
+          "targetEntityTypes": "Target Entity Types",
+          "startLabel": "Start Label",
+          "maxDepth": "Max Depth",
+          "maxNodes": "Max Nodes",
+          "direction": "Traversal Direction",
+          "onlyMatchedNeighborhood": "Only Matched Neighborhood",
+          "sourceIdQuery": "Source ID Query",
+          "filePaths": "File Paths",
+          "timeFrom": "Time From",
+          "timeTo": "Time To",
+          "showNodesOnly": "Show Nodes Only",
+          "showEdgesOnly": "Show Edges Only",
+          "hideLowWeightEdges": "Hide Low Weight Edges",
+          "hideEmptyDescription": "Hide Empty Description",
+          "highlightMatches": "Highlight Matches"
+        },
+        "placeholders": {
+          "entityTypes": "PERSON, ORGANIZATION",
+          "searchEntityTypes": "Search entity types...",
+          "relationTypes": "owns, partner_of",
+          "startLabel": "* / Tesla",
+          "searchStartLabel": "Search labels or enter a custom label...",
+          "filePaths": "/inputs/a.md, /inputs/b.md"
+        },
+        "messages": {
+          "noEntityTypeResults": "No matching entity types found.",
+          "noLabelResults": "No matching labels found."
+        },
+        "direction": {
+          "both": "Both",
+          "outbound": "Downstream",
+          "inbound": "Upstream"
+        },
+        "actions": {
+          "collapse": "Collapse Filters",
+          "expand": "Expand Filters",
+          "removeSelection": "Remove {{value}}",
+          "apply": "Apply",
+          "reset": "Reset"
+        }
+      },
+      "actionInspector": {
+        "title": "Action Inspector",
+        "description": "Inspect, mutate, and validate graph objects without leaving this workbench.",
+        "clearError": "Clear",
+        "inspectHint": "Inspect stays pinned above. Open create, delete, or merge only when needed.",
+        "actions": {
+          "collapse": "Collapse inspector",
+          "expand": "Expand inspector"
+        },
+        "tabs": {
+          "inspect": "Inspect",
+          "create": "Create",
+          "delete": "Delete",
+          "merge": "Merge"
+        }
+      },
+      "createNode": {
+        "title": "Create Node",
+        "description": "Minimal payload: entity name + description.",
+        "fields": {
+          "entityName": "Entity Name",
+          "entityType": "Type",
+          "description": "Description"
+        },
+        "placeholders": {
+          "entityName": "Tesla",
+          "entityType": "Select an existing entity type",
+          "description": "Electric vehicle manufacturer"
+        },
+        "errors": {
+          "required": "Entity name and description are required.",
+          "createFailed": "Create node failed"
+        },
+        "actions": {
+          "creating": "Creating...",
+          "create": "Create Node"
+        },
+        "messages": {
+          "created": "Entity \"{{entity}}\" created."
+        }
+      },
+      "createRelation": {
+        "title": "Create Relation",
+        "description": "Source/target prefer current selection and can be overridden manually.",
+        "fields": {
+          "source": "Source",
+          "target": "Target",
+          "description": "Description",
+          "keywords": "Keywords",
+          "weight": "Weight"
+        },
+        "placeholders": {
+          "source": "Elon Musk",
+          "target": "Tesla",
+          "searchEntity": "Search an entity...",
+          "description": "Elon Musk works for Tesla",
+          "keywords": "works_for"
+        },
+        "errors": {
+          "required": "Source and target entity are required.",
+          "sameEntity": "Source and target cannot be the same entity.",
+          "createFailed": "Create relation failed"
+        },
+        "actions": {
+          "creating": "Creating...",
+          "create": "Create Relation"
+        },
+        "messages": {
+          "created": "Relation \"{{source}} -> {{target}}\" created.",
+          "noEntityResults": "No matching entities found."
+        }
+      },
+      "deleteObject": {
+        "title": "Delete Selection",
+        "fields": {
+          "entity": "Entity",
+          "description": "Description",
+          "source": "Source",
+          "target": "Target",
+          "summary": "Summary"
+        },
+        "confirmation": {
+          "emptySelection": "Select a node or relation first.",
+          "node": "You are deleting entity \"{{entity}}\". Related relations will also be removed.",
+          "relationWithSummary": "You are deleting relation \"{{source}} -> {{target}}\" ({{summary}}).",
+          "relation": "You are deleting relation \"{{source}} -> {{target}}\"."
+        },
+        "dialog": {
+          "emptyTitle": "Nothing to delete",
+          "nodeTitle": "Delete entity \"{{entity}}\"",
+          "relationTitle": "Delete relation \"{{source}} -> {{target}}\""
+        },
+        "errors": {
+          "deleteFailed": "Delete failed"
+        },
+        "actions": {
+          "cancel": "Cancel",
+          "deleting": "Deleting...",
+          "delete": "Delete",
+          "confirmDelete": "Confirm Delete"
+        },
+        "messages": {
+          "entityDeleted": "Entity \"{{entity}}\" deleted.",
+          "relationDeleted": "Relation \"{{source}} -> {{target}}\" deleted."
+        }
+      },
+      "merge": {
+        "manual": {
+          "title": "Manual Merge",
+          "description": "Provide source entities and one target entity, then submit merge.",
+          "fields": {
+            "sourceEntities": "Source Entities",
+            "targetEntity": "Target Entity"
+          },
+          "placeholders": {
+            "sourceEntities": "Elon Msk, Ellon Musk",
+            "targetEntity": "Elon Musk"
+          },
+          "help": {
+            "sourceEntities": "Comma/newline separated. Target entity will be excluded automatically."
+          },
+          "actions": {
+            "focusSource": "Locate first source entity: {{entity}}",
+            "focusSourceEmpty": "Enter a source entity first",
+            "focusTarget": "Locate target entity: {{entity}}",
+            "focusTargetEmpty": "Enter a target entity first"
+          },
+          "preview": "Draft preview: [{{sourceEntities}}] -> {{targetEntity}}",
+          "targetRequired": "(target required)"
+        },
+        "errors": {
+          "loadSuggestionsFailed": "Load merge suggestions failed",
+          "targetRequired": "Target entity is required.",
+          "sourceRequired": "At least one source entity is required.",
+          "mergeFailed": "Merge entities failed"
+        },
+        "actions": {
+          "loading": "Loading...",
+          "loadSuggestions": "Load Suggestions",
+          "merging": "Merging...",
+          "mergeEntities": "Merge Entities"
+        },
+        "options": {
+          "useLlm": {
+            "label": "Use LLM reranking",
+            "description": "Let the LLM refine heuristic suggestions. If the LLM is unavailable or fails, results automatically fall back to heuristics."
+          }
+        },
+        "messages": {
+          "noSuggestions": "No merge suggestions found for current scope.",
+          "merged": "Merged {{count}} source entities into \"{{target}}\".",
+          "llmFallback": "LLM reranking is unavailable, so heuristic suggestions are shown instead. Reason: {{reason}}",
+          "llmFallbackGeneric": "LLM reranking is unavailable, so heuristic suggestions are shown instead."
+        },
+        "suggestions": {
+          "title": "Merge Suggestions",
+          "description": "Candidate list from current query scope. Import once to prefill merge form.",
+          "loading": "Loading suggestions...",
+          "empty": "No candidates loaded yet. Click \"Load Suggestions\" to fetch candidates.",
+          "score": "Score: {{score}}",
+          "evidence": "Evidence:",
+          "noEvidence": "No explicit evidence provided.",
+          "reasonScore": "{{reason}} ({{score}})",
+          "reasonCodes": {
+            "name_similarity": "Name similarity",
+            "shared_neighbors": "Shared neighbors",
+            "shared_sources": "Shared sources",
+            "shared_file_paths": "Shared file paths",
+            "same_entity_type": "Same entity type",
+            "description_overlap": "Description overlap",
+            "alias_overlap": "Alias overlap"
+          },
+          "actions": {
+            "import": "Import",
+            "imported": "Imported"
+          }
+        },
+        "followUp": {
+          "title": "Merge completed: {{sourceEntities}} -> {{targetEntity}}",
+          "description": "Next actions: focus merged target, refresh result graph, or continue review.",
+          "actions": {
+            "focusTarget": "Focus merged target",
+            "refreshResults": "Refresh results",
+            "continueReview": "Continue review"
+          }
+        }
+      }
+    }
   },
   "retrievePanel": {
     "chatMessage": {
@@ -412,7 +751,21 @@
       "placeholder": "Enter your query (Support prefix: /<Query Mode>)",
       "error": "Error: Failed to get response",
       "queryModeError": "Only supports the following query modes: {{modes}}",
-      "queryModePrefixInvalid": "Invalid query mode prefix. Use: /<mode> [space] your query"
+      "queryModePrefixInvalid": "Invalid query mode prefix. Use: /<mode> [space] your query",
+      "stop": "Stop",
+      "queryTooShort": "Query must be at least 2 characters",
+      "references": "{{count}} references",
+      "references_one": "1 reference",
+      "references_other": "{{count}} references",
+      "showSnippet": "Show snippet",
+      "showSnippets": "Show {{count}} snippets",
+      "retrievalData": "Retrieval Data",
+      "loadingRetrievalData": "Loading retrieval data...",
+      "retrievalDataError": "Failed to load retrieval data",
+      "retryLoadData": "Retry",
+      "resultCount": "Showing {{shown}} / {{total}}",
+      "loadMore": "Load more",
+      "noData": "No {{tab}} data"
     },
     "querySettings": {
       "parametersTitle": "Parameters",
@@ -459,7 +812,27 @@
       "userPromptTooltip": "Provide additional response requirements to the LLM (unrelated to query content, only for output processing).",
       "userPromptPlaceholder": "Enter custom prompt (optional)",
       "enableRerank": "Enable Rerank",
-      "enableRerankTooltip": "Enable reranking for retrieved text chunks. If True but no rerank model is configured, a warning will be issued. Default is True."
+      "enableRerankTooltip": "Enable reranking for retrieved text chunks. If True but no rerank model is configured, a warning will be issued. Default is True.",
+      "maxEntityTokensPlaceholder": "Max entity tokens",
+      "maxRelationTokensPlaceholder": "Max relation tokens",
+      "maxTotalTokensPlaceholder": "Max total tokens",
+      "includeReferences": "Include References",
+      "includeReferencesTooltip": "Return reference items together with the answer",
+      "includeChunkContent": "Include Chunk Content",
+      "includeChunkContentTooltip": "Include actual chunk text in references for debugging and evaluation",
+      "promptVersionLabel": "Prompt Version",
+      "promptVersionTooltip": "Choose the active retrieval prompt, a saved version from Prompt Management, or a custom draft for this request.",
+      "promptVersionModes": {
+        "active": "Active",
+        "saved": "Saved",
+        "custom": "Draft"
+      },
+      "savedVersionPlaceholder": "Select a saved version",
+      "promptOverrides": {
+        "disabledHint": "Prompt overrides are not enabled on this server",
+        "bypassHint": "Prompt overrides are not available in bypass mode",
+        "savedAsVersion": "Saved as version: {{name}}"
+      }
     }
   },
   "apiSite": {
@@ -479,5 +852,89 @@
     "prevPage": "Previous Page",
     "nextPage": "Next Page",
     "lastPage": "Last Page"
+  },
+  "workspaceManager": {
+    "title": "Workspace Management",
+    "description": "Create, switch, and manage workspaces for the current server.",
+    "readyTitle": "Workspaces",
+    "deletedTitle": "Deleted / Pending",
+    "createTitle": "Create Workspace",
+    "createDescription": "Set a stable workspace key, a friendly display name, and the visibility you want to share.",
+    "loading": "Loading...",
+    "refresh": "Refresh",
+    "create": "Create Workspace",
+    "createSuccess": "Workspace created",
+    "loadStats": "Load stats",
+    "statsLoadFailed": "Failed to load stats for {{workspace}}",
+    "readyDescription": "Switch between active workspaces and review each workspace summary at a glance.",
+    "deletedDescription": "Track deleted workspaces, restores, and any hard-delete jobs that are still running.",
+    "workspacePlaceholder": "workspace_name",
+    "workspaceLabel": "Workspace key",
+    "workspaceHint": "Use only letters, numbers, and underscores.",
+    "invalidWorkspace": "Workspace key can only contain letters, numbers, and underscores.",
+    "displayNamePlaceholder": "Display name",
+    "displayNameLabel": "Display name",
+    "descriptionPlaceholder": "Description",
+    "descriptionLabel": "Description",
+    "visibilityLabel": "Visibility",
+    "private": "Private",
+    "public": "Public",
+    "current": "Current",
+    "switch": "Switch",
+    "softDelete": "Soft Delete",
+    "restore": "Restore",
+    "hardDelete": "Hard Delete",
+    "defaultWorkspace": "default",
+    "guestHint": "Login is required to create or modify workspaces.",
+    "guestCreateHint": "This workspace will be created as guest.",
+    "loginRequiredHint": "Log in to create workspaces.",
+    "emptyReady": "No ready workspaces yet.",
+    "emptyDeleted": "No deleted or pending workspaces.",
+    "softDeleteConfirm": "Soft delete {{workspace}}?",
+    "hardDeletePrompt": "Type {{workspace}} to confirm hard delete",
+    "summary": {
+      "total": "Total workspaces",
+      "current": "Active workspace",
+      "pending": "Pending changes",
+      "none": "Not selected"
+    },
+    "stats": {
+      "docs": "{{count}} docs",
+      "promptVersions": "{{count}} prompt versions",
+      "capabilities": "Capabilities"
+    },
+    "operation": {
+      "state": "State",
+      "progress": "Progress"
+    },
+    "operationStatus": {
+      "idle": "Idle",
+      "running": "Running",
+      "failed": "Failed",
+      "completed": "Completed"
+    },
+    "workspaceStatus": {
+      "creating": "Creating",
+      "create_failed": "Create failed",
+      "soft_deleted": "Soft deleted",
+      "hard_deleting": "Hard deleting",
+      "delete_failed": "Delete failed",
+      "ready": "Ready"
+    },
+    "capabilityLabels": {
+      "document_count": "Document count",
+      "entity_count": "Entity count",
+      "relation_count": "Relation count",
+      "chunk_count": "Chunk count",
+      "storage_size_bytes": "Storage size",
+      "prompt_version_count": "Prompt versions"
+    },
+    "capabilityStatus": {
+      "available": "Available",
+      "unsupported_by_backend": "Unsupported by backend",
+      "not_loaded": "Not loaded",
+      "temporarily_unavailable": "Temporarily unavailable"
+    },
+    "softDeleteDisabledCurrent": "Cannot soft delete current workspace"
   }
 }

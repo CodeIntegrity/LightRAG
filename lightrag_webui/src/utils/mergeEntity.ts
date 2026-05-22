@@ -133,6 +133,7 @@ export const buildMergeSuggestionsRequest = (
       label: scope.label,
       max_depth: scope.max_depth,
       max_nodes: scope.max_nodes,
+      direction: scope.direction,
       only_matched_neighborhood: scope.only_matched_neighborhood
     },
     limit,

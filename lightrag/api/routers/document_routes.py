@@ -2127,6 +2127,18 @@ async def run_scanning_process(
         doc_manager: DocumentManager instance
         track_id: Optional tracking ID to pass to all scanned files
     """
+    from lightrag.kg.shared_storage import (
+        get_namespace_data,
+        get_namespace_lock,
+    )
+
+    pipeline_status = await get_namespace_data(
+        "pipeline_status", workspace=rag.workspace
+    )
+    pipeline_status_lock = get_namespace_lock(
+        "pipeline_status", workspace=rag.workspace
+    )
+
     try:
         new_files = doc_manager.scan_directory_for_new_files()
         total_files = len(new_files)
@@ -2149,9 +2161,38 @@ async def run_scanning_process(
                     # File is new or in non-PROCESSED status, add to processing list
                     valid_files.append(file_path)
 
+            # Set scan state for progress tracking
+            async with pipeline_status_lock:
+                pipeline_status["scan_is_scanning"] = True
+                pipeline_status["scan_total_files"] = len(valid_files)
+                pipeline_status["scan_indexed_count"] = 0
+                pipeline_status["scan_current_file"] = ""
+
             # Process valid files (new files + non-PROCESSED status files)
             if valid_files:
-                await pipeline_index_files(rag, valid_files, track_id)
+                enqueued = False
+                from lightrag.utils import get_pinyin_sort_key
+
+                sorted_file_paths = sorted(
+                    valid_files, key=lambda p: get_pinyin_sort_key(str(p))
+                )
+
+                for file_path in sorted_file_paths:
+                    filename = str(file_path.name)
+                    async with pipeline_status_lock:
+                        pipeline_status["scan_current_file"] = filename
+                    success, _ = await pipeline_enqueue_file(
+                        rag, file_path, track_id
+                    )
+                    if success:
+                        enqueued = True
+                    async with pipeline_status_lock:
+                        pipeline_status["scan_indexed_count"] = (
+                            pipeline_status.get("scan_indexed_count", 0) + 1
+                        )
+
+                if enqueued:
+                    await rag.apipeline_process_enqueue_documents()
                 if processed_files:
                     logger.info(
                         f"Scanning process completed: {len(valid_files)} files Processed {len(processed_files)} skipped."
@@ -2174,6 +2215,10 @@ async def run_scanning_process(
     except Exception as e:
         logger.error(f"Error during scanning process: {str(e)}")
         logger.error(traceback.format_exc())
+    finally:
+        async with pipeline_status_lock:
+            pipeline_status["scan_is_scanning"] = False
+            pipeline_status["scan_current_file"] = ""
 
 
 async def background_delete_documents(
@@ -2717,13 +2762,15 @@ def create_document_routes(
             HTTPException: If an error occurs during text processing (500).
         """
         try:
+            current_rag, _ = _current_runtime_objects()
+
             # Check if file_source already exists in doc_status storage
             if (
                 request.file_source
                 and request.file_source.strip()
                 and request.file_source != "unknown_source"
             ):
-                existing_doc_data = await rag.doc_status.get_doc_by_file_path(
+                existing_doc_data = await current_rag.doc_status.get_doc_by_file_path(
                     request.file_source
                 )
                 if existing_doc_data:
@@ -2740,7 +2787,7 @@ def create_document_routes(
             # Check if content already exists by computing content hash (doc_id)
             sanitized_text = sanitize_text_for_encoding(request.text)
             content_doc_id = compute_mdhash_id(sanitized_text, prefix="doc-")
-            existing_doc = await rag.doc_status.get_by_id(content_doc_id)
+            existing_doc = await current_rag.doc_status.get_by_id(content_doc_id)
             if existing_doc:
                 # Content already exists, return duplicated with existing track_id
                 status = existing_doc.get("status", "unknown")
@@ -2753,7 +2800,6 @@ def create_document_routes(
 
             # Generate track_id for text insertion
             track_id = generate_track_id("insert")
-            current_rag, _ = _current_runtime_objects()
 
             background_tasks.add_task(
                 pipeline_index_texts,
@@ -2798,6 +2844,8 @@ def create_document_routes(
             HTTPException: If an error occurs during text processing (500).
         """
         try:
+            current_rag, _ = _current_runtime_objects()
+
             # Check if any file_sources already exist in doc_status storage
             if request.file_sources:
                 for file_source in request.file_sources:
@@ -2806,7 +2854,7 @@ def create_document_routes(
                         and file_source.strip()
                         and file_source != "unknown_source"
                     ):
-                        existing_doc_data = await rag.doc_status.get_doc_by_file_path(
+                        existing_doc_data = await current_rag.doc_status.get_doc_by_file_path(
                             file_source
                         )
                         if existing_doc_data:
@@ -2824,7 +2872,7 @@ def create_document_routes(
             for text in request.texts:
                 sanitized_text = sanitize_text_for_encoding(text)
                 content_doc_id = compute_mdhash_id(sanitized_text, prefix="doc-")
-                existing_doc = await rag.doc_status.get_by_id(content_doc_id)
+                existing_doc = await current_rag.doc_status.get_by_id(content_doc_id)
                 if existing_doc:
                     # Content already exists, return duplicated with existing track_id
                     status = existing_doc.get("status", "unknown")
@@ -2837,7 +2885,6 @@ def create_document_routes(
 
             # Generate track_id for texts insertion
             track_id = generate_track_id("insert")
-            current_rag, _ = _current_runtime_objects()
 
             background_tasks.add_task(
                 pipeline_index_texts,
@@ -3915,5 +3962,45 @@ def create_document_routes(
             logger.error(f"Error requesting pipeline cancellation: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/scan-progress", dependencies=[Depends(combined_auth)])
+    async def get_scan_progress():
+        """
+        Get the current scan progress status.
+
+        Returns:
+            dict: Scan progress containing:
+                - is_scanning (bool): Whether a scan is currently running
+                - current_file (str): Name of the file currently being scanned
+                - indexed_count (int): Number of files indexed so far
+                - total_files (int): Total number of files to scan
+                - progress (float): Progress percentage (0-100)
+        """
+        try:
+            from lightrag.kg.shared_storage import get_namespace_data
+
+            current_rag, _ = _current_runtime_objects()
+            pipeline_status = await get_namespace_data(
+                "pipeline_status", workspace=current_rag.workspace
+            )
+            total = pipeline_status.get("scan_total_files", 0) or 0
+            indexed = pipeline_status.get("scan_indexed_count", 0) or 0
+            return {
+                "is_scanning": bool(pipeline_status.get("scan_is_scanning", False)),
+                "current_file": str(
+                    pipeline_status.get("scan_current_file", "") or ""
+                ),
+                "indexed_count": indexed,
+                "total_files": total,
+                "progress": round(
+                    (indexed / total * 100) if total > 0 else 0, 1
+                ),
+            }
+        except Exception as e:
+            logger.error(f"Error getting scan progress: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(
+                status_code=500, detail=f"Error getting scan progress: {str(e)}"
+            )
 
     return router

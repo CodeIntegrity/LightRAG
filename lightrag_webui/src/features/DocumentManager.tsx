@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSettingsStore } from '@/stores/settings'
 import Button from '@/components/ui/Button'
+import Badge from '@/components/ui/Badge'
 import { cn } from '@/lib/utils'
 import {
   Table,
@@ -16,7 +17,9 @@ import EmptyCard from '@/components/ui/EmptyCard'
 import Checkbox from '@/components/ui/Checkbox'
 import UploadDocumentsDialog from '@/components/documents/UploadDocumentsDialog'
 import ClearDocumentsDialog from '@/components/documents/ClearDocumentsDialog'
+import CancelPipelineButton from '@/components/documents/CancelPipelineButton'
 import DeleteDocumentsDialog from '@/components/documents/DeleteDocumentsDialog'
+import RebuildGraphsDialog from '@/components/documents/RebuildGraphsDialog'
 import PaginationControls from '@/components/ui/PaginationControls'
 import {
   Dialog,
@@ -56,7 +59,7 @@ type StatusDisplayConfig = {
   className: string
 }
 
-const STATUS_BUCKETS: StatusBucket[] = ['processed', 'analyzing', 'processing', 'pending', 'failed']
+const STATUS_BUCKETS: StatusBucket[] = ['processed', 'analyzing', 'processing', 'pending', 'failed', 'parsing', 'preprocessed']
 
 // Utility functions defined outside component for better performance and to avoid dependency issues
 const getCountValue = (counts: Record<string, number>, ...keys: string[]): number => {
@@ -110,6 +113,9 @@ const getDisplayFileName = (doc: DocStatusResponse, maxLength: number = 20): str
     ? fileName.slice(0, maxLength) + '...'
     : fileName;
 };
+
+const isCustomChunksDoc = (doc: DocStatusResponse): boolean =>
+  doc.metadata?.source === 'custom_chunks'
 
 const formatMetadata = (metadata: Record<string, any>): string => {
   const formattedMetadata = { ...metadata };
@@ -341,6 +347,7 @@ export default function DocumentManager() {
   const { t, i18n } = useTranslation()
   const health = useBackendState.use.health()
   const pipelineActive = useBackendState.use.pipelineActive()
+  const pipelineBusy = useBackendState.use.pipelineBusy()
 
   // Legacy state for backward compatibility
   const [docs, setDocs] = useState<DocsStatusesResponse | null>(null)
@@ -386,6 +393,8 @@ export default function DocumentManager() {
     processing: 1,
     pending: 1,
     failed: 1,
+    parsing: 1,
+    preprocessed: 1,
   });
 
   // State for document selection
@@ -465,6 +474,8 @@ export default function DocumentManager() {
       processing: 1,
       pending: 1,
       failed: 1,
+      parsing: 1,
+      preprocessed: 1,
     });
   };
 
@@ -800,6 +811,8 @@ export default function DocumentManager() {
       processing: 1,
       pending: 1,
       failed: 1,
+      parsing: 1,
+      preprocessed: 1,
     });
 
     setPagination(prev => ({ ...prev, page: 1, page_size: newPageSize }));
@@ -833,7 +846,9 @@ export default function DocumentManager() {
               preprocessed: response.documents.filter(doc => doc.status === 'preprocessed'),
               processing: response.documents.filter(doc => doc.status === 'processing'),
               pending: response.documents.filter(doc => doc.status === 'pending'),
-              failed: response.documents.filter(doc => doc.status === 'failed')
+              failed: response.documents.filter(doc => doc.status === 'failed'),
+              parsing: response.documents.filter(doc => doc.status === 'parsing'),
+              analyzing: response.documents.filter(doc => doc.status === 'analyzing')
             }
           };
 
@@ -1276,6 +1291,11 @@ export default function DocumentManager() {
     }
   }, [clearPollingInterval, setStatusCounts, fetchDocuments, currentTab, health, startPollingInterval])
 
+  const handleGraphsRebuilt = useCallback(async () => {
+    useBackendState.getState().check()
+    await handleIntelligentRefresh()
+  }, [handleIntelligentRefresh])
+
 
   // Handle showFileName change - switch sort field if currently sorting by first column.
   // Render-time comparison avoids cascading renders flagged by react-hooks/set-state-in-effect.
@@ -1357,6 +1377,12 @@ export default function DocumentManager() {
             >
               <ActivityIcon /> {t('documentPanel.documentManager.pipelineStatusButton')}
             </Button>
+            <RebuildGraphsDialog
+              disabled={pipelineBusy}
+              selectedDocIds={selectedDocIds}
+              onGraphsRebuilt={handleGraphsRebuilt}
+            />
+            <CancelPipelineButton busy={pipelineBusy} />
           </div>
 
           {/* Pagination Controls in the middle */}
@@ -1558,6 +1584,7 @@ export default function DocumentManager() {
                           </TableHead>
                           <TableHead>{t('documentPanel.documentManager.columns.summary')}</TableHead>
                           <TableHead>{t('documentPanel.documentManager.columns.status')}</TableHead>
+                          <TableHead>{t('documentPanel.documentManager.columns.source')}</TableHead>
                           <TableHead>{t('documentPanel.documentManager.columns.length')}</TableHead>
                           <TableHead>{t('documentPanel.documentManager.columns.chunks')}</TableHead>
                           <TableHead
@@ -1647,6 +1674,18 @@ export default function DocumentManager() {
 
                                 {hasDocumentDetails(doc) && <DocumentStatusDetailsDialog doc={doc} />}
                               </div>
+                            </TableCell>
+                            <TableCell>
+                              {isCustomChunksDoc(doc) ? (
+                                <Badge variant="secondary" className="whitespace-nowrap">
+                                  {t(
+                                    'documentPanel.documentManager.source.customChunks',
+                                    'Custom Chunks'
+                                  )}
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
                             </TableCell>
                             <TableCell>{doc.content_length ?? '-'}</TableCell>
                             <TableCell>{doc.chunks_count ?? '-'}</TableCell>

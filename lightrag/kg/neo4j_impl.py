@@ -1656,6 +1656,31 @@ class Neo4JStorage(BaseGraphStorage):
                 )  # Ensure results are consumed even if processing fails
             return labels
 
+    async def get_all_entity_types(self) -> list[str]:
+        """
+        Get all distinct entity types in the graph
+        Returns:
+            ["CONCEPT", "TOPIC", ...]  # Alphabetically sorted entity type list
+        """
+        workspace_label = self._get_workspace_label()
+        async with self._driver.session(
+            database=self._DATABASE, default_access_mode="READ"
+        ) as session:
+            query = f"""
+            MATCH (n:`{workspace_label}`)
+            WHERE n.entity_type IS NOT NULL
+            RETURN DISTINCT n.entity_type AS entity_type
+            ORDER BY entity_type
+            """
+            result = await session.run(query)
+            entity_types = []
+            try:
+                async for record in result:
+                    entity_types.append(record["entity_type"])
+            finally:
+                await result.consume()
+            return entity_types
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),

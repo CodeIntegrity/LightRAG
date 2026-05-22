@@ -2238,9 +2238,12 @@ def create_app(args):
         """Get current system status including WebUI availability"""
         try:
             workspace = resolve_request_workspace(request)
-            pipeline_status = await get_namespace_data(
-                "pipeline_status", workspace=workspace
-            )
+            try:
+                pipeline_status = await get_namespace_data(
+                    "pipeline_status", workspace=workspace
+                )
+            except Exception:
+                pipeline_status = {}
             pipeline_busy = bool(pipeline_status.get("busy", False))
             pipeline_scanning = bool(pipeline_status.get("scanning", False))
             pipeline_destructive_busy = bool(

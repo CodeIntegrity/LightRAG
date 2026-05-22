@@ -1,0 +1,222 @@
+### 当 ENTITY_EXTRACTION_USE_JSON=false 时，此文件必须包含 entity_extraction_examples 部分
+### 当 ENTITY_EXTRACTION_USE_JSON=true 时，此文件必须包含 entity_extraction_json_examples 部分
+
+entity_types_guidance: |
+  请将每个实体归类为以下类型之一。如果没有匹配的类型，则使用 `Other`。
+
+  - Person: 人类个体，包括真实或虚构人物
+  - Creature: 非人类生命体（动物、神话生物等）
+  - Organization: 公司、机构、政府组织、团体
+  - Location: 地理场所（城市、国家、建筑物、区域）
+  - Event: 事件、事故、仪式、会议
+  - Concept: 抽象概念、理论、原理、信念
+  - Method: 流程、技术、算法、工作流
+  - Content: 创作或信息作品（书籍、文章、电影、报告）
+  - Data: 定量或结构化信息（统计数据、数据集、测量结果）
+  - Artifact: 人造物理或数字对象（工具、软件、设备）
+  - NaturalObject: 自然非生物对象（矿物、天体、化合物）
+entity_extraction_examples:
+  - |
+    ---Entity Types---
+    - Person: 人类个体，包括真实或虚构人物
+    - Artifact: 人造物理或数字对象（工具、软件、设备）
+    - Concept: 抽象概念、理论、原理、信念
+
+    ---Input Text---
+    ```
+    李明攥紧拳头，挫败感在周婷专断的态度面前显得微不足道。正是这种暗流涌动的竞争让他保持警觉，他和张伟共同追求发现的信念，无形中成为对抗王刚那日益狭隘的控制与秩序理念的反叛。
+
+    接着周婷做出了意想不到的举动。她在张伟身边停下脚步，以一种近乎敬畏的神情注视着那台设备。"如果能弄清楚这项技术..."周婷低声说道，声音比平时柔和了许多，"它可能改变我们所有人的处境。"
+
+    之前的轻视似乎动摇了，取而代之的是对眼前之物分量的一丝勉强敬意。张伟抬起头，一瞬间，他们的目光与周婷相遇，一场无声的意志较量在紧绷的对峙中软化为一种微妙的缓和。
+
+    这是一个微小的转变，几乎难以察觉，但李明看在眼里，暗自点了点头。他们每个人都因不同的缘由聚集到了这里。
+    ```
+
+    ---Output---
+    entity{tuple_delimiter}李明{tuple_delimiter}Person{tuple_delimiter}李明是一个感受到挫败感并敏锐察觉其他角色之间互动态势的角色。
+    entity{tuple_delimiter}周婷{tuple_delimiter}Person{tuple_delimiter}周婷展现出专断的自信，并在面对设备时流露出一丝敬畏，表明其态度发生了转变。
+    entity{tuple_delimiter}张伟{tuple_delimiter}Person{tuple_delimiter}张伟致力于追求发现，并与周婷就设备进行了一次重要的互动。
+    entity{tuple_delimiter}王刚{tuple_delimiter}Person{tuple_delimiter}王刚代表着控制与秩序的理念，影响着其他角色之间的互动。
+    entity{tuple_delimiter}设备{tuple_delimiter}Artifact{tuple_delimiter}设备是故事的核心，具有改变局面的潜力，受到周婷的敬畏。
+    entity{tuple_delimiter}发现{tuple_delimiter}Concept{tuple_delimiter}发现代表了张伟和李明共同追求知识的精神纽带，与王刚的控制型世界观形成对立。
+    relation{tuple_delimiter}李明{tuple_delimiter}周婷{tuple_delimiter}权力博弈, 观察{tuple_delimiter}李明观察周婷的专断行为，并注意到她对设备态度的变化。
+    relation{tuple_delimiter}李明{tuple_delimiter}张伟{tuple_delimiter}共同目标, 反叛{tuple_delimiter}李明和张伟共同追求发现，与王刚的理念形成对比。
+    relation{tuple_delimiter}周婷{tuple_delimiter}张伟{tuple_delimiter}冲突化解, 相互尊重{tuple_delimiter}周婷与张伟就设备进行直接互动，达成了一个微妙的缓和与相互尊重。
+    relation{tuple_delimiter}张伟{tuple_delimiter}王刚{tuple_delimiter}理念冲突, 反叛{tuple_delimiter}张伟对发现的执着是对王刚控制与秩序理念的反叛。
+    relation{tuple_delimiter}周婷{tuple_delimiter}设备{tuple_delimiter}敬畏, 技术意义{tuple_delimiter}周婷对设备流露出敬畏之情，显示其重要性和潜在影响。
+    {completion_delimiter}
+  - |
+    ---Entity Types---
+    - Person: 人类个体，包括真实或虚构人物
+    - Location: 地理场所（城市、国家、建筑物、区域）
+    - Creature: 非人类生命体（动物、神话生物等）
+    - Method: 流程、技术、算法、工作流
+    - Organization: 公司、机构、政府组织、团体
+    - Content: 创作或信息作品（书籍、文章、电影、报告）
+    - NaturalObject: 自然非生物对象（矿物、天体、化合物）
+
+    ---Input Text---
+    ```
+    陈慧博士率领野外考察队深入四川大熊猫栖息地，旨在记录野生大熊猫的种群数量变化。团队采用了样线调查法——研究人员沿预设路径行走，在固定距离范围内记录每次动物目击——初步估计该调查区域内野生大熊猫数量已不足1800只。
+
+    本次考察由国家野生动物保护协会资助，并产出了一份里程碑式的研究报告《西南山区大型哺乳动物种群动态》。陈慧指出，种群下降的主要原因是大规模基础设施建设导致栖息地碎片化，过去十年间该区域超过35%的原始竹林已被公路和城镇所取代。
+    ```
+
+    ---Output---
+    entity{tuple_delimiter}陈慧博士{tuple_delimiter}Person{tuple_delimiter}陈慧博士是一名野外研究人员，率领考察队记录四川大熊猫栖息地的野生种群变化。
+    entity{tuple_delimiter}四川大熊猫栖息地{tuple_delimiter}Location{tuple_delimiter}四川大熊猫栖息地是野外考察的地点，也是野生大熊猫的主要生境。
+    entity{tuple_delimiter}野生大熊猫{tuple_delimiter}Creature{tuple_delimiter}野生大熊猫是一种濒危哺乳动物，调查显示该区域内数量已不足1800只。
+    entity{tuple_delimiter}样线调查法{tuple_delimiter}Method{tuple_delimiter}样线调查法是一种野生动物调查技术，研究人员沿预设路径行走并在固定侧向距离内记录动物目击。
+    entity{tuple_delimiter}国家野生动物保护协会{tuple_delimiter}Organization{tuple_delimiter}国家野生动物保护协会资助了陈慧博士领导的考察项目。
+    entity{tuple_delimiter}西南山区大型哺乳动物种群动态{tuple_delimiter}Content{tuple_delimiter}陈慧考察队产出的里程碑式研究报告，记录了该区域哺乳动物种群动态。
+    entity{tuple_delimiter}原始竹林{tuple_delimiter}NaturalObject{tuple_delimiter}原始竹林是四川栖息地的自然基底，已被大规模基础设施建设所破坏。
+    relation{tuple_delimiter}陈慧博士{tuple_delimiter}野生大熊猫{tuple_delimiter}野外研究, 种群调查{tuple_delimiter}陈慧博士领导的考察队记录了野生大熊猫的种群数量下降。
+    relation{tuple_delimiter}陈慧博士{tuple_delimiter}样线调查法{tuple_delimiter}方法论, 研究应用{tuple_delimiter}陈慧博士团队使用样线调查法估计大熊猫种群数量。
+    relation{tuple_delimiter}国家野生动物保护协会{tuple_delimiter}陈慧博士{tuple_delimiter}资助, 研究支持{tuple_delimiter}该协会资助了陈慧博士领导的考察项目。
+    relation{tuple_delimiter}陈慧博士{tuple_delimiter}西南山区大型哺乳动物种群动态{tuple_delimiter}作者身份, 研究成果{tuple_delimiter}陈慧博士的考察队产出了关于哺乳动物种群动态的里程碑报告。
+    relation{tuple_delimiter}原始竹林{tuple_delimiter}四川大熊猫栖息地{tuple_delimiter}栖息地组成, 生态破坏{tuple_delimiter}四川栖息地原始竹林的破坏是由大规模基础设施建设引起的，是大熊猫数量下降的主要驱动因素。
+    {completion_delimiter}
+  - |
+    ---Entity Types---
+    - Content: 创作或信息作品（书籍、文章、电影、报告）
+    - Artifact: 人造物理或数字对象（工具、软件、设备）
+    - Person: 人类个体，包括真实或虚构人物
+    - Organization: 公司、机构、政府组织、团体
+    - Method: 流程、技术、算法、工作流
+    - Data: 定量或结构化信息（统计数据、数据集、测量结果）
+    - Concept: 抽象概念、理论、原理、信念
+
+    ---Input Text---
+    ```
+    2023年版《大语言模型评测体系研究》综合了超过200篇同行评审论文的发现，并提出了一个名为LLMEval-Bench的新评测框架，旨在评估语言模型在多样化任务领域中的表现。该出版物由复旦大学自然语言处理实验室的赵明教授和钱雪博士共同撰写。
+
+    LLMEval-Bench衡量三个关键指标：推理效率（从输入到输出的时间）、在未见过测试集上的回答准确率，以及计算成本（以GPU小时计）。初步结果表明，基于检索增强的方法在准确率上优于纯生成式方法15个百分点，同时在长文本任务上消耗的GPU小时减少了40%。
+    ```
+
+    ---Output---
+    entity{tuple_delimiter}大语言模型评测体系研究{tuple_delimiter}Content{tuple_delimiter}2023年出版的著作，综合了超过200篇论文的发现，并提出了LLMEval-Bench评测框架。
+    entity{tuple_delimiter}LLMEval-Bench{tuple_delimiter}Artifact{tuple_delimiter}LLMEval-Bench是一个用于评估语言模型在多样化任务领域表现的评测框架。
+    entity{tuple_delimiter}赵明教授{tuple_delimiter}Person{tuple_delimiter}赵明教授是该出版物的共同作者，任职于复旦大学自然语言处理实验室。
+    entity{tuple_delimiter}钱雪博士{tuple_delimiter}Person{tuple_delimiter}钱雪博士是该出版物的共同作者，任职于复旦大学自然语言处理实验室。
+    entity{tuple_delimiter}复旦大学自然语言处理实验室{tuple_delimiter}Organization{tuple_delimiter}复旦大学自然语言处理实验室是该出版物作者的所在机构。
+    entity{tuple_delimiter}检索增强方法{tuple_delimiter}Method{tuple_delimiter}检索增强方法是一类语言模型推理技术，在LLMEval-Bench评测中优于纯生成式方法。
+    entity{tuple_delimiter}纯生成式方法{tuple_delimiter}Method{tuple_delimiter}纯生成式方法是一类语言模型推理技术，在LLMEval-Bench中与检索增强方法进行了对比评测。
+    entity{tuple_delimiter}GPU小时{tuple_delimiter}Data{tuple_delimiter}GPU小时是LLMEval-Bench中用于衡量语言模型计算成本的指标。
+    entity{tuple_delimiter}大语言模型评测{tuple_delimiter}Concept{tuple_delimiter}大语言模型评测是系统性地评估语言模型性能的过程，是该出版物的核心主题。
+    relation{tuple_delimiter}赵明教授{tuple_delimiter}大语言模型评测体系研究{tuple_delimiter}作者身份{tuple_delimiter}赵明教授共同撰写了该出版物。
+    relation{tuple_delimiter}钱雪博士{tuple_delimiter}大语言模型评测体系研究{tuple_delimiter}作者身份{tuple_delimiter}钱雪博士共同撰写了该出版物。
+    relation{tuple_delimiter}大语言模型评测体系研究{tuple_delimiter}LLMEval-Bench{tuple_delimiter}提出, 评测基准{tuple_delimiter}该出版物提出了LLMEval-Bench框架。
+    relation{tuple_delimiter}检索增强方法{tuple_delimiter}纯生成式方法{tuple_delimiter}性能对比{tuple_delimiter}检索增强方法在准确率上优于纯生成式方法15个百分点，长文本任务GPU小时消耗减少40%。
+    relation{tuple_delimiter}LLMEval-Bench{tuple_delimiter}GPU小时{tuple_delimiter}评测指标{tuple_delimiter}LLMEval-Bench将GPU小时作为衡量计算成本的三个关键指标之一。
+    {completion_delimiter}
+entity_extraction_json_examples:
+  - |
+    ---Entity Types---
+    - Person: 人类个体，包括真实或虚构人物
+    - Artifact: 人造物理或数字对象（工具、软件、设备）
+    - Concept: 抽象概念、理论、原理、信念
+
+    ---Input Text---
+    ```
+    李明攥紧拳头，挫败感在周婷专断的态度面前显得微不足道。正是这种暗流涌动的竞争让他保持警觉，他和张伟共同追求发现的信念，无形中成为对抗王刚那日益狭隘的控制与秩序理念的反叛。
+
+    接着周婷做出了意想不到的举动。她在张伟身边停下脚步，以一种近乎敬畏的神情注视着那台设备。"如果能弄清楚这项技术..."周婷低声说道，声音比平时柔和了许多，"它可能改变我们所有人的处境。"
+
+    之前的轻视似乎动摇了，取而代之的是对眼前之物分量的一丝勉强敬意。张伟抬起头，一瞬间，他们的目光与周婷相遇，一场无声的意志较量在紧绷的对峙中软化为一种微妙的缓和。
+
+    这是一个微小的转变，几乎难以察觉，但李明看在眼里，暗自点了点头。他们每个人都因不同的缘由聚集到了这里。
+    ```
+
+    ---Output---
+    {
+      "entities": [
+        {"name": "李明", "type": "Person", "description": "李明是一个感受到挫败感并敏锐察觉其他角色之间互动态势的角色。"},
+        {"name": "周婷", "type": "Person", "description": "周婷展现出专断的自信，并在面对设备时流露出一丝敬畏，表明其态度发生了转变。"},
+        {"name": "张伟", "type": "Person", "description": "张伟致力于追求发现，并与周婷就设备进行了一次重要的互动。"},
+        {"name": "王刚", "type": "Person", "description": "王刚代表着控制与秩序的理念，影响着其他角色之间的互动。"},
+        {"name": "设备", "type": "Artifact", "description": "设备是故事的核心，具有改变局面的潜力，受到周婷的敬畏。"},
+        {"name": "发现", "type": "Concept", "description": "发现代表了张伟和李明共同追求知识的精神纽带，与王刚的控制型世界观形成对立。"}
+      ],
+      "relationships": [
+        {"source": "李明", "target": "周婷", "keywords": "权力博弈, 观察", "description": "李明观察周婷的专断行为，并注意到她对设备态度的变化。"},
+        {"source": "李明", "target": "张伟", "keywords": "共同目标, 反叛", "description": "李明和张伟共同追求发现，与王刚的理念形成对比。"},
+        {"source": "周婷", "target": "张伟", "keywords": "冲突化解, 相互尊重", "description": "周婷与张伟就设备进行直接互动，达成了一个微妙的缓和与相互尊重。"},
+        {"source": "张伟", "target": "王刚", "keywords": "理念冲突, 反叛", "description": "张伟对发现的执着是对王刚控制与秩序理念的反叛。"},
+        {"source": "周婷", "target": "设备", "keywords": "敬畏, 技术意义", "description": "周婷对设备流露出敬畏之情，显示其重要性和潜在影响。"}
+      ]
+    }
+  - |
+    ---Entity Types---
+    - Person: 人类个体，包括真实或虚构人物
+    - Location: 地理场所（城市、国家、建筑物、区域）
+    - Creature: 非人类生命体（动物、神话生物等）
+    - Method: 流程、技术、算法、工作流
+    - Organization: 公司、机构、政府组织、团体
+    - Content: 创作或信息作品（书籍、文章、电影、报告）
+    - NaturalObject: 自然非生物对象（矿物、天体、化合物）
+
+    ---Input Text---
+    ```
+    陈慧博士率领野外考察队深入四川大熊猫栖息地，旨在记录野生大熊猫的种群数量变化。团队采用了样线调查法——研究人员沿预设路径行走，在固定距离范围内记录每次动物目击——初步估计该调查区域内野生大熊猫数量已不足1800只。
+
+    本次考察由国家野生动物保护协会资助，并产出了一份里程碑式的研究报告《西南山区大型哺乳动物种群动态》。陈慧指出，种群下降的主要原因是大规模基础设施建设导致栖息地碎片化，过去十年间该区域超过35%的原始竹林已被公路和城镇所取代。
+    ```
+
+    ---Output---
+    {
+      "entities": [
+        {"name": "陈慧博士", "type": "Person", "description": "陈慧博士是一名野外研究人员，率领考察队记录四川大熊猫栖息地的野生种群变化。"},
+        {"name": "四川大熊猫栖息地", "type": "Location", "description": "四川大熊猫栖息地是野外考察的地点，也是野生大熊猫的主要生境。"},
+        {"name": "野生大熊猫", "type": "Creature", "description": "野生大熊猫是一种濒危哺乳动物，调查显示该区域内数量已不足1800只。"},
+        {"name": "样线调查法", "type": "Method", "description": "样线调查法是一种野生动物调查技术，研究人员沿预设路径行走并在固定侧向距离内记录动物目击。"},
+        {"name": "国家野生动物保护协会", "type": "Organization", "description": "国家野生动物保护协会资助了陈慧博士领导的考察项目。"},
+        {"name": "西南山区大型哺乳动物种群动态", "type": "Content", "description": "陈慧考察队产出的里程碑式研究报告，记录了该区域哺乳动物种群动态。"},
+        {"name": "原始竹林", "type": "NaturalObject", "description": "原始竹林是四川栖息地的自然基底，已被大规模基础设施建设所破坏。"}
+      ],
+      "relationships": [
+        {"source": "陈慧博士", "target": "野生大熊猫", "keywords": "野外研究, 种群调查", "description": "陈慧博士领导的考察队记录了野生大熊猫的种群数量下降。"},
+        {"source": "陈慧博士", "target": "样线调查法", "keywords": "方法论, 研究应用", "description": "陈慧博士团队使用样线调查法估计大熊猫种群数量。"},
+        {"source": "国家野生动物保护协会", "target": "陈慧博士", "keywords": "资助, 研究支持", "description": "该协会资助了陈慧博士领导的考察项目。"},
+        {"source": "陈慧博士", "target": "西南山区大型哺乳动物种群动态", "keywords": "作者身份, 研究成果", "description": "陈慧博士的考察队产出了关于哺乳动物种群动态的里程碑报告。"},
+        {"source": "原始竹林", "target": "四川大熊猫栖息地", "keywords": "栖息地组成, 生态破坏", "description": "四川栖息地原始竹林的破坏是由大规模基础设施建设引起的，是大熊猫数量下降的主要驱动因素。"}
+      ]
+    }
+  - |
+    ---Entity Types---
+    - Content: 创作或信息作品（书籍、文章、电影、报告）
+    - Artifact: 人造物理或数字对象（工具、软件、设备）
+    - Person: 人类个体，包括真实或虚构人物
+    - Organization: 公司、机构、政府组织、团体
+    - Method: 流程、技术、算法、工作流
+    - Data: 定量或结构化信息（统计数据、数据集、测量结果）
+    - Concept: 抽象概念、理论、原理、信念
+
+    ---Input Text---
+    ```
+    2023年版《大语言模型评测体系研究》综合了超过200篇同行评审论文的发现，并提出了一个名为LLMEval-Bench的新评测框架，旨在评估语言模型在多样化任务领域中的表现。该出版物由复旦大学自然语言处理实验室的赵明教授和钱雪博士共同撰写。
+
+    LLMEval-Bench衡量三个关键指标：推理效率（从输入到输出的时间）、在未见过测试集上的回答准确率，以及计算成本（以GPU小时计）。初步结果表明，基于检索增强的方法在准确率上优于纯生成式方法15个百分点，同时在长文本任务上消耗的GPU小时减少了40%。
+    ```
+
+    ---Output---
+    {
+      "entities": [
+        {"name": "大语言模型评测体系研究", "type": "Content", "description": "2023年出版的著作，综合了超过200篇论文的发现，并提出了LLMEval-Bench评测框架。"},
+        {"name": "LLMEval-Bench", "type": "Artifact", "description": "LLMEval-Bench是一个用于评估语言模型在多样化任务领域表现的评测框架。"},
+        {"name": "赵明教授", "type": "Person", "description": "赵明教授是该出版物的共同作者，任职于复旦大学自然语言处理实验室。"},
+        {"name": "钱雪博士", "type": "Person", "description": "钱雪博士是该出版物的共同作者，任职于复旦大学自然语言处理实验室。"},
+        {"name": "复旦大学自然语言处理实验室", "type": "Organization", "description": "复旦大学自然语言处理实验室是该出版物作者的所在机构。"},
+        {"name": "检索增强方法", "type": "Method", "description": "检索增强方法是一类语言模型推理技术，在LLMEval-Bench评测中优于纯生成式方法。"},
+        {"name": "纯生成式方法", "type": "Method", "description": "纯生成式方法是一类语言模型推理技术，在LLMEval-Bench中与检索增强方法进行了对比评测。"},
+        {"name": "GPU小时", "type": "Data", "description": "GPU小时是LLMEval-Bench中用于衡量语言模型计算成本的指标。"},
+        {"name": "大语言模型评测", "type": "Concept", "description": "大语言模型评测是系统性地评估语言模型性能的过程，是该出版物的核心主题。"}
+      ],
+      "relationships": [
+        {"source": "赵明教授", "target": "大语言模型评测体系研究", "keywords": "作者身份", "description": "赵明教授共同撰写了该出版物。"},
+        {"source": "钱雪博士", "target": "大语言模型评测体系研究", "keywords": "作者身份", "description": "钱雪博士共同撰写了该出版物。"},
+        {"source": "大语言模型评测体系研究", "target": "LLMEval-Bench", "keywords": "提出, 评测基准", "description": "该出版物提出了LLMEval-Bench框架。"},
+        {"source": "检索增强方法", "target": "纯生成式方法", "keywords": "性能对比", "description": "检索增强方法在准确率上优于纯生成式方法15个百分点，长文本任务GPU小时消耗减少40%。"},
+        {"source": "LLMEval-Bench", "target": "GPU小时", "keywords": "评测指标", "description": "LLMEval-Bench将GPU小时作为衡量计算成本的三个关键指标之一。"}
+      ]
+    }

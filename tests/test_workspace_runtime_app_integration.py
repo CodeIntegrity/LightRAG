@@ -6,7 +6,13 @@ import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
 
-from lightrag.prompt_version_store import PromptVersionStore
+class _DummyPromptVersionStore:
+    def __init__(self, working_dir: str, workspace: str = ""):
+        self.working_dir = working_dir
+        self.workspace = workspace
+
+    async def drop(self):
+        return None
 
 
 pytestmark = pytest.mark.offline
@@ -36,7 +42,7 @@ class _DummyRAG:
         self.ollama_server_infos = kwargs.get("ollama_server_infos")
         self.working_dir = kwargs["working_dir"]
         self.workspace = kwargs.get("workspace", "")
-        self.prompt_version_store = PromptVersionStore(
+        self.prompt_version_store = _DummyPromptVersionStore(
             kwargs["working_dir"], workspace=self.workspace
         )
         self.chunk_entity_relation_graph = _DummyGraphStorage(self.workspace or "default")

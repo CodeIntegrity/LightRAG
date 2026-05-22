@@ -1,6 +1,6 @@
 import type { DocStatus, DocumentsRequest } from '@/api/lightrag'
 
-export type StatusBucket = 'processed' | 'analyzing' | 'processing' | 'pending' | 'failed'
+export type StatusBucket = 'processed' | 'analyzing' | 'processing' | 'pending' | 'failed' | 'parsing' | 'preprocessed'
 export type StatusFilter = StatusBucket | 'all'
 
 const ANALYZING_STATUS_FILTERS: DocStatus[] = ['preprocessed', 'parsing', 'analyzing']

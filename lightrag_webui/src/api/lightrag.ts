@@ -147,6 +147,33 @@ export type GraphMergeSuggestionsResponse = {
   }
 }
 
+export type LightragQueueStatus = {
+  available: boolean
+  queue_name?: string
+  max_async?: number
+  max_queue_size?: number
+  queued?: number
+  running?: number
+  in_flight?: number
+  worker_count?: number
+  initialized?: boolean
+  submitted_total?: number
+  completed_total?: number
+  failed_total?: number
+  cancelled_total?: number
+  rejected_total?: number
+}
+
+export type LightragRoleLLMConfig = {
+  binding?: string | null
+  model?: string | null
+  host?: string | null
+  max_async?: number
+  timeout?: number
+  has_model_kwargs?: boolean
+  metadata?: Record<string, any>
+}
+
 export type WorkspaceVisibility = 'public' | 'private'
 
 export type WorkspaceRecord = {
@@ -233,14 +260,23 @@ export type LightragStatus = {
     cosine_threshold: number
     min_rerank_score: number
     related_chunk_number: number
-    allow_prompt_overrides_via_api?: boolean
-    active_prompt_versions?: Record<PromptConfigGroup, ActivePromptVersionSummary>
+    role_llm_config?: Record<string, LightragRoleLLMConfig>
+    storage_workspaces?: {
+      kv_storage?: string
+      doc_status_storage?: string
+      graph_storage?: string
+      vector_storage?: string
+    }
   }
   update_status?: Record<string, any>
   core_version?: string
   api_version?: string
   auth_mode?: 'enabled' | 'disabled'
   pipeline_busy: boolean
+  pipeline_active?: boolean
+  llm_queue_status?: Record<string, LightragQueueStatus>
+  embedding_queue_status?: LightragQueueStatus
+  rerank_queue_status?: LightragQueueStatus
   keyed_locks?: {
     process_id: number
     cleanup_performed: {
@@ -416,7 +452,7 @@ export type DeleteDocResponse = {
   doc_id: string
 }
 
-export type DocStatus = 'pending' | 'processing' | 'preprocessed' | 'processed' | 'failed'
+export type DocStatus = 'pending' | 'processing' | 'preprocessed' | 'processed' | 'failed' | 'parsing' | 'analyzing'
 
 export type DocStatusResponse = {
   id: string
@@ -468,6 +504,7 @@ export type RebuildGraphsRequest = {
 
 export type DocumentsRequest = {
   status_filter?: DocStatus | null
+  status_filters?: DocStatus[] | null
   page: number
   page_size: number
   sort_field: 'created_at' | 'updated_at' | 'id' | 'file_path'
@@ -498,7 +535,9 @@ const documentStatuses: DocStatus[] = [
   'processing',
   'preprocessed',
   'processed',
-  'failed'
+  'failed',
+  'parsing',
+  'analyzing'
 ]
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -515,6 +554,8 @@ const normalizeDocStatus = (value: unknown): DocStatus | null => {
     case 'preprocessed':
     case 'processed':
     case 'failed':
+    case 'parsing':
+    case 'analyzing':
       return value.toLowerCase() as DocStatus
     default:
       return null

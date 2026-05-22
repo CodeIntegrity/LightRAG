@@ -1302,6 +1302,23 @@ class MongoGraphStorage(BaseGraphStorage):
             labels.append(doc["_id"])
         return labels
 
+    async def get_all_entity_types(self) -> list[str]:
+        """
+        Get all distinct entity types in the graph
+        Returns:
+            ["CONCEPT", "TOPIC", ...]  # Alphabetically sorted entity type list
+        """
+        pipeline = [
+            {"$match": {"entity_type": {"$exists": True, "$nin": [None, ""]}}},
+            {"$group": {"_id": "$entity_type"}},
+            {"$sort": {"_id": 1}},
+        ]
+        cursor = await self.collection.aggregate(pipeline, allowDiskUse=True)
+        entity_types = []
+        async for doc in cursor:
+            entity_types.append(doc["_id"])
+        return entity_types
+
     def _construct_graph_node(
         self, node_id, node_data: dict[str, str]
     ) -> KnowledgeGraphNode:

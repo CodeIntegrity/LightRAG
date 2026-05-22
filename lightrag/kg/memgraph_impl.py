@@ -360,6 +360,43 @@ class MemgraphStorage(BaseGraphStorage):
                     )  # Ensure the result is consumed even on error
                 raise
 
+    async def get_all_entity_types(self) -> list[str]:
+        """
+        Get all distinct entity types in the graph
+        Returns:
+            ["CONCEPT", "TOPIC", ...]  # Alphabetically sorted entity type list
+
+        Raises:
+            RuntimeError: If the driver is not initialized
+        """
+        if self._driver is None:
+            raise RuntimeError(
+                "Memgraph driver is not initialized. Call 'await initialize()' first."
+            )
+        async with self._driver.session(
+            database=self._DATABASE, default_access_mode="READ"
+        ) as session:
+            result = None
+            try:
+                workspace_label = self._get_workspace_label()
+                query = f"""
+                MATCH (n:`{workspace_label}`)
+                WHERE n.entity_type IS NOT NULL
+                RETURN DISTINCT n.entity_type AS entity_type
+                ORDER BY entity_type
+                """
+                result = await session.run(query)
+                entity_types = []
+                async for record in result:
+                    entity_types.append(record["entity_type"])
+                await result.consume()
+                return entity_types
+            except Exception as e:
+                logger.error(f"[{self.workspace}] Error getting all entity types: {str(e)}")
+                if result is not None:
+                    await result.consume()
+                raise
+
     async def get_node_edges(self, source_node_id: str) -> list[tuple[str, str]] | None:
         """Retrieves all edges (relationships) for a particular node identified by its label.
 

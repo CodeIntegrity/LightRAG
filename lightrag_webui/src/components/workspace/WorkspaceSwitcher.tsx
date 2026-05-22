@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { FolderKanbanIcon } from 'lucide-react'
 
 import Button from '@/components/ui/Button'
@@ -9,12 +10,12 @@ import { useSettingsStore } from '@/stores/settings'
 export function resolveWorkspaceLabel(
   currentWorkspace: string,
   workspaceDisplayNames: Record<string, string>,
-  t: (key: string, fallback?: string) => string
-) {
+  t: TFunction | ((key: string, fallback?: string) => string)
+): string {
   return (
     workspaceDisplayNames[currentWorkspace] ||
     currentWorkspace ||
-    t('workspaceManager.defaultWorkspace', 'default')
+    String(t('workspaceManager.defaultWorkspace', 'default'))
   )
 }
 

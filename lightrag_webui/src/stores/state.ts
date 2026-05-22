@@ -117,17 +117,39 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
       message: health.message,
       messageTitle: 'Backend Health Check Error!',
       lastCheckTime: Date.now(),
-      status: null
+      status: null,
+      pipelineBusy: false,
+      pipelineActive: false,
+      workspaceCreateAllowed: false,
+      guestVisibleTabs: [...allGuestVisibleTabs],
     })
     return false
   },
 
   clear: () => {
-    set({ health: true, message: null, messageTitle: null })
+    set({
+      health: true,
+      message: null,
+      messageTitle: null,
+      status: null,
+      pipelineBusy: false,
+      pipelineActive: false,
+      workspaceCreateAllowed: false,
+      guestVisibleTabs: [...allGuestVisibleTabs],
+    })
   },
 
   setErrorMessage: (message: string, messageTitle: string) => {
-    set({ health: false, message, messageTitle })
+    set({
+      health: false,
+      message,
+      messageTitle,
+      status: null,
+      pipelineBusy: false,
+      pipelineActive: false,
+      workspaceCreateAllowed: false,
+      guestVisibleTabs: [...allGuestVisibleTabs],
+    })
   },
 
   setPipelineBusy: (busy: boolean) => {

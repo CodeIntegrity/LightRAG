@@ -284,6 +284,26 @@ class NetworkXStorage(BaseGraphStorage):
         # Return sorted list
         return sorted(list(labels))
 
+    async def get_all_entity_types(self) -> list[str]:
+        """
+        Get all distinct entity types in the graph
+        Returns:
+            ["CONCEPT", "TOPIC", ...]  # Alphabetically sorted entity type list
+        """
+        graph = await self._get_graph()
+        entity_types = set()
+        for node in graph.nodes():
+            node_data = graph.nodes[node]
+            if "entity_type" in node_data:
+                entity_type = node_data["entity_type"]
+                if isinstance(entity_type, list):
+                    for et in entity_type:
+                        if et:
+                            entity_types.add(et)
+                elif entity_type:
+                    entity_types.add(entity_type)
+        return sorted(entity_types)
+
     async def get_popular_labels(self, limit: int = 300) -> list[str]:
         """
         Get popular labels(entity names) by node degree (most connected entities)

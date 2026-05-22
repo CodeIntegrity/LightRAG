@@ -2024,6 +2024,38 @@ class OpenSearchGraphStorage(BaseGraphStorage):
                 self._mark_indices_missing()
             return []
 
+    async def get_all_entity_types(self) -> list[str]:
+        """Get all distinct entity types sorted alphabetically."""
+        if not self._indices_ready:
+            return []
+        try:
+            await self._refresh_graph_indices_if_dirty(refresh_nodes=True)
+            response = await self.client.search(
+                index=self._nodes_index,
+                body={
+                    "size": 0,
+                    "aggs": {
+                        "unique_entity_types": {
+                            "terms": {
+                                "field": "entity_type",
+                                "order": {"_key": "asc"},
+                                "size": 10000,
+                            }
+                        }
+                    },
+                },
+            )
+            buckets = (
+                response.get("aggregations", {})
+                .get("unique_entity_types", {})
+                .get("buckets", [])
+            )
+            return [bucket["key"] for bucket in buckets]
+        except OpenSearchException as e:
+            if _is_missing_index_error(e):
+                self._mark_indices_missing()
+            return []
+
     async def _collect_node_ids(
         self, limit: int, exclude_ids: set[str] | None = None
     ) -> list[str]:

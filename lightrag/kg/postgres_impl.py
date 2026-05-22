@@ -6187,6 +6187,30 @@ class PGGraphStorage(BaseGraphStorage):
                 labels.append(result["label"])
         return labels
 
+    async def get_all_entity_types(self) -> list[str]:
+        """
+        Get all distinct entity types in the graph.
+
+        Returns:
+            list[str]: A sorted list of unique entity type values.
+        """
+        query = (
+            """SELECT * FROM cypher('%s', $$
+                     MATCH (n:base)
+                     WHERE n.entity_type IS NOT NULL
+                     RETURN DISTINCT n.entity_type AS entity_type
+                     ORDER BY n.entity_type
+                   $$) AS (entity_type text)"""
+            % self.graph_name
+        )
+
+        results = await self._query(query)
+        entity_types = []
+        for result in results:
+            if result and isinstance(result, dict) and "entity_type" in result:
+                entity_types.append(result["entity_type"])
+        return entity_types
+
     async def _bfs_subgraph(
         self, node_label: str, max_depth: int, max_nodes: int
     ) -> KnowledgeGraph:
