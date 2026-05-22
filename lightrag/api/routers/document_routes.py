@@ -2934,6 +2934,7 @@ def create_document_routes(
                         status="busy",
                         message="Cannot rebuild custom chunk graphs while pipeline is busy.",
                     )
+                pipeline_status["busy"] = True
 
             background_tasks.add_task(
                 current_rag.arebuild_all_custom_chunks_graphs,
@@ -2956,19 +2957,16 @@ def create_document_routes(
     async def import_custom_chunks(request: CustomChunksImportRequest):
         try:
             current_rag, _ = _current_runtime_objects()
-            resolved_doc_id = request.doc_id or compute_mdhash_id(
-                sanitize_text_for_encoding(request.full_text), prefix="doc-"
-            )
-            await current_rag.ainsert_custom_chunks(
+            doc_id = await current_rag.ainsert_custom_chunks(
                 request.full_text,
                 request.text_chunks,
-                resolved_doc_id,
+                request.doc_id,
                 request.file_path,
             )
             return CustomChunksImportResponse(
                 status="success",
                 message="Custom chunks imported successfully.",
-                doc_id=resolved_doc_id,
+                doc_id=doc_id,
                 requested_chunk_count=len(request.text_chunks),
             )
         except Exception as e:

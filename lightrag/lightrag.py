@@ -1448,7 +1448,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         text_chunks: list[str],
         doc_id: str | None = None,
         file_path: str | None = None,
-    ) -> None:
+    ) -> str:
         update_storage = False
         doc_status_initialized = False
         doc_status_payload: dict[str, Any] | None = None
@@ -1473,7 +1473,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             new_docs = {k: v for k, v in new_docs.items() if k in _add_doc_keys}
             if not len(new_docs):
                 logger.warning("This document is already in the storage.")
-                return
+                return doc_key
 
             update_storage = True
             logger.info(f"Inserting {len(new_docs)} docs")
@@ -1497,7 +1497,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             }
             if not len(inserting_chunks):
                 logger.warning("All chunks are already in the storage.")
-                return
+                return doc_key
 
             doc_status_payload = {
                 "status": DocStatus.PROCESSING,
@@ -1559,18 +1559,27 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                 }
             )
 
+            return doc_key
+
         except Exception:
             if doc_status_initialized and doc_status_payload is not None:
-                await self.doc_status.upsert(
-                    {
-                        doc_key: {
-                            **doc_status_payload,
-                            "status": DocStatus.FAILED,
-                            "updated_at": datetime.now(timezone.utc).isoformat(),
-                            "error_msg": traceback.format_exc(limit=1).strip(),
+                try:
+                    await self.doc_status.upsert(
+                        {
+                            doc_key: {
+                                **doc_status_payload,
+                                "status": DocStatus.FAILED,
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                                "error_msg": traceback.format_exc(limit=1).strip(),
+                            }
                         }
-                    }
-                )
+                    )
+                except Exception as status_err:
+                    logger.error(
+                        "Failed to update doc_status to FAILED for %s: %s",
+                        doc_key,
+                        status_err,
+                    )
             raise
 
         finally:
@@ -1593,9 +1602,10 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         except Exception as e:
             error_msg = f"Failed to extract entities and relationships: {str(e)}"
             logger.error(error_msg)
-            async with pipeline_status_lock:
-                pipeline_status["latest_message"] = error_msg
-                pipeline_status["history_messages"].append(error_msg)
+            if pipeline_status_lock is not None and pipeline_status is not None:
+                async with pipeline_status_lock:
+                    pipeline_status["latest_message"] = error_msg
+                    pipeline_status["history_messages"].append(error_msg)
             raise e
 
     async def _insert_done(
@@ -1638,271 +1648,268 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
     async def arebuild_all_custom_chunks_graphs(
             self, doc_ids: list[str] | None = None
         ) -> dict[str, int]:
-            await self.initialize_storages()
+        await self.initialize_storages()
 
-            pipeline_status = await get_namespace_data(
-                "pipeline_status", workspace=self.workspace
-            )
-            pipeline_status_lock = get_namespace_lock(
-                "pipeline_status", workspace=self.workspace
-            )
-            normalized_doc_ids = [
-                doc_id.strip()
-                for doc_id in (doc_ids or [])
-                if isinstance(doc_id, str) and doc_id.strip()
-            ]
-            requested_doc_ids = set(normalized_doc_ids)
-            statuses_to_scan = [
-                DocStatus.PROCESSED,
-                DocStatus.FAILED,
-                DocStatus.PENDING,
-                DocStatus.PROCESSING,
-                DocStatus.PREPROCESSED,
-            ]
+        pipeline_status = await get_namespace_data(
+            "pipeline_status", workspace=self.workspace
+        )
+        pipeline_status_lock = get_namespace_lock(
+            "pipeline_status", workspace=self.workspace
+        )
+        normalized_doc_ids = [
+            doc_id.strip()
+            for doc_id in (doc_ids or [])
+            if isinstance(doc_id, str) and doc_id.strip()
+        ]
+        requested_doc_ids = set(normalized_doc_ids)
+        statuses_to_scan = [
+            DocStatus.PROCESSED,
+            DocStatus.FAILED,
+            DocStatus.PENDING,
+            DocStatus.PROCESSING,
+            DocStatus.PREPROCESSED,
+        ]
 
-            async with pipeline_status_lock:
-                if pipeline_status.get("busy", False):
-                    raise RuntimeError("Pipeline is busy")
+        docs_by_status = await self.doc_status.get_docs_by_statuses(statuses_to_scan)
+        if requested_doc_ids:
+            custom_docs = {
+                doc_id: status_doc
+                for doc_id, status_doc in docs_by_status.items()
+                if doc_id in requested_doc_ids
+            }
+        else:
+            custom_docs = {
+                doc_id: status_doc
+                for doc_id, status_doc in docs_by_status.items()
+                if isinstance(status_doc.metadata, dict)
+                and status_doc.metadata.get("source") == "custom_chunks"
+            }
 
-                docs_by_status = await self.doc_status.get_docs_by_statuses(statuses_to_scan)
-                if requested_doc_ids:
-                    custom_docs = {
-                        doc_id: status_doc
-                        for doc_id, status_doc in docs_by_status.items()
-                        if doc_id in requested_doc_ids
-                    }
-                else:
-                    custom_docs = {
-                        doc_id: status_doc
-                        for doc_id, status_doc in docs_by_status.items()
-                        if isinstance(status_doc.metadata, dict)
-                        and status_doc.metadata.get("source") == "custom_chunks"
-                    }
-
-                pipeline_status.update(
-                    {
-                        "busy": True,
-                        "job_name": "Rebuilding custom chunk graphs",
-                        "job_start": datetime.now(timezone.utc).isoformat(),
-                        "docs": len(custom_docs),
-                        "batchs": len(custom_docs),
-                        "cur_batch": 0,
-                        "request_pending": False,
-                        "cancellation_requested": False,
-                        "latest_message": "",
-                    }
-                )
-                del pipeline_status["history_messages"][:]
-
-            rebuilt = 0
-            failed = 0
-            skipped = 0
-            total_candidates = len(custom_docs)
-
-            try:
-                if not custom_docs:
-                    log_message = "No custom chunk documents found"
-                    logger.info(log_message)
-                    async with pipeline_status_lock:
-                        pipeline_status["latest_message"] = log_message
-                        pipeline_status["history_messages"].append(log_message)
-                    return {
-                        "total_candidates": 0,
-                        "rebuilt": 0,
-                        "failed": 0,
-                        "skipped": 0,
-                    }
-
-                for current_file_number, (doc_id, status_doc) in enumerate(
-                    custom_docs.items(), start=1
-                ):
-                    metadata = (
-                        status_doc.metadata.copy()
-                        if isinstance(status_doc.metadata, dict)
-                        else {}
-                    )
-                    preserve_source = metadata.get("source")
-                    file_path = status_doc.file_path or ""
-                    processing_start_time = int(time.time())
-
-                    async with pipeline_status_lock:
-                        if pipeline_status.get("cancellation_requested", False):
-                            raise PipelineCancelledException("User cancelled")
-                        pipeline_status["cur_batch"] = current_file_number
-                        log_message = (
-                            f"Rebuilding custom chunk graph {current_file_number}/{total_candidates}: {doc_id}"
-                        )
-                        logger.info(log_message)
-                        pipeline_status["latest_message"] = log_message
-                        pipeline_status["history_messages"].append(log_message)
-
-                    try:
-                        chunk_ids, _ = _chunk_fields_from_status_doc(status_doc)
-                        if not chunk_ids:
-                            skipped += 1
-                            logger.warning(
-                                "Skipping custom chunk graph rebuild for %s: no chunks_list",
-                                doc_id,
-                            )
-                            continue
-
-                        chunk_data_list = await self.text_chunks.get_by_ids(chunk_ids)
-                        chunks: dict[str, Any] = {}
-
-                        for fallback_order, (chunk_id, chunk_data) in enumerate(
-                            zip(chunk_ids, chunk_data_list)
-                        ):
-                            if not isinstance(chunk_data, dict):
-                                continue
-                            content = chunk_data.get("content")
-                            if not isinstance(content, str) or not content.strip():
-                                continue
-                            normalized_content = sanitize_text_for_encoding(content)
-                            chunks[chunk_id] = {
-                                "content": normalized_content,
-                                "full_doc_id": doc_id,
-                                "tokens": chunk_data.get("tokens")
-                                or len(self.tokenizer.encode(normalized_content)),
-                                "chunk_order_index": chunk_data.get(
-                                    "chunk_order_index", fallback_order
-                                ),
-                                "file_path": chunk_data.get("file_path", file_path),
-                                "llm_cache_list": chunk_data.get("llm_cache_list", []),
-                            }
-
-                        if not chunks:
-                            skipped += 1
-                            logger.warning(
-                                "Skipping custom chunk graph rebuild for %s: no stored chunks",
-                                doc_id,
-                            )
-                            continue
-
-                        await self.doc_status.upsert(
-                            {
-                                doc_id: {
-                                    "status": DocStatus.PROCESSING,
-                                    "chunks_count": len(chunks),
-                                    "chunks_list": list(chunks.keys()),
-                                    "content_summary": status_doc.content_summary,
-                                    "content_length": status_doc.content_length,
-                                    "created_at": status_doc.created_at,
-                                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                                    "file_path": file_path,
-                                    "track_id": status_doc.track_id,
-                                    "metadata": {
-                                        **metadata,
-                                        **(
-                                            {"source": preserve_source}
-                                            if preserve_source is not None
-                                            else {}
-                                        ),
-                                        "processing_start_time": processing_start_time,
-                                    },
-                                }
-                            }
-                        )
-
-                        chunk_results = await self._process_extract_entities(
-                            chunks, pipeline_status, pipeline_status_lock
-                        )
-                        await merge_nodes_and_edges(
-                            chunk_results=chunk_results,
-                            knowledge_graph_inst=self.chunk_entity_relation_graph,
-                            entity_vdb=self.entities_vdb,
-                            relationships_vdb=self.relationships_vdb,
-                            global_config=self._build_global_config(),
-                            full_entities_storage=self.full_entities,
-                            full_relations_storage=self.full_relations,
-                            doc_id=doc_id,
-                            pipeline_status=pipeline_status,
-                            pipeline_status_lock=pipeline_status_lock,
-                            llm_response_cache=self.llm_response_cache,
-                            entity_chunks_storage=self.entity_chunks,
-                            relation_chunks_storage=self.relation_chunks,
-                            current_file_number=current_file_number,
-                            total_files=total_candidates,
-                            file_path=file_path,
-                        )
-
-                        processing_end_time = int(time.time())
-                        await self.doc_status.upsert(
-                            {
-                                doc_id: {
-                                    "status": DocStatus.PROCESSED,
-                                    "chunks_count": len(chunks),
-                                    "chunks_list": list(chunks.keys()),
-                                    "content_summary": status_doc.content_summary,
-                                    "content_length": status_doc.content_length,
-                                    "created_at": status_doc.created_at,
-                                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                                    "file_path": file_path,
-                                    "track_id": status_doc.track_id,
-                                    "metadata": {
-                                        **metadata,
-                                        **(
-                                            {"source": preserve_source}
-                                            if preserve_source is not None
-                                            else {}
-                                        ),
-                                        "processing_start_time": processing_start_time,
-                                        "processing_end_time": processing_end_time,
-                                    },
-                                }
-                            }
-                        )
-                        await self._insert_done(pipeline_status, pipeline_status_lock)
-                        rebuilt += 1
-                    except Exception:
-                        failed += 1
-                        await self.doc_status.upsert(
-                            {
-                                doc_id: {
-                                    "status": DocStatus.FAILED,
-                                    "chunks_count": status_doc.chunks_count,
-                                    "chunks_list": list(status_doc.chunks_list or []),
-                                    "content_summary": status_doc.content_summary,
-                                    "content_length": status_doc.content_length,
-                                    "created_at": status_doc.created_at,
-                                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                                    "file_path": file_path,
-                                    "track_id": status_doc.track_id,
-                                    "metadata": {
-                                        **metadata,
-                                        **(
-                                            {"source": preserve_source}
-                                            if preserve_source is not None
-                                            else {}
-                                        ),
-                                        "processing_start_time": processing_start_time,
-                                    },
-                                    "error_msg": traceback.format_exc(limit=1).strip(),
-                                }
-                            }
-                        )
-                        logger.error(
-                            "Failed to rebuild custom chunk graph for %s\n%s",
-                            doc_id,
-                            traceback.format_exc(),
-                        )
-
-                return {
-                    "total_candidates": total_candidates,
-                    "rebuilt": rebuilt,
-                    "failed": failed,
-                    "skipped": skipped,
+        async with pipeline_status_lock:
+            pipeline_status.update(
+                {
+                    "busy": True,
+                    "job_name": "Rebuilding custom chunk graphs",
+                    "job_start": datetime.now(timezone.utc).isoformat(),
+                    "docs": len(custom_docs),
+                    "batchs": len(custom_docs),
+                    "cur_batch": 0,
+                    "request_pending": False,
+                    "cancellation_requested": False,
+                    "latest_message": "",
                 }
-            finally:
+            )
+            pipeline_status["history_messages"].clear()
+
+        rebuilt = 0
+        failed = 0
+        skipped = 0
+        total_candidates = len(custom_docs)
+
+        try:
+            if not custom_docs:
+                log_message = "No custom chunk documents found"
+                logger.info(log_message)
                 async with pipeline_status_lock:
-                    pipeline_status["busy"] = False
-                    pipeline_status["cancellation_requested"] = False
-                    pipeline_status["request_pending"] = False
-                    completion_message = (
-                        "Custom chunk graph rebuild completed: "
-                        f"{rebuilt} rebuilt, {failed} failed, {skipped} skipped"
+                    pipeline_status["latest_message"] = log_message
+                    pipeline_status["history_messages"].append(log_message)
+                return {
+                    "total_candidates": 0,
+                    "rebuilt": 0,
+                    "failed": 0,
+                    "skipped": 0,
+                }
+
+            for current_file_number, (doc_id, status_doc) in enumerate(
+                custom_docs.items(), start=1
+            ):
+                metadata = (
+                    status_doc.metadata.copy()
+                    if isinstance(status_doc.metadata, dict)
+                    else {}
+                )
+                preserve_source = metadata.get("source")
+                file_path = status_doc.file_path or ""
+                processing_start_time = int(time.time())
+
+                async with pipeline_status_lock:
+                    if pipeline_status.get("cancellation_requested", False):
+                        raise PipelineCancelledException("User cancelled")
+                    pipeline_status["cur_batch"] = current_file_number
+                    log_message = (
+                        f"Rebuilding custom chunk graph {current_file_number}/{total_candidates}: {doc_id}"
                     )
-                    pipeline_status["latest_message"] = completion_message
-                    pipeline_status["history_messages"].append(completion_message)
+                    logger.info(log_message)
+                    pipeline_status["latest_message"] = log_message
+                    pipeline_status["history_messages"].append(log_message)
+
+                try:
+                    chunk_ids, _ = _chunk_fields_from_status_doc(status_doc)
+                    if not chunk_ids:
+                        skipped += 1
+                        logger.warning(
+                            "Skipping custom chunk graph rebuild for %s: no chunks_list",
+                            doc_id,
+                        )
+                        continue
+
+                    chunk_data_list = await self.text_chunks.get_by_ids(chunk_ids)
+                    chunks: dict[str, Any] = {}
+
+                    for fallback_order, (chunk_id, chunk_data) in enumerate(
+                        zip(chunk_ids, chunk_data_list)
+                    ):
+                        if not isinstance(chunk_data, dict):
+                            continue
+                        content = chunk_data.get("content")
+                        if not isinstance(content, str) or not content.strip():
+                            continue
+                        normalized_content = sanitize_text_for_encoding(content)
+                        chunks[chunk_id] = {
+                            "content": normalized_content,
+                            "full_doc_id": doc_id,
+                            "tokens": chunk_data.get("tokens")
+                            or len(self.tokenizer.encode(normalized_content)),
+                            "chunk_order_index": chunk_data.get(
+                                "chunk_order_index", fallback_order
+                            ),
+                            "file_path": chunk_data.get("file_path", file_path),
+                            "llm_cache_list": chunk_data.get("llm_cache_list", []),
+                        }
+
+                    if not chunks:
+                        skipped += 1
+                        logger.warning(
+                            "Skipping custom chunk graph rebuild for %s: no stored chunks",
+                            doc_id,
+                        )
+                        continue
+
+                    await self.doc_status.upsert(
+                        {
+                            doc_id: {
+                                "status": DocStatus.PROCESSING,
+                                "chunks_count": len(chunks),
+                                "chunks_list": list(chunks.keys()),
+                                "content_summary": status_doc.content_summary,
+                                "content_length": status_doc.content_length,
+                                "created_at": status_doc.created_at,
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                                "file_path": file_path,
+                                "track_id": status_doc.track_id,
+                                "metadata": {
+                                    **metadata,
+                                    **(
+                                        {"source": preserve_source}
+                                        if preserve_source is not None
+                                        else {}
+                                    ),
+                                    "processing_start_time": processing_start_time,
+                                },
+                            }
+                        }
+                    )
+
+                    chunk_results = await self._process_extract_entities(
+                        chunks, pipeline_status, pipeline_status_lock
+                    )
+                    await merge_nodes_and_edges(
+                        chunk_results=chunk_results,
+                        knowledge_graph_inst=self.chunk_entity_relation_graph,
+                        entity_vdb=self.entities_vdb,
+                        relationships_vdb=self.relationships_vdb,
+                        global_config=self._build_global_config(),
+                        full_entities_storage=self.full_entities,
+                        full_relations_storage=self.full_relations,
+                        doc_id=doc_id,
+                        pipeline_status=pipeline_status,
+                        pipeline_status_lock=pipeline_status_lock,
+                        llm_response_cache=self.llm_response_cache,
+                        entity_chunks_storage=self.entity_chunks,
+                        relation_chunks_storage=self.relation_chunks,
+                        current_file_number=current_file_number,
+                        total_files=total_candidates,
+                        file_path=file_path,
+                    )
+
+                    processing_end_time = int(time.time())
+                    await self.doc_status.upsert(
+                        {
+                            doc_id: {
+                                "status": DocStatus.PROCESSED,
+                                "chunks_count": len(chunks),
+                                "chunks_list": list(chunks.keys()),
+                                "content_summary": status_doc.content_summary,
+                                "content_length": status_doc.content_length,
+                                "created_at": status_doc.created_at,
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                                "file_path": file_path,
+                                "track_id": status_doc.track_id,
+                                "metadata": {
+                                    **metadata,
+                                    **(
+                                        {"source": preserve_source}
+                                        if preserve_source is not None
+                                        else {}
+                                    ),
+                                    "processing_start_time": processing_start_time,
+                                    "processing_end_time": processing_end_time,
+                                },
+                            }
+                        }
+                    )
+                    await self._insert_done(pipeline_status, pipeline_status_lock)
+                    rebuilt += 1
+                except Exception:
+                    failed += 1
+                    await self.doc_status.upsert(
+                        {
+                            doc_id: {
+                                "status": DocStatus.FAILED,
+                                "chunks_count": status_doc.chunks_count,
+                                "chunks_list": list(status_doc.chunks_list or []),
+                                "content_summary": status_doc.content_summary,
+                                "content_length": status_doc.content_length,
+                                "created_at": status_doc.created_at,
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                                "file_path": file_path,
+                                "track_id": status_doc.track_id,
+                                "metadata": {
+                                    **metadata,
+                                    **(
+                                        {"source": preserve_source}
+                                        if preserve_source is not None
+                                        else {}
+                                    ),
+                                    "processing_start_time": processing_start_time,
+                                },
+                                "error_msg": traceback.format_exc(limit=1).strip(),
+                            }
+                        }
+                    )
+                    logger.error(
+                        "Failed to rebuild custom chunk graph for %s\n%s",
+                        doc_id,
+                        traceback.format_exc(),
+                    )
+
+            return {
+                "total_candidates": total_candidates,
+                "rebuilt": rebuilt,
+                "failed": failed,
+                "skipped": skipped,
+            }
+        finally:
+            async with pipeline_status_lock:
+                pipeline_status["busy"] = False
+                pipeline_status["cancellation_requested"] = False
+                pipeline_status["request_pending"] = False
+                completion_message = (
+                    "Custom chunk graph rebuild completed: "
+                    f"{rebuilt} rebuilt, {failed} failed, {skipped} skipped"
+                )
+                pipeline_status["latest_message"] = completion_message
+                pipeline_status["history_messages"].append(completion_message)
 
     async def ainsert_custom_kg(
         self,
