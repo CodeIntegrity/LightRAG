@@ -23,6 +23,7 @@ from lightrag.kg.nebula_impl import (
     _result_to_rows,
     _short_hash_suffix,
     _unwrap_nebula_value,
+    _load_nebula_client_types,
     NebulaIndexJobError,
     NebulaGraphStorage,
 )
@@ -255,6 +256,16 @@ def test_nebula_graph_storage_sets_initialized_as_instance_attr():
     storage = build_storage(workspace=None)
     assert "_initialized" in storage.__dict__
     assert storage._initialized is False
+
+
+def test_load_nebula_client_types_error_mentions_project_install_paths():
+    with patch.dict("sys.modules", {"nebula3": None}):
+        with pytest.raises(ImportError) as exc_info:
+            _load_nebula_client_types()
+
+    message = str(exc_info.value)
+    assert "uv sync --extra offline-storage" in message
+    assert "LIGHTRAG_GRAPH_STORAGE=NetworkXStorage" in message
 
 
 @pytest.mark.asyncio

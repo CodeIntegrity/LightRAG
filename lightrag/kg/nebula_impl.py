@@ -72,7 +72,10 @@ def _load_nebula_client_types() -> tuple[Any, Any, Any]:
         from nebula3.gclient.net import ConnectionPool  # type: ignore
     except Exception as exc:  # pragma: no cover - depends on optional package
         raise ImportError(
-            "nebula3-python is required for NebulaGraphStorage. Install with `uv add nebula3-python`."
+            "nebula3-python is required for NebulaGraphStorage. "
+            "Install the storage extras with `uv sync --extra offline-storage`, "
+            "or set LIGHTRAG_GRAPH_STORAGE=NetworkXStorage if you do not intend "
+            "to use NebulaGraph."
         ) from exc
     return Config, ConnectionPool, SSL_config
 

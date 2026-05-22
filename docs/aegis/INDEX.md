@@ -10,6 +10,7 @@
 - `plans/2026-05-13-backend-runtime-and-workspace-optimization.md` - 后端 runtime 绑定与 workspace 校验优化计划
 - `plans/2026-05-21-upstream-main-merge-with-prompt-retirement.md` - 上游合并并退役本地 Prompt Management 的执行计划
 - `plans/2026-05-22-post-merge-custom-conflict-audit.md` - 上游大版本合并后二开冲突审计计划
+- `plans/2026-05-23-workspace-prompt-editor.md` - 工作区绑定的前端提示词编辑能力执行计划
 
 ## SOP
 
