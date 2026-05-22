@@ -273,8 +273,9 @@ export default function QuerySettings() {
               </div>
 
               {/* Prompt version and override management retired — use upstream prompt profiles */}
+            </>
 
-              {/* Query Mode */}
+            {/* Query Mode */}
             <>
               <TooltipProvider>
                 <Tooltip>

@@ -95,61 +95,39 @@ export default defineConfig(({ mode }) => {
           chunkFileNames: 'assets/[name]-[hash].js',
           entryFileNames: 'assets/[name]-[hash].js',
           assetFileNames: 'assets/[name]-[hash].[ext]',
-          manualChunks: {
-            'vendor-graph': [
-              'sigma',
-              'graphology',
-              'graphology-generators',
-              'graphology-layout',
-              'graphology-layout-force',
-              'graphology-layout-forceatlas2',
-              'graphology-layout-noverlap',
-              '@react-sigma/core',
-              '@react-sigma/graph-search',
-              '@react-sigma/layout-circlepack',
-              '@react-sigma/layout-circular',
-              '@react-sigma/layout-force',
-              '@react-sigma/layout-forceatlas2',
-              '@react-sigma/layout-noverlap',
-              '@react-sigma/layout-random',
-              '@react-sigma/minimap',
-              '@sigma/edge-curve',
-              '@sigma/node-border',
-            ],
-            'vendor-mermaid': ['mermaid'],
-            'vendor-markdown-core': [
-              'react-markdown',
-              'rehype-raw',
-              'rehype-react',
-              'remark-gfm',
-              'remark-math'
-            ],
-            'vendor-katex': [
-              'rehype-katex',
-              'katex'
-            ],
-            'vendor-highlight': [
-              'react-syntax-highlighter',
-            ],
-            'vendor-ui': [
-              '@radix-ui/react-alert-dialog',
-              '@radix-ui/react-checkbox',
-              '@radix-ui/react-dialog',
-              '@radix-ui/react-popover',
-              '@radix-ui/react-progress',
-              '@radix-ui/react-scroll-area',
-              '@radix-ui/react-select',
-              '@radix-ui/react-separator',
-              '@radix-ui/react-slot',
-              '@radix-ui/react-tabs',
-              '@radix-ui/react-tooltip',
-              '@radix-ui/react-use-controllable-state',
-              'cmdk',
-              'lucide-react',
-              'react-select',
-              'sonner',
-            ],
-          }
+          manualChunks(id: string) {
+            if (id.includes('node_modules/')) {
+              const chunks: Record<string, string[]> = {
+                'vendor-graph': [
+                  'sigma', 'graphology', 'graphology-generators', 'graphology-layout',
+                  'graphology-layout-force', 'graphology-layout-forceatlas2',
+                  'graphology-layout-noverlap', '@react-sigma/core', '@react-sigma/graph-search',
+                  '@react-sigma/layout-circlepack', '@react-sigma/layout-circular',
+                  '@react-sigma/layout-force', '@react-sigma/layout-forceatlas2',
+                  '@react-sigma/layout-noverlap', '@react-sigma/layout-random',
+                  '@react-sigma/minimap', '@sigma/edge-curve', '@sigma/node-border',
+                ],
+                'vendor-mermaid': ['mermaid'],
+                'vendor-markdown-core': ['react-markdown', 'rehype-raw', 'rehype-react', 'remark-gfm', 'remark-math'],
+                'vendor-katex': ['rehype-katex', 'katex'],
+                'vendor-highlight': ['react-syntax-highlighter'],
+                'vendor-ui': [
+                  '@radix-ui/react-alert-dialog', '@radix-ui/react-checkbox',
+                  '@radix-ui/react-dialog', '@radix-ui/react-popover',
+                  '@radix-ui/react-progress', '@radix-ui/react-scroll-area',
+                  '@radix-ui/react-select', '@radix-ui/react-separator',
+                  '@radix-ui/react-slot', '@radix-ui/react-tabs',
+                  '@radix-ui/react-tooltip', '@radix-ui/react-use-controllable-state',
+                  'cmdk', 'lucide-react', 'react-select', 'sonner',
+                ],
+              }
+              for (const [name, pkgs] of Object.entries(chunks)) {
+                for (const pkg of pkgs) {
+                  if (id.includes(`node_modules/${pkg}`)) return name
+                }
+              }
+            }
+          },
         }
       }
     },
