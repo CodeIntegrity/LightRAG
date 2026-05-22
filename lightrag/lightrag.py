@@ -24,7 +24,6 @@ from typing import (
     Union,
 )
 from lightrag.prompt import PROMPTS
-from lightrag.prompt_version_store import PromptVersionStore
 from lightrag.exceptions import PipelineCancelledException
 from lightrag.constants import (
     DEFAULT_MAX_GLEANING,
@@ -616,9 +615,6 @@ class LightRAG:
         # Init Embedding
         # Step 1: Capture embedding_func and max_token_size before applying rate_limit decorator
         original_embedding_func = self.embedding_func
-        self.prompt_version_store = PromptVersionStore(
-            self.working_dir, workspace=self.workspace
-        )
         embedding_max_token_size = None
         if self.embedding_func and hasattr(self.embedding_func, "max_token_size"):
             embedding_max_token_size = self.embedding_func.max_token_size
@@ -766,17 +762,8 @@ class LightRAG:
         self._storages_status = StoragesStatus.CREATED
 
     def _resolve_active_prompt_groups(self) -> dict[str, Any]:
-        active_groups: dict[str, Any] = {}
-        for group_type in ("indexing", "retrieval"):
-            group_registry = self.prompt_version_store.list_versions(group_type)
-            active_version_id = group_registry.get("active_version_id")
-            if not active_version_id:
-                active_groups[group_type] = None
-                continue
-            active_groups[group_type] = self.prompt_version_store.get_version(
-                group_type, active_version_id
-            )["payload"]
-        return active_groups
+        """Retired: always returns empty groups as local prompt versioning has been removed."""
+        return {"indexing": None, "retrieval": None}
 
     def _build_runtime_global_config(
         self, *, embedding_func_override: Any | None = None
@@ -3663,7 +3650,6 @@ class LightRAG:
             history_turns=param.history_turns,
             model_func=param.model_func,
             user_prompt=param.user_prompt,
-            prompt_overrides=param.prompt_overrides,
             enable_rerank=param.enable_rerank,
         )
 
@@ -3791,10 +3777,6 @@ class LightRAG:
                     system_prompt=system_prompt,
                 )
             elif query_param.mode == "bypass":
-                if query_param.prompt_overrides is not None:
-                    raise ValueError(
-                        "prompt_overrides are not supported in bypass mode"
-                    )
                 # Bypass mode: directly use LLM without knowledge retrieval
                 use_llm_func = query_param.model_func or global_config["llm_model_func"]
                 # Apply higher priority (8) to entity/relation summary tasks

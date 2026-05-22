@@ -23,9 +23,6 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { copyToClipboard } from '@/utils/clipboard'
 import type { QueryDataResponse, QueryMode, QueryRequest, ReferenceItem } from '@/api/lightrag'
-import { pruneEmptyPromptOverrides } from '@/utils/promptOverrides'
-import { projectRetrievalVersionToOverrides } from '@/utils/promptVersioning'
-import { getCachedRetrievalPromptVersion } from '@/utils/retrievalPromptCache'
 
 const RETRIEVAL_DATA_PAGE_SIZE = 20
 const retrievalDataTabs = ['entities', 'relationships', 'chunks', 'references'] as const
@@ -146,7 +143,6 @@ export default function RetrievalTesting() {
   // Get current tab to determine if this tab is active (for performance optimization)
   const currentTab = useSettingsStore.use.currentTab()
   const isRetrievalTabActive = currentTab === 'retrieval'
-  const allowPromptOverridesViaApi = useBackendState.use.allowPromptOverridesViaApi()
   const [references, setReferences] = useState<ReferenceItem[]>([])
   const [referencesExpanded, setReferencesExpanded] = useState(false)
   const [queryDataResult, setQueryDataResult] = useState<QueryDataResponse | null>(null)
@@ -441,22 +437,8 @@ export default function RetrievalTesting() {
       }
 
       try {
-        if (allowPromptOverridesViaApi && effectiveMode !== 'bypass') {
-          if (state.retrievalPromptVersionSelection === 'custom') {
-            queryParams.prompt_overrides = pruneEmptyPromptOverrides(state.retrievalPromptDraft)
-          } else if (state.retrievalPromptVersionSelection !== 'active') {
-            const selectedVersion = await getCachedRetrievalPromptVersion(
-              state.retrievalPromptVersionSelection
-            )
-            queryParams.prompt_overrides = projectRetrievalVersionToOverrides(
-              selectedVersion.payload
-            )
-          } else {
-            delete queryParams.prompt_overrides
-          }
-        } else {
-          delete queryParams.prompt_overrides
-        }
+        // Prompt overrides retired — use upstream prompt profiles
+        delete queryParams.prompt_overrides
 
         latestArtifactsRequestRef.current = {
           requestId,
@@ -552,7 +534,7 @@ export default function RetrievalTesting() {
         }
       }
     },
-    [allowPromptOverridesViaApi, inputValue, isLoading, messages, setMessages, t, scrollToBottom]
+    [inputValue, isLoading, messages, setMessages, t, scrollToBottom]
   )
 
   const handleKeyDown = useCallback(

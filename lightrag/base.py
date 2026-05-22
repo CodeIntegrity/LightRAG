@@ -158,7 +158,7 @@ class QueryParam:
     It's purpose is the let user customize the way LLM generate the response.
     """
 
-    prompt_overrides: dict[str, Any] | None = None
+    # prompt_overrides retired — use upstream prompt profiles
     """Optional query-time prompt overrides carried with the request."""
 
     enable_rerank: bool = os.getenv("RERANK_BY_DEFAULT", "true").lower() == "true"

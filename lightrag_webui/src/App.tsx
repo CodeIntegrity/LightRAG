@@ -21,7 +21,6 @@ import {
 
 const DocumentManager = lazy(() => import('@/features/DocumentManager'))
 const GraphViewer = lazy(() => import('@/features/GraphViewer'))
-const PromptManagement = lazy(() => import('@/features/PromptManagement'))
 const RetrievalTesting = lazy(() => import('@/features/RetrievalTesting'))
 const ApiSite = lazy(() => import('@/features/ApiSite'))
 
@@ -262,15 +261,6 @@ function App() {
                     {visitedTabs.has('knowledge-graph') ? (
                       <Suspense fallback={tabFallback}>
                         <GraphViewer />
-                      </Suspense>
-                    ) : null}
-                  </TabsContent>
-                )}
-                {visibleTabs.includes('prompt-management') && (
-                  <TabsContent value="prompt-management" className="absolute top-0 right-0 bottom-0 left-0 overflow-auto">
-                    {visitedTabs.has('prompt-management') ? (
-                      <Suspense fallback={tabFallback}>
-                        <PromptManagement />
                       </Suspense>
                     ) : null}
                   </TabsContent>

@@ -2474,9 +2474,8 @@ def create_document_routes(
                 )
 
         try:
-            current_rag.prompt_version_store.activate_version(
-                "indexing", request.version_id
-            )
+            # Prompt version activation retired — local prompt management removed
+            pass
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

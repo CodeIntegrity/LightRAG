@@ -44,7 +44,6 @@ from lightrag.api import __api_version__
 from lightrag.types import GPTKeywordExtractionFormat
 from lightrag.utils import EmbeddingFunc
 from lightrag.base import DocStatus
-from lightrag.prompt_version_store import PromptVersionStore
 from lightrag.constants import (
     DEFAULT_LOG_MAX_BYTES,
     DEFAULT_LOG_BACKUP_COUNT,
@@ -56,7 +55,6 @@ from lightrag.api.routers.document_routes import (
     DocumentManager,
     create_document_routes,
 )
-from lightrag.api.routers.prompt_config_routes import create_prompt_config_routes
 from lightrag.api.routers.workspace_routes import (
     _identity_from_request,
     create_workspace_routes,
@@ -101,7 +99,6 @@ webui_description = os.getenv("WEBUI_DESCRIPTION")
 ALL_GUEST_VISIBLE_TABS = (
     "documents",
     "knowledge-graph",
-    "prompt-management",
     "retrieval",
     "api",
 )
@@ -431,19 +428,8 @@ def create_app(args):
     # which means startup may not have initialized the registry yet.
     workspace_registry._initialize_sync(args.workspace)
 
-    def resolve_prompt_seed_locale(summary_language: str | None) -> str:
-        normalized = (summary_language or "").strip().lower()
-        if normalized in {"english", "en"}:
-            return "en"
-        if normalized in {"chinese", "中文", "zh"}:
-            return "zh"
-        return "en"
-
     async def initialize_workspace_assets(workspace: str) -> None:
         DocumentManager(args.input_dir, workspace=workspace)
-        PromptVersionStore(args.working_dir, workspace=workspace).initialize(
-            locale=resolve_prompt_seed_locale(args.summary_language)
-        )
 
     async def build_runtime_bundle(
         workspace: str, *, isolate_primary_runtime: bool = False
@@ -567,17 +553,6 @@ def create_app(args):
                 workspace, {"storages": "done", "input_dir": "done"}
             )
 
-            prompt_dir = Path(args.working_dir) / workspace / "prompt_versions"
-            shutil.rmtree(prompt_dir, ignore_errors=True)
-            await workspace_registry.update_hard_delete_progress(
-                workspace,
-                {
-                    "storages": "done",
-                    "input_dir": "done",
-                    "prompt_versions": "done",
-                },
-            )
-
             try:
                 await runtime_manager.evict_runtime(workspace)
             except WorkspaceStateError:
@@ -596,16 +571,6 @@ def create_app(args):
     async def get_workspace_stats(
         workspace: str, include_runtime: bool = False
     ) -> dict[str, object]:
-        prompt_store = PromptVersionStore(args.working_dir, workspace=workspace)
-        prompt_version_count = 0
-        for group_type in ("indexing", "retrieval"):
-            try:
-                prompt_version_count += len(
-                    prompt_store.list_versions(group_type).get("versions", [])
-                )
-            except Exception:
-                pass
-
         document_count: int | None = None
         document_capability = "not_loaded"
         chunk_count: int | None = None
@@ -618,14 +583,12 @@ def create_app(args):
                 "relation_count": None,
                 "chunk_count": chunk_count,
                 "storage_size_bytes": None,
-                "prompt_version_count": prompt_version_count,
                 "capabilities": {
                     "document_count": document_capability,
                     "entity_count": "unsupported_by_backend",
                     "relation_count": "unsupported_by_backend",
                     "chunk_count": chunk_capability,
                     "storage_size_bytes": "unsupported_by_backend",
-                    "prompt_version_count": "available",
                 },
             }
 
@@ -676,14 +639,12 @@ def create_app(args):
             "relation_count": None,
             "chunk_count": chunk_count,
             "storage_size_bytes": None,
-            "prompt_version_count": prompt_version_count,
             "capabilities": {
                 "document_count": document_capability,
                 "entity_count": "unsupported_by_backend",
                 "relation_count": "unsupported_by_backend",
                 "chunk_count": chunk_capability,
                 "storage_size_bytes": "unsupported_by_backend",
-                "prompt_version_count": "available",
             },
         }
 
@@ -1672,14 +1633,6 @@ def create_app(args):
             rag_proxy,
             api_key,
             args.top_k,
-            args.allow_prompt_overrides_via_api,
-        )
-    )
-    app.include_router(
-        create_prompt_config_routes(
-            rag,
-            api_key,
-            workspace_resolver=resolve_request_workspace,
         )
     )
     app.include_router(
@@ -1822,7 +1775,6 @@ def create_app(args):
                                 "embedding_binding": "openai",
                                 "embedding_model": "text-embedding-ada-002",
                                 "workspace": "default",
-                                "allow_prompt_overrides_via_api": False,
                             },
                             "auth_mode": "enabled",
                             "pipeline_busy": False,
@@ -1849,32 +1801,6 @@ def create_app(args):
 
             # Cleanup expired keyed locks and get status
             keyed_lock_info = cleanup_keyed_lock()
-            active_prompt_versions = {
-                "indexing": {
-                    "active_version_id": None,
-                    "active_version_name": None,
-                },
-                "retrieval": {
-                    "active_version_id": None,
-                    "active_version_name": None,
-                },
-            }
-            prompt_version_store = PromptVersionStore(
-                args.working_dir, workspace=workspace
-            )
-            if prompt_version_store is not None:
-                for group_type in ("indexing", "retrieval"):
-                    group_registry = prompt_version_store.list_versions(group_type)
-                    active_version_id = group_registry.get("active_version_id")
-                    if not active_version_id:
-                        continue
-                    active_version = prompt_version_store.get_version(
-                        group_type, active_version_id
-                    )
-                    active_prompt_versions[group_type] = {
-                        "active_version_id": active_version_id,
-                        "active_version_name": active_version["version_name"],
-                    }
 
             return {
                 "status": "healthy",
@@ -1917,8 +1843,6 @@ def create_app(args):
                     "max_async": args.max_async,
                     "embedding_func_max_async": args.embedding_func_max_async,
                     "embedding_batch_num": args.embedding_batch_num,
-                    "allow_prompt_overrides_via_api": args.allow_prompt_overrides_via_api,
-                    "active_prompt_versions": active_prompt_versions,
                 },
                 "auth_mode": auth_mode,
                 "capabilities": {

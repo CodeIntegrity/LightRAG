@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { QueryMode, QueryRequest, createPromptConfigVersion } from '@/api/lightrag'
+import { QueryMode, QueryRequest } from '@/api/lightrag'
 // Removed unused import for Text component
 import Checkbox from '@/components/ui/Checkbox'
 import Input from '@/components/ui/Input'
 import UserPromptInputWithHistory from '@/components/ui/UserPromptInputWithHistory'
-import PromptOverridesEditor from '@/components/retrieval/PromptOverridesEditor'
-import RetrievalPromptVersionSelector from '@/components/retrieval/RetrievalPromptVersionSelector'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import {
   Select,
@@ -113,18 +111,9 @@ export default function QuerySettings() {
   const { t } = useTranslation()
   const querySettings = useSettingsStore((state) => state.querySettings)
   const userPromptHistory = useSettingsStore((state) => state.userPromptHistory)
-  const retrievalPromptVersionSelection = useSettingsStore(
-    (state) => state.retrievalPromptVersionSelection
-  )
-  const retrievalPromptDraft = useSettingsStore((state) => state.retrievalPromptDraft)
-  const allowPromptOverridesViaApi = useBackendState.use.allowPromptOverridesViaApi()
   const rerankConfigured = useBackendState.use.status()?.configuration?.enable_rerank ?? false
   const rerankModel = useBackendState.use.status()?.configuration?.rerank_model ?? null
   const rerankAvailable = rerankConfigured && !!rerankModel
-  const promptOverridesEnabled = allowPromptOverridesViaApi && querySettings.mode !== 'bypass'
-  const promptOverridesDisabledReason = !allowPromptOverridesViaApi
-    ? t('retrievePanel.querySettings.promptOverrides.disabledHint')
-    : t('retrievePanel.querySettings.promptOverrides.bypassHint')
   const [numericDrafts, setNumericDrafts] = useState<Record<NumericQuerySettingKey, string>>(
     () => ({
       top_k: String(querySettings.top_k ?? numericQuerySettingDefaults.top_k),
@@ -193,32 +182,7 @@ export default function QuerySettings() {
     [userPromptHistory]
   )
 
-  const handleRetrievalPromptVersionSelection = useCallback((value: string) => {
-    useSettingsStore.getState().setRetrievalPromptVersionSelection(value)
-  }, [])
-
-  const handleRetrievalPromptDraftChange = useCallback((value: any) => {
-    useSettingsStore.getState().setRetrievalPromptDraft(value)
-  }, [])
-
-  const handleSaveDraftAsVersion = useCallback(
-    async (payload: Record<string, unknown>) => {
-      const versionName = `retrieval-custom-${Date.now()}`
-      const saved = await createPromptConfigVersion('retrieval', {
-        version_name: versionName,
-        comment: 'Saved from retrieval page draft',
-        payload
-      })
-      toast.success(
-        t('retrievePanel.querySettings.promptOverrides.savedAsVersion', {
-          name: saved.version_name
-        })
-      )
-      useSettingsStore.getState().setRetrievalPromptVersionSelection(saved.version_id)
-      useSettingsStore.getState().setRetrievalPromptDraft(undefined)
-    },
-    [t]
-  )
+  // Prompt version and override management retired — use upstream prompt profiles
 
   // Default values for reset functionality
   const defaultValues = useMemo(
@@ -308,36 +272,9 @@ export default function QuerySettings() {
                 />
               </div>
 
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <label className="ml-1 cursor-help">
-                      {t('retrievePanel.querySettings.promptVersionLabel')}
-                    </label>
-                  </TooltipTrigger>
-                  <TooltipContent side="left">
-                    <p>{t('retrievePanel.querySettings.promptVersionTooltip')}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <RetrievalPromptVersionSelector
-                enabled={promptOverridesEnabled}
-                value={retrievalPromptVersionSelection}
-                onChange={handleRetrievalPromptVersionSelection}
-              />
+              {/* Prompt version and override management retired — use upstream prompt profiles */}
 
-              {retrievalPromptVersionSelection === 'custom' ? (
-                <PromptOverridesEditor
-                  enabled={promptOverridesEnabled}
-                  disabledReason={promptOverridesDisabledReason}
-                  value={retrievalPromptDraft}
-                  onChange={handleRetrievalPromptDraftChange}
-                  onSaveAsVersion={handleSaveDraftAsVersion}
-                />
-              ) : null}
-            </>
-
-            {/* Query Mode */}
+              {/* Query Mode */}
             <>
               <TooltipProvider>
                 <Tooltip>

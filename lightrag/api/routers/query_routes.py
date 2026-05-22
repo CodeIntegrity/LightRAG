@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from lightrag.base import QueryParam
 from lightrag.api.utils_api import get_combined_auth_dependency
-from lightrag.prompt import validate_prompt_config
 from lightrag.utils import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -15,30 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # reloading the factory. Real route registration happens inside
 # `create_query_routes`.
 router = APIRouter(tags=["query"])
-QUERY_ROUTE_PROMPT_OVERRIDE_FAMILIES = {"query", "keywords"}
 
-
-class QueryPromptQueryOverrides(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    rag_response: Optional[str] = Field(default=None)
-    naive_rag_response: Optional[str] = Field(default=None)
-    kg_query_context: Optional[str] = Field(default=None)
-    naive_query_context: Optional[str] = Field(default=None)
-
-
-class QueryPromptKeywordsOverrides(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    keywords_extraction: Optional[str] = Field(default=None)
-    keywords_extraction_examples: Optional[list[str]] = Field(default=None)
-
-
-class QueryPromptOverridesPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    query: Optional[QueryPromptQueryOverrides] = Field(default=None)
-    keywords: Optional[QueryPromptKeywordsOverrides] = Field(default=None)
 
 class QueryRequest(BaseModel):
     query: str = Field(
@@ -116,10 +92,6 @@ class QueryRequest(BaseModel):
         default=None,
         description="User-provided prompt for the query. If provided, this will be used instead of the default value from prompt template.",
     )
-    prompt_overrides: Optional[QueryPromptOverridesPayload] = Field(
-        default=None,
-        description="Optional per-request prompt template overrides.",
-    )
 
     enable_rerank: Optional[bool] = Field(
         default=None,
@@ -164,10 +136,6 @@ class QueryRequest(BaseModel):
 
     def to_query_params(self, is_stream: bool) -> "QueryParam":
         """Converts a QueryRequest instance into a QueryParam instance."""
-        # Use Pydantic's `.model_dump(exclude_none=True)` to remove None values automatically
-        # Exclude API-level parameters that don't belong in QueryParam
-        # Note: nested Pydantic models inside `prompt_overrides` are intentionally
-        # dumped to plain dicts here so they match QueryParam.prompt_overrides.
         request_data = self.model_dump(
             exclude_none=True, exclude={"query", "include_chunk_content"}
         )
@@ -242,7 +210,6 @@ def create_query_routes(
     rag,
     api_key: Optional[str] = None,
     top_k: int = 60,
-    allow_prompt_overrides_via_api: bool = False,
 ):
     # Fresh router per call. A module-level instance would accumulate
     # duplicate routes when the factory is invoked more than once in the
@@ -250,32 +217,6 @@ def create_query_routes(
     # "Duplicate Operation ID" warnings.
     router = APIRouter(tags=["query"])
     combined_auth = get_combined_auth_dependency(api_key)
-
-    def _assert_prompt_override_capability(request: QueryRequest) -> None:
-        if request.prompt_overrides is not None and not allow_prompt_overrides_via_api:
-            raise HTTPException(
-                status_code=403,
-                detail="Prompt overrides are disabled on this server",
-            )
-
-    def _validate_prompt_overrides_payload(request: QueryRequest) -> None:
-        if request.prompt_overrides is None:
-            return
-        if request.mode == "bypass":
-            raise HTTPException(
-                status_code=400,
-                detail="prompt_overrides are not supported in bypass mode",
-            )
-        try:
-            validate_prompt_config(
-                request.prompt_overrides.model_dump(exclude_none=True),
-                allowed_families=QUERY_ROUTE_PROMPT_OVERRIDE_FAMILIES,
-            )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid prompt_overrides: {str(exc)}",
-            ) from exc
 
     @router.post(
         "/query",
@@ -484,8 +425,6 @@ def create_query_routes(
                 - 500: Internal processing error (e.g., LLM service unavailable)
         """
         try:
-            _assert_prompt_override_capability(request)
-            _validate_prompt_overrides_payload(request)
             param = request.to_query_params(
                 False
             )  # Ensure stream=False for non-streaming endpoint
@@ -1225,8 +1164,6 @@ def create_query_routes(
             as structured data analysis typically requires source attribution.
         """
         try:
-            _assert_prompt_override_capability(request)
-            _validate_prompt_overrides_payload(request)
             param = request.to_query_params(False)  # No streaming for data endpoint
             response = await rag.aquery_data(request.query, param=param)
 
@@ -1255,8 +1192,6 @@ def create_query_routes(
     async def query_raw(request: QueryRequest):
         """Return the full non-streaming aquery_llm payload."""
         try:
-            _assert_prompt_override_capability(request)
-            _validate_prompt_overrides_payload(request)
             param = request.to_query_params(False)
             param.stream = False
             response = await rag.aquery_llm(request.query, param=param)

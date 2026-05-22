@@ -53,12 +53,7 @@ from lightrag.base import (
     QueryResult,
     QueryContextResult,
 )
-from lightrag.prompt import (
-    PROMPTS,
-    get_default_prompt_config,
-    get_prompt_fingerprint,
-    merge_prompt_config,
-)
+from lightrag.prompt import PROMPTS
 from lightrag.constants import (
     GRAPH_FIELD_SEP,
     DEFAULT_MAX_ENTITY_TOKENS,
@@ -99,39 +94,17 @@ def _exception_contains_message(exc: BaseException, needle: str) -> bool:
     return False
 
 
-def _project_prompt_group_families(
-    payload: dict[str, Any] | None, allowed_families: set[str]
-) -> dict[str, Any]:
-    if not isinstance(payload, dict):
-        return {}
-    return {
-        family: deepcopy(payload[family])
-        for family in allowed_families
-        if family in payload
-    }
-
-
 def _resolve_active_prompt_group_payload(
     global_config: dict[str, Any], group_type: str
 ) -> dict[str, Any] | None:
-    active_groups = global_config.get("active_prompt_groups") or {}
-    payload = active_groups.get(group_type)
-    return deepcopy(payload) if isinstance(payload, dict) else None
+    """Retired: always returns None as local prompt versioning has been removed."""
+    return None
 
 
 def _resolve_indexing_runtime_addon_params(global_config: dict[str, Any]) -> dict[str, Any]:
     addon_params = deepcopy(global_config.get("addon_params") or {})
     language = addon_params.get("language", DEFAULT_SUMMARY_LANGUAGE)
     entity_types = deepcopy(addon_params.get("entity_types", DEFAULT_ENTITY_TYPES))
-
-    active_indexing_payload = _resolve_active_prompt_group_payload(
-        global_config, "indexing"
-    )
-    if active_indexing_payload:
-        if active_indexing_payload.get("summary_language"):
-            language = active_indexing_payload["summary_language"]
-        if active_indexing_payload.get("entity_types"):
-            entity_types = deepcopy(active_indexing_payload["entity_types"])
 
     return {
         "language": language,
@@ -142,80 +115,39 @@ def _resolve_indexing_runtime_addon_params(global_config: dict[str, Any]) -> dic
 def _resolve_query_time_prompt_config(
     global_config: dict[str, Any], query_param: QueryParam | None = None
 ) -> dict[str, Any]:
-    """Resolve effective query-time prompt config without mutating inputs."""
-    effective_config = merge_prompt_config(
-        get_default_prompt_config(),
-        global_config.get("prompt_config"),
-    )
-    active_retrieval_payload = _resolve_active_prompt_group_payload(
-        global_config, "retrieval"
-    )
-    if active_retrieval_payload is not None:
-        effective_config = merge_prompt_config(
-            effective_config,
-            _project_prompt_group_families(
-                active_retrieval_payload, QUERY_TIME_PROMPT_OVERRIDE_FAMILIES
-            ),
-            allowed_families=QUERY_TIME_PROMPT_OVERRIDE_FAMILIES,
-        )
-    prompt_overrides = query_param.prompt_overrides if query_param else None
-    if prompt_overrides is not None:
-        effective_config = merge_prompt_config(
-            effective_config,
-            prompt_overrides,
-            allowed_families=QUERY_TIME_PROMPT_OVERRIDE_FAMILIES,
-        )
-    return effective_config
-
-
-def _get_prompt_family_fingerprint(
-    prompt_config: dict[str, Any], family: str
-) -> str:
-    return get_prompt_fingerprint({family: prompt_config.get(family, {})})
+    """Retired: returns a minimal config with only shared defaults."""
+    return {
+        "shared": {
+            "tuple_delimiter": PROMPTS["DEFAULT_TUPLE_DELIMITER"],
+            "completion_delimiter": PROMPTS["DEFAULT_COMPLETION_DELIMITER"],
+        }
+    }
 
 
 def _get_prompt_fingerprint_for_families(
     prompt_config: dict[str, Any], families: set[str]
 ) -> str:
-    return get_prompt_fingerprint(
-        {family: prompt_config.get(family, {}) for family in sorted(families)}
-    )
+    """Retired: returns a stable empty fingerprint."""
+    return "retired-no-version"
 
 
 def _resolve_indexing_time_prompt_config(global_config: dict[str, Any]) -> dict[str, Any]:
-    """Resolve effective indexing-time prompt config and warn on impactful changes."""
-    default_prompt_config = get_default_prompt_config()
-    effective_config = merge_prompt_config(
-        default_prompt_config,
-        global_config.get("prompt_config"),
-    )
-    active_indexing_payload = _resolve_active_prompt_group_payload(
-        global_config, "indexing"
-    )
-    if active_indexing_payload is not None:
-        effective_config = merge_prompt_config(
-            effective_config,
-            _project_prompt_group_families(
-                active_indexing_payload, INDEXING_TIME_PROMPT_FAMILIES
-            ),
-            allowed_families=INDEXING_TIME_PROMPT_FAMILIES,
-        )
-
-    default_fingerprint = _get_prompt_fingerprint_for_families(
-        default_prompt_config, INDEXING_TIME_PROMPT_FAMILIES
-    )
-    effective_fingerprint = _get_prompt_fingerprint_for_families(
-        effective_config, INDEXING_TIME_PROMPT_FAMILIES
-    )
-    if (
-        default_fingerprint != effective_fingerprint
-        and effective_fingerprint not in _INDEXING_PROMPT_WARNED_FINGERPRINTS
-    ):
-        logger.warning(
-            "Indexing-time prompt_config has changed from defaults; entity extraction/summary cache identity will change and may trigger additional LLM reprocessing costs."
-        )
-        _INDEXING_PROMPT_WARNED_FINGERPRINTS.add(effective_fingerprint)
-    return effective_config
+    """Retired: returns a minimal config with entity_extraction and summary defaults."""
+    return {
+        "shared": {
+            "tuple_delimiter": PROMPTS["DEFAULT_TUPLE_DELIMITER"],
+            "completion_delimiter": PROMPTS["DEFAULT_COMPLETION_DELIMITER"],
+        },
+        "entity_extraction": {
+            "system_prompt": PROMPTS["entity_extraction_system_prompt"],
+            "user_prompt": PROMPTS["entity_extraction_user_prompt"],
+            "continue_prompt": PROMPTS["entity_continue_extraction_user_prompt"],
+            "examples": PROMPTS["entity_extraction_examples"],
+        },
+        "summary": {
+            "summarize_entity_descriptions": PROMPTS["summarize_entity_descriptions"],
+        },
+    }
 
 
 async def _use_llm_func_with_prompt_cache_identity(

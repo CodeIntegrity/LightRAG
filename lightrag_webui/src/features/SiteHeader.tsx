@@ -52,11 +52,6 @@ function TabsNavigation() {
             {t('header.knowledgeGraph')}
           </NavigationTab>
         )}
-        {visibleTabs.includes('prompt-management') && (
-          <NavigationTab value="prompt-management" currentTab={currentTab}>
-            {t('header.promptManagement')}
-          </NavigationTab>
-        )}
         {visibleTabs.includes('retrieval') && (
           <NavigationTab value="retrieval" currentTab={currentTab}>
             {t('header.retrieval')}
