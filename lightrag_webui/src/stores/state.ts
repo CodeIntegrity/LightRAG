@@ -3,6 +3,7 @@ import { createSelectors } from '@/lib/utils'
 import { checkHealth, LightragStatus } from '@/api/lightrag'
 import { useSettingsStore } from './settings'
 import { healthCheckInterval } from '@/lib/constants'
+import { GuestVisibleTab, allGuestVisibleTabs, normalizeGuestVisibleTabs } from '@/lib/guestFeatures'
 
 interface BackendState {
   health: boolean
@@ -24,6 +25,8 @@ interface BackendState {
   resetHealthCheckTimer: () => void
   resetHealthCheckTimerDelayed: (delayMs: number) => void
   clearHealthCheckTimer: () => void
+  workspaceCreateAllowed: boolean
+  guestVisibleTabs: GuestVisibleTab[]
 }
 
 interface AuthState {
@@ -101,7 +104,9 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
         lastCheckTime: Date.now(),
         status: health,
         pipelineBusy: health.pipeline_busy,
-        pipelineActive: health.pipeline_active ?? health.pipeline_busy
+        pipelineActive: health.pipeline_active ?? health.pipeline_busy,
+        workspaceCreateAllowed: health.capabilities?.workspace_create === true,
+        guestVisibleTabs: normalizeGuestVisibleTabs(health.capabilities?.guest_visible_tabs),
       })
       return true
     }
