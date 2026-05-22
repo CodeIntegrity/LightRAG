@@ -9,148 +9,14 @@
   "header": {
     "documents": "Documents",
     "knowledgeGraph": "Knowledge Graph",
-    "promptManagement": "Prompt Management",
     "retrieval": "Retrieval",
     "api": "API",
     "projectRepository": "Project Repository",
-    "login": "Login",
     "logout": "Logout",
     "frontendNeedsRebuild": "Frontend needs rebuild",
     "themeToggle": {
       "switchToLight": "Switch to light theme",
       "switchToDark": "Switch to dark theme"
-    }
-  },
-  "promptManagement": {
-    "title": "Prompt Management",
-    "emptyTitle": "Prompt Management",
-    "emptyDescription": "No prompt versions exist for this workspace yet.",
-    "initializeSeedVersions": "Initialize Seed Versions",
-    "groups": {
-      "retrieval": "Retrieval",
-      "indexing": "Indexing"
-    },
-    "versions": "Versions",
-    "active": "ACTIVE",
-    "versionName": "Version Name",
-    "source": "Source",
-    "comment": "Comment",
-    "saveCurrentVersion": "Save Current Version",
-    "saveAsNewVersion": "Save As New Version",
-    "rebuildFromSelectedVersion": "Rebuild From This Version",
-    "viewDiff": "View Diff",
-    "setActive": "Set Active",
-    "delete": "Delete",
-    "versionEditor": "Version Editor",
-    "selectVersion": "Select a version from the left to inspect or save as a new version.",
-    "versionDiffTitle": "Version Diff",
-    "versionDiffDescription": "Compare the selected version against the active version or chosen base.",
-    "noChanges": "No changes to display.",
-    "diffUnified": "Unified",
-    "diffSplit": "Split",
-    "manual": "Manual",
-    "deleted": "Deleted",
-    "edit": "Edit",
-    "collapse": "Collapse",
-    "emptyPreview": "Empty",
-    "saved": "Saved {{name}}",
-    "activated": "Activated {{name}}",
-    "deletedMessage": "Deleted {{name}}",
-    "deleteConfirm": "Delete {{name}}?",
-    "indexingActivateWarning": "Changing indexing configuration can create mixed-schema graph data unless you rebuild the workspace. Continue?",
-    "rebuildConfirm": "Rebuild the workspace from {{name}}? Source files will be preserved, but current indexed data and graph state will be reset.",
-    "rebuildStarted": "Started rebuilding from {{name}}",
-    "rebuildBusy": "A pipeline job is already running. Please try again later.",
-    "remove": "Remove",
-    "sectionNotes": "Usage Notes",
-    "sectionVariables": "Variable Guide",
-    "quickTestTitle": "Quick Test",
-    "quickTestFields": "fields",
-    "quickTestRaw": "Raw Template",
-    "quickTestPreview": "Preview with Sample Data",
-    "quickTestVariableValues": "Sample Variable Values",
-    "searchVersions": "Search versions...",
-    "noVersionsMatch": "No versions match your search.",
-    "noVersions": "No versions available.",
-    "seed": "SEED",
-    "export": "Export",
-    "import": "Import",
-    "exportedVersions": "Exported {{count}} versions",
-    "importedVersions": "Imported {{count}} versions",
-    "importInvalidFormat": "Invalid import file format.",
-    "importFailed": "Import failed. Please check the file format.",
-    "rollbackToVersion": "Rollback to {{name}}",
-    "modified": "Modified",
-    "variables": {
-      "entityTypes": "The entity type list allowed in the current workspace. It is injected into prompts that constrain classification.",
-      "language": "The target output language resolved from workspace settings or runtime configuration.",
-      "tupleDelimiter": "The delimiter used between fields in extracted entity and relation rows.",
-      "completionDelimiter": "The literal marker appended after extraction has fully completed.",
-      "examples": "The current example collection joined together and injected into the parent template through {examples}.",
-      "inputText": "The source text chunk being processed in the current extraction call.",
-      "descriptionList": "The JSON list of descriptions that should be merged into one summary.",
-      "descriptionType": "The object type currently being summarized, such as Entity or Relation.",
-      "descriptionName": "The name of the entity or relation currently being summarized.",
-      "summaryLength": "The recommended summary length derived from runtime token budgeting.",
-      "contextData": "The assembled retrieval context, usually containing graph data, text chunks, and references.",
-      "contentData": "The simplified document-chunk-only context used by naive retrieval mode.",
-      "responseType": "The requested answer format, such as multiple paragraphs or bullet points.",
-      "userPrompt": "Additional instructions appended by the user at query time.",
-      "entitiesStr": "The retrieved entity list formatted as JSON.",
-      "relationsStr": "The retrieved relation list formatted as JSON.",
-      "textChunksStr": "The retrieved document chunk list formatted as JSON.",
-      "referenceListStr": "The reference document titles keyed by reference_id.",
-      "query": "The user's raw query text."
-    },
-    "fieldHelp": {
-      "entityTypes": {
-        "description": "Defines the preferred entity type set for indexing. It shapes the extraction boundary and keeps the graph schema stable. Enter values as a comma-separated list such as Person,Organization,Event.",
-        "itemPlaceholder": "Entity types, comma separated"
-      },
-      "summaryLanguage": {
-        "description": "Defines the output language for merged entity or relation descriptions and is reused as {language} in indexing prompts."
-      },
-      "tupleDelimiter": {
-        "description": "Defines the delimiter placed between fields in extraction output rows. The system and continuation prompts require the model to use it exactly."
-      },
-      "completionDelimiter": {
-        "description": "Defines the literal completion marker that signals the extraction run has fully finished."
-      },
-      "entitySystemPrompt": {
-        "description": "The core indexing system prompt. It governs entity and relation extraction rules, output shape, language, and few-shot guidance."
-      },
-      "entityUserPrompt": {
-        "description": "The user-side extraction prompt injected for each text chunk. It mainly carries the input text and per-call constraints."
-      },
-      "entityContinuePrompt": {
-        "description": "Used for continuation passes when the first extraction is incomplete, keeping the same output structure while filling missed items."
-      },
-      "entityExamples": {
-        "description": "The few-shot example list for entity extraction. The whole list is injected into the system prompt to teach the expected format and granularity.",
-        "itemPlaceholder": "Example"
-      },
-      "summaryDescriptions": {
-        "description": "Used when merging repeated entity or relation descriptions into one coherent and objective summary."
-      },
-      "ragResponse": {
-        "description": "The standard RAG answer template, combining graph context, document chunks, and references into the final response."
-      },
-      "naiveRagResponse": {
-        "description": "The answer template for naive retrieval mode, using only document chunk context and references."
-      },
-      "kgQueryContext": {
-        "description": "Formats entities, relations, text chunks, and the reference list into the unified context consumed by graph-aware answer prompts."
-      },
-      "naiveQueryContext": {
-        "description": "Formats document chunks and the reference list into the simplified context consumed by naive answer prompts."
-      },
-      "keywordsExtraction": {
-        "description": "The pre-retrieval keyword extraction template that splits the user query into high-level and low-level retrieval terms."
-      },
-      "keywordsExtractionExamples": {
-        "description": "The few-shot example list for keyword extraction. The whole list is injected to teach the expected JSON output format.",
-        "itemPlaceholder": "Example"
-      }
     }
   },
   "login": {
@@ -164,11 +30,8 @@
     "successMessage": "Login succeeded",
     "errorEmptyFields": "Please enter your username and password",
     "errorInvalidCredentials": "Login failed, please check username and password",
-    "errorGuestLogin": "Guest login is currently unavailable",
     "authDisabled": "Authentication is disabled. Using login free mode.",
-    "guestMode": "Guest Access",
-    "guestLoginEntry": "Continue as guest",
-    "guestSuccess": "Guest access enabled."
+    "guestMode": "Login Free"
   },
   "common": {
     "cancel": "Cancel",
@@ -254,8 +117,6 @@
       "title": "Document Management",
       "scanButton": "Scan/Retry",
       "scanTooltip": "Scan and process documents in input folder, and also reprocess all failed documents",
-      "cancelPipelineButton": "Cancel All Pipelines",
-      "cancelPipelineTooltip": "Request cancellation for all active document pipeline work",
       "refreshTooltip": "Reset document list",
       "pipelineStatusButton": "Pipeline",
       "pipelineStatusTooltip": "View document processing pipeline status",
@@ -268,7 +129,6 @@
         "fileName": "File Name",
         "summary": "Summary",
         "status": "Status",
-        "source": "Source",
         "length": "Length",
         "chunks": "Chunks",
         "created": "Created",
@@ -276,25 +136,20 @@
         "metadata": "Metadata",
         "select": "Select"
       },
-      "source": {
-        "customChunks": "Custom Chunks"
-      },
-      "customChunksRebuild": {
-        "button": "Rebuild Graphs",
-        "tooltip": "Rebuild graphs",
-        "confirmTitle": "Confirm graph rebuild",
-        "confirmSelected": "This will rebuild graphs for {{count}} selected documents",
-        "confirmAll": "This will rebuild all graphs",
-        "confirmButton": "Confirm Rebuild",
-        "started": "Started rebuilding all graphs",
-        "startedSelected": "Started rebuilding graphs for {{count}} selected documents",
-        "busy": "Another pipeline job is already running",
-        "failed": "Failed to rebuild graphs\n{{error}}"
+      "filters": {
+        "all": "All",
+        "completed": "Completed",
+        "analyzing": "Analyzing",
+        "processing": "Processing",
+        "pending": "Pending",
+        "failed": "Failed"
       },
       "status": {
         "all": "All",
         "completed": "Completed",
         "preprocessed": "Preprocessed",
+        "parsing": "Parsing",
+        "analyzing": "Analyzing",
         "processing": "Processing",
         "pending": "Pending",
         "failed": "Failed"
@@ -304,36 +159,19 @@
         "scanFailed": "Failed to scan documents\n{{error}}",
         "scanProgressFailed": "Failed to get scan progress\n{{error}}"
       },
-      "legacyFallback": {
-        "title": "Compatibility mode is active",
-        "description": "{{message}}"
-      },
       "fileNameLabel": "File Name",
       "showButton": "Show",
       "hideButton": "Hide",
       "showFileNameTooltip": "Show file name",
       "hideFileNameTooltip": "Hide file name",
       "details": {
-        "title": "Document details",
-        "openTooltip": "View document details",
-        "copyTooltip": "Copy details",
+        "title": "Status Details",
+        "openTooltip": "View status details",
+        "content": "Details",
+        "copyButton": "Copy",
+        "copyTooltip": "Copy status details",
         "copySuccess": "Status details copied",
-        "copyFailed": "Failed to copy status details",
-        "copyChunksTooltip": "Copy chunks",
-        "copyChunksSuccess": "Chunk content copied",
-        "copyChunksFailed": "Failed to copy chunk content",
-        "copyChunkTooltip": "Copy chunk text",
-        "copyChunkSuccess": "Chunk text copied",
-        "copyChunkFailed": "Failed to copy chunk text",
-        "loadingChunks": "Loading chunks...",
-        "noChunks": "No chunk content available.",
-        "noDetails": "No status details available.",
-        "chunksLoadFailed": "Failed to load document chunks\n{{error}}",
-        "chunkLabel": "Chunk {{index}}",
-        "tabs": {
-          "details": "Details",
-          "chunks": "Chunks"
-        }
+        "copyFailed": "Failed to copy status details"
       }
     },
     "pipelineStatus": {
@@ -363,17 +201,6 @@
   },
   "graphPanel": {
     "dataIsTruncated": "Graph data is truncated to Max Nodes",
-    "loadingGraph": "Loading graph data...",
-    "switchingTheme": "Switching theme...",
-    "overlay": {
-      "loadingTitle": "Preparing graph",
-      "emptyTitle": "No graph data",
-      "emptyDescription": "Adjust the scope or refresh the graph to load results.",
-      "authErrorTitle": "Authentication required",
-      "authErrorDescription": "Sign in again to load graph data.",
-      "errorTitle": "Graph request failed",
-      "errorDescription": "The latest graph request did not complete."
-    },
     "statusDialog": {
       "title": "LightRAG Server Settings",
       "description": "View current system status and connection information"
@@ -415,26 +242,13 @@
         "showPropertyPanel": "Show Property Panel",
         "showSearchBar": "Show Search Bar",
         "showNodeLabel": "Show Node Label",
-        "graphLabelFontSize": "Node/Edge Label Font Size",
         "nodeDraggable": "Node Draggable",
-        "searchLinkedDrag": "Search Linked Drag",
         "showEdgeLabel": "Show Edge Label",
-        "showDirectionalArrows": "Show Directional Arrows",
         "hideUnselectedEdges": "Hide Unselected Edges",
         "edgeEvents": "Edge Events",
         "maxQueryDepth": "Max Query Depth",
         "maxNodes": "Max Nodes",
         "maxLayoutIterations": "Max Layout Iterations",
-        "layoutRepulsion": "Layout Repulsion",
-        "layoutGravity": "Layout Gravity",
-        "layoutMargin": "Layout Margin",
-        "layoutAttraction": "Layout Attraction",
-        "layoutInertia": "Layout Inertia",
-        "layoutMaxMove": "Layout Max Move",
-        "layoutExpansion": "Layout Expansion",
-        "layoutGridSize": "Layout Grid Size",
-        "layoutRatio": "Layout Ratio",
-        "layoutSpeed": "Layout Speed",
         "resetToDefault": "Reset to default",
         "edgeSizeRange": "Edge Size Range",
         "depth": "D",
@@ -469,12 +283,6 @@
         "fullScreen": "Full Screen",
         "windowed": "Windowed"
       },
-      "exportImageControl": {
-        "export": "Export Image",
-        "exporting": "Exporting...",
-        "exportSuccess": "Image exported successfully",
-        "exportFailed": "Failed to export image"
-      },
       "legendControl": {
         "toggleLegend": "Toggle Legend"
       }
@@ -488,9 +296,9 @@
       "serverInfo": "Server Info",
       "workingDirectory": "Working Directory",
       "inputDirectory": "Input Directory",
-      "maxParallelInsert": "Concurrent Doc Processing",
+      "otherSettings": "Other Settings",
       "summarySettings": "Summary Settings",
-      "llmConfig": "LLM Configuration",
+      "llmConfig": "Model Configuration",
       "llmBinding": "LLM Binding",
       "llmBindingHost": "LLM Endpoint",
       "llmModel": "LLM Model",
@@ -504,7 +312,6 @@
       "graphStorage": "Graph Storage",
       "vectorStorage": "Vector Storage",
       "workspace": "Workspace",
-      "maxGraphNodes": "Max Graph Nodes",
       "rerankerConfig": "Reranker Configuration",
       "rerankerBindingHost": "Reranker Endpoint",
       "rerankerModel": "Reranker Model",
@@ -544,14 +351,13 @@
         "properties": "Properties",
         "relationships": "Relations(within subgraph)",
         "expandNode": "Expand Node",
-        "pruneNode": "Prune Node",
+        "pruneNode": "Hide Node",
         "deleteAllNodesError": "Refuse to delete all nodes in the graph",
         "nodesRemoved": "{{count}} nodes removed, including orphan nodes",
         "noNewNodes": "No expandable nodes found",
         "propertyNames": {
           "description": "Description",
-          "entity_id": "Entity ID",
-          "name": "Name",
+          "entity_id": "Name",
           "entity_type": "Type",
           "source_id": "C-ID",
           "Neighbour": "Neigh",
@@ -567,8 +373,7 @@
         "source": "Source",
         "target": "Target",
         "properties": "Properties"
-      },
-      "emptySelection": "Select a node or relation to inspect."
+      }
     },
     "search": {
       "placeholder": "Search nodes in page...",
@@ -584,266 +389,7 @@
       "refreshCurrentLabelTooltip": "Refresh current page graph data",
       "refreshingTooltip": "Refreshing data..."
     },
-    "emptyGraph": "Empty(Try Reload Again)",
-    "workbench": {
-      "summary": {
-        "draftStatus": "Draft",
-        "appliedStatus": "Applied",
-        "version": "Version {{queryVersion}}",
-        "scope": "Scope {{label}} · D{{maxDepth}} · N{{maxNodes}}",
-        "result": "Result {{nodeCount}} nodes / {{edgeCount}} edges",
-        "activeGroups": "Active Groups {{activeGroups}}"
-      },
-      "filter": {
-        "title": "Filters",
-        "sections": {
-          "nodeFilters": "Node Filters",
-          "edgeFilters": "Edge Filters",
-          "scopeFilters": "Scope Filters",
-          "sourceFilters": "Source Filters",
-          "viewControls": "View Controls"
-        },
-        "fields": {
-          "entityTypes": "Entity Types",
-          "nameQuery": "Name Query",
-          "descriptionQuery": "Description Query",
-          "degreeMin": "Degree Min",
-          "degreeMax": "Degree Max",
-          "isolatedOnly": "Isolated Only",
-          "relationTypes": "Relation Types",
-          "keywordQuery": "Keyword Query",
-          "weightMin": "Weight Min",
-          "weightMax": "Weight Max",
-          "sourceEntityTypes": "Source Entity Types",
-          "targetEntityTypes": "Target Entity Types",
-          "startLabel": "Start Label",
-          "maxDepth": "Max Depth",
-          "maxNodes": "Max Nodes",
-          "direction": "Traversal Direction",
-          "onlyMatchedNeighborhood": "Only Matched Neighborhood",
-          "sourceIdQuery": "Source ID Query",
-          "filePaths": "File Paths",
-          "timeFrom": "Time From",
-          "timeTo": "Time To",
-          "showNodesOnly": "Show Nodes Only",
-          "showEdgesOnly": "Show Edges Only",
-          "hideLowWeightEdges": "Hide Low Weight Edges",
-          "hideEmptyDescription": "Hide Empty Description",
-          "highlightMatches": "Highlight Matches"
-        },
-        "placeholders": {
-          "entityTypes": "PERSON, ORGANIZATION",
-          "searchEntityTypes": "Search entity types...",
-          "relationTypes": "owns, partner_of",
-          "startLabel": "* / Tesla",
-          "searchStartLabel": "Search labels or enter a custom label...",
-          "filePaths": "/inputs/a.md, /inputs/b.md"
-        },
-        "messages": {
-          "noEntityTypeResults": "No matching entity types found.",
-          "noLabelResults": "No matching labels found."
-        },
-        "direction": {
-          "both": "Both",
-          "outbound": "Downstream",
-          "inbound": "Upstream"
-        },
-        "actions": {
-          "collapse": "Collapse Filters",
-          "expand": "Expand Filters",
-          "removeSelection": "Remove {{value}}",
-          "apply": "Apply",
-          "reset": "Reset"
-        }
-      },
-      "actionInspector": {
-        "title": "Action Inspector",
-        "description": "Inspect, mutate, and validate graph objects without leaving this workbench.",
-        "clearError": "Clear",
-        "inspectHint": "Inspect stays pinned above. Open create, delete, or merge only when needed.",
-        "actions": {
-          "collapse": "Collapse inspector",
-          "expand": "Expand inspector"
-        },
-        "tabs": {
-          "inspect": "Inspect",
-          "create": "Create",
-          "delete": "Delete",
-          "merge": "Merge"
-        }
-      },
-      "createNode": {
-        "title": "Create Node",
-        "description": "Minimal payload: entity name + description.",
-        "fields": {
-          "entityName": "Entity Name",
-          "entityType": "Type",
-          "description": "Description"
-        },
-        "placeholders": {
-          "entityName": "Tesla",
-          "entityType": "Select an existing entity type",
-          "description": "Electric vehicle manufacturer"
-        },
-        "errors": {
-          "required": "Entity name and description are required.",
-          "createFailed": "Create node failed"
-        },
-        "actions": {
-          "creating": "Creating...",
-          "create": "Create Node"
-        },
-        "messages": {
-          "created": "Entity \"{{entity}}\" created."
-        }
-      },
-      "createRelation": {
-        "title": "Create Relation",
-        "description": "Source/target prefer current selection and can be overridden manually.",
-        "fields": {
-          "source": "Source",
-          "target": "Target",
-          "description": "Description",
-          "keywords": "Keywords",
-          "weight": "Weight"
-        },
-        "placeholders": {
-          "source": "Elon Musk",
-          "target": "Tesla",
-          "searchEntity": "Search an entity...",
-          "description": "Elon Musk works for Tesla",
-          "keywords": "works_for"
-        },
-        "errors": {
-          "required": "Source and target entity are required.",
-          "sameEntity": "Source and target cannot be the same entity.",
-          "createFailed": "Create relation failed"
-        },
-        "actions": {
-          "creating": "Creating...",
-          "create": "Create Relation"
-        },
-        "messages": {
-          "created": "Relation \"{{source}} -> {{target}}\" created.",
-          "noEntityResults": "No matching entities found."
-        }
-      },
-      "deleteObject": {
-        "title": "Delete Selection",
-        "fields": {
-          "entity": "Entity",
-          "description": "Description",
-          "source": "Source",
-          "target": "Target",
-          "summary": "Summary"
-        },
-        "confirmation": {
-          "emptySelection": "Select a node or relation first.",
-          "node": "You are deleting entity \"{{entity}}\". Related relations will also be removed.",
-          "relationWithSummary": "You are deleting relation \"{{source}} -> {{target}}\" ({{summary}}).",
-          "relation": "You are deleting relation \"{{source}} -> {{target}}\"."
-        },
-        "dialog": {
-          "emptyTitle": "Nothing to delete",
-          "nodeTitle": "Delete entity \"{{entity}}\"",
-          "relationTitle": "Delete relation \"{{source}} -> {{target}}\""
-        },
-        "errors": {
-          "deleteFailed": "Delete failed"
-        },
-        "actions": {
-          "cancel": "Cancel",
-          "deleting": "Deleting...",
-          "delete": "Delete",
-          "confirmDelete": "Confirm Delete"
-        },
-        "messages": {
-          "entityDeleted": "Entity \"{{entity}}\" deleted.",
-          "relationDeleted": "Relation \"{{source}} -> {{target}}\" deleted."
-        }
-      },
-      "merge": {
-        "manual": {
-          "title": "Manual Merge",
-          "description": "Provide source entities and one target entity, then submit merge.",
-          "fields": {
-            "sourceEntities": "Source Entities",
-            "targetEntity": "Target Entity"
-          },
-          "placeholders": {
-            "sourceEntities": "Elon Msk, Ellon Musk",
-            "targetEntity": "Elon Musk"
-          },
-          "help": {
-            "sourceEntities": "Comma/newline separated. Target entity will be excluded automatically."
-          },
-          "actions": {
-            "focusSource": "Locate first source entity: {{entity}}",
-            "focusSourceEmpty": "Enter a source entity first",
-            "focusTarget": "Locate target entity: {{entity}}",
-            "focusTargetEmpty": "Enter a target entity first"
-          },
-          "preview": "Draft preview: [{{sourceEntities}}] -> {{targetEntity}}",
-          "targetRequired": "(target required)"
-        },
-        "errors": {
-          "loadSuggestionsFailed": "Load merge suggestions failed",
-          "targetRequired": "Target entity is required.",
-          "sourceRequired": "At least one source entity is required.",
-          "mergeFailed": "Merge entities failed"
-        },
-        "actions": {
-          "loading": "Loading...",
-          "loadSuggestions": "Load Suggestions",
-          "merging": "Merging...",
-          "mergeEntities": "Merge Entities"
-        },
-        "options": {
-          "useLlm": {
-            "label": "Use LLM reranking",
-            "description": "Let the LLM refine heuristic suggestions. If the LLM is unavailable or fails, results automatically fall back to heuristics."
-          }
-        },
-        "messages": {
-          "noSuggestions": "No merge suggestions found for current scope.",
-          "merged": "Merged {{count}} source entities into \"{{target}}\".",
-          "llmFallback": "LLM reranking is unavailable, so heuristic suggestions are shown instead. Reason: {{reason}}",
-          "llmFallbackGeneric": "LLM reranking is unavailable, so heuristic suggestions are shown instead."
-        },
-        "suggestions": {
-          "title": "Merge Suggestions",
-          "description": "Candidate list from current query scope. Import once to prefill merge form.",
-          "loading": "Loading suggestions...",
-          "empty": "No candidates loaded yet. Click \"Load Suggestions\" to fetch candidates.",
-          "score": "Score: {{score}}",
-          "evidence": "Evidence:",
-          "noEvidence": "No explicit evidence provided.",
-          "reasonScore": "{{reason}} ({{score}})",
-          "reasonCodes": {
-            "name_similarity": "Name similarity",
-            "shared_neighbors": "Shared neighbors",
-            "shared_sources": "Shared sources",
-            "shared_file_paths": "Shared file paths",
-            "same_entity_type": "Same entity type",
-            "description_overlap": "Description overlap",
-            "alias_overlap": "Alias overlap"
-          },
-          "actions": {
-            "import": "Import",
-            "imported": "Imported"
-          }
-        },
-        "followUp": {
-          "title": "Merge completed: {{sourceEntities}} -> {{targetEntity}}",
-          "description": "Next actions: focus merged target, refresh result graph, or continue review.",
-          "actions": {
-            "focusTarget": "Focus merged target",
-            "refreshResults": "Refresh results",
-            "continueReview": "Continue review"
-          }
-        }
-      }
-    }
+    "emptyGraph": "Empty(Try Reload Again)"
   },
   "retrievePanel": {
     "chatMessage": {
@@ -857,36 +403,22 @@
       "copyManualInstruction": "Please select and copy the text manually",
       "thinking": "Thinking...",
       "thinkingTime": "Thinking time {{time}}s",
-      "thinkingInProgress": "Thinking..."
+      "thinkingInProgress": "Thinking in progress..."
     },
     "retrieval": {
-      "startPrompt": "Enter a query below to start searching",
+      "startPrompt": "Start a retrieval by typing your query below",
       "clear": "Clear",
       "send": "Send",
-      "stop": "Stop",
-      "placeholder": "Enter query (prefix supported: /<query-mode>)",
+      "placeholder": "Enter your query (Support prefix: /<Query Mode>)",
       "error": "Error: Failed to get response",
-      "queryModeError": "Only the following query modes are supported: {{modes}}",
-      "queryModePrefixInvalid": "Invalid query mode prefix. Use: /<mode> [space] your query",
-      "queryTooShort": "Query must be at least 2 characters",
-      "references": "{{count}} references",
-      "references_one": "1 reference",
-      "references_other": "{{count}} references",
-      "showSnippet": "Show snippet",
-      "showSnippets": "Show {{count}} snippets",
-      "retrievalData": "Retrieval Data",
-      "loadingRetrievalData": "Loading retrieval data...",
-      "retrievalDataError": "Failed to load retrieval data",
-      "retryLoadData": "Retry",
-      "resultCount": "Showing {{shown}} / {{total}}",
-      "loadMore": "Load more",
-      "noData": "No {{tab}} data"
+      "queryModeError": "Only supports the following query modes: {{modes}}",
+      "queryModePrefixInvalid": "Invalid query mode prefix. Use: /<mode> [space] your query"
     },
     "querySettings": {
       "parametersTitle": "Parameters",
-      "parametersDescription": "Configure query parameters",
+      "parametersDescription": "Configure your query parameters",
       "queryMode": "Query Mode",
-      "queryModeTooltip": "Select the retrieval strategy",
+      "queryModeTooltip": "Select the retrieval strategy:\n• Naive: Traditional text chunk vector retrieval\n• Local: Focus on entity retrieval\n• Global: Focus on relationship retrieval\n• Hybrid: Local+Global\n• Mix: Local+Global+Naive\n• Bypass: Skip retrieval, send conversation history and current question to LLM",
       "queryModeOptions": {
         "naive": "Naive",
         "local": "Local",
@@ -895,51 +427,39 @@
         "mix": "Mix",
         "bypass": "Bypass"
       },
-      "topK": "Top K",
-      "topKTooltip": "Number of top entities (local) or relationships (global) to retrieve",
-      "topKPlaceholder": "Top K count",
-      "chunkTopK": "Chunk Top K",
-      "chunkTopKTooltip": "Maximum number of text chunks to retrieve",
-      "chunkTopKPlaceholder": "Chunk top K count",
-      "maxEntityTokens": "Max Entity Tokens",
-      "maxEntityTokensTooltip": "Token limit for entity context",
-      "maxEntityTokensPlaceholder": "Max entity tokens",
-      "maxRelationTokens": "Max Relation Tokens",
-      "maxRelationTokensTooltip": "Token limit for relationship context",
-      "maxRelationTokensPlaceholder": "Max relation tokens",
-      "maxTotalTokens": "Max Total Tokens",
-      "maxTotalTokensTooltip": "Overall token budget for the query context",
-      "maxTotalTokensPlaceholder": "Max total tokens",
-      "historyTurns": "History Turns",
-      "historyTurnsTooltip": "Number of recent user/assistant turns to include in the query context",
-      "historyTurnsPlaceholder": "Conversation turns",
-      "enableRerank": "Enable Rerank",
-      "enableRerankTooltip": "Rerank retrieved chunks for better relevance",
-      "onlyNeedContext": "Only Need Context",
-      "onlyNeedContextTooltip": "Return retrieved context without LLM generation",
-      "onlyNeedPrompt": "Only Need Prompt",
-      "onlyNeedPromptTooltip": "Return the constructed prompt without LLM generation",
-      "streamResponse": "Stream Response",
-      "streamResponseTooltip": "Stream the response in real-time",
-      "includeReferences": "Include References",
-      "includeReferencesTooltip": "Return reference items together with the answer",
-      "includeChunkContent": "Include Chunk Content",
-      "includeChunkContentTooltip": "Include actual chunk text in references for debugging and evaluation",
-      "userPrompt": "User Prompt",
-      "userPromptTooltip": "Custom prompt to guide the LLM response",
-      "promptVersionLabel": "Prompt Version",
-      "promptVersionTooltip": "Choose the active retrieval prompt, a saved version from Prompt Management, or a custom draft for this request.",
-      "promptVersionModes": {
-        "active": "Active",
-        "saved": "Saved",
-        "custom": "Draft"
+      "responseFormat": "Response Format",
+      "responseFormatTooltip": "Defines the response format. Examples:\n• Multiple Paragraphs\n• Single Paragraph\n• Bullet Points",
+      "responseFormatOptions": {
+        "multipleParagraphs": "Multiple Paragraphs",
+        "singleParagraph": "Single Paragraph",
+        "bulletPoints": "Bullet Points"
       },
-      "savedVersionPlaceholder": "Select a saved version",
-      "promptOverrides": {
-        "disabledHint": "Prompt overrides are not enabled on this server",
-        "bypassHint": "Prompt overrides are not available in bypass mode",
-        "savedAsVersion": "Saved as version: {{name}}"
-      }
+      "topK": "KG Top K",
+      "topKTooltip": "Number of entities and relations to retrieve. Applicable for non-naive modes.",
+      "topKPlaceholder": "Enter top_k value",
+      "chunkTopK": "Chunk Top K",
+      "chunkTopKTooltip": "Number of text chunks to retrieve, applicable for all modes.",
+      "chunkTopKPlaceholder": "Enter chunk_top_k value",
+      "maxEntityTokens": "Max Entity Tokens",
+      "maxEntityTokensTooltip": "Maximum number of tokens allocated for entity context in unified token control system",
+      "maxRelationTokens": "Max Relation Tokens",
+      "maxRelationTokensTooltip": "Maximum number of tokens allocated for relationship context in unified token control system",
+      "maxTotalTokens": "Max Total Tokens",
+      "maxTotalTokensTooltip": "Maximum total tokens budget for the entire query context (entities + relations + chunks + system prompt)",
+      "historyTurns": "History Turns",
+      "historyTurnsTooltip": "Number of complete conversation turns (user-assistant pairs) to consider in the response context",
+      "historyTurnsPlaceholder": "Number of history turns",
+      "onlyNeedContext": "Only Need Context",
+      "onlyNeedContextTooltip": "If True, only returns the retrieved context without generating a response",
+      "onlyNeedPrompt": "Only Need Prompt",
+      "onlyNeedPromptTooltip": "If True, only returns the generated prompt without producing a response",
+      "streamResponse": "Stream Response",
+      "streamResponseTooltip": "If True, enables streaming output for real-time responses",
+      "userPrompt": "Additional Output Prompt",
+      "userPromptTooltip": "Provide additional response requirements to the LLM (unrelated to query content, only for output processing).",
+      "userPromptPlaceholder": "Enter custom prompt (optional)",
+      "enableRerank": "Enable Rerank",
+      "enableRerankTooltip": "Enable reranking for retrieved text chunks. If True but no rerank model is configured, a warning will be issued. Default is True."
     }
   },
   "apiSite": {
@@ -950,89 +470,6 @@
     "description": "Please enter your API key to access the service",
     "placeholder": "Enter your API key",
     "save": "Save"
-  },
-  "workspaceManager": {
-    "title": "Workspace Management",
-    "description": "Create, switch, and manage workspaces for the current server.",
-    "readyTitle": "Workspaces",
-    "deletedTitle": "Deleted / Pending",
-    "createTitle": "Create Workspace",
-    "createDescription": "Set a stable workspace key, a friendly display name, and the visibility you want to share.",
-    "loading": "Loading...",
-    "refresh": "Refresh",
-    "create": "Create Workspace",
-    "createSuccess": "Workspace created",
-    "loadStats": "Load stats",
-    "statsLoadFailed": "Failed to load stats for {{workspace}}",
-    "readyDescription": "Switch between active workspaces and review each workspace summary at a glance.",
-    "deletedDescription": "Track deleted workspaces, restores, and any hard-delete jobs that are still running.",
-    "workspacePlaceholder": "workspace_name",
-    "workspaceLabel": "Workspace key",
-    "workspaceHint": "Use only letters, numbers, and underscores.",
-    "invalidWorkspace": "Workspace key can only contain letters, numbers, and underscores.",
-    "displayNamePlaceholder": "Display name",
-    "displayNameLabel": "Display name",
-    "descriptionPlaceholder": "Description",
-    "descriptionLabel": "Description",
-    "visibilityLabel": "Visibility",
-    "private": "Private",
-    "public": "Public",
-    "current": "Current",
-    "switch": "Switch",
-    "softDelete": "Soft Delete",
-    "restore": "Restore",
-    "hardDelete": "Hard Delete",
-    "defaultWorkspace": "default",
-    "guestHint": "Login is required to create or modify workspaces.",
-    "guestCreateHint": "This workspace will be created as guest.",
-    "loginRequiredHint": "Log in to create workspaces.",
-    "emptyReady": "No ready workspaces yet.",
-    "emptyDeleted": "No deleted or pending workspaces.",
-    "softDeleteConfirm": "Soft delete {{workspace}}?",
-    "hardDeletePrompt": "Type {{workspace}} to confirm hard delete",
-    "summary": {
-      "total": "Total workspaces",
-      "current": "Active workspace",
-      "pending": "Pending changes",
-      "none": "Not selected"
-    },
-    "stats": {
-      "docs": "{{count}} docs",
-      "promptVersions": "{{count}} prompt versions",
-      "capabilities": "Capabilities"
-    },
-    "operation": {
-      "state": "State",
-      "progress": "Progress"
-    },
-    "operationStatus": {
-      "idle": "Idle",
-      "running": "Running",
-      "failed": "Failed",
-      "completed": "Completed"
-    },
-    "workspaceStatus": {
-      "creating": "Creating",
-      "create_failed": "Create failed",
-      "soft_deleted": "Soft deleted",
-      "hard_deleting": "Hard deleting",
-      "delete_failed": "Delete failed",
-      "ready": "Ready"
-    },
-    "capabilityLabels": {
-      "document_count": "Document count",
-      "entity_count": "Entity count",
-      "relation_count": "Relation count",
-      "chunk_count": "Chunk count",
-      "storage_size_bytes": "Storage size",
-      "prompt_version_count": "Prompt versions"
-    },
-    "capabilityStatus": {
-      "available": "Available",
-      "unsupported_by_backend": "Unsupported by backend",
-      "not_loaded": "Not loaded",
-      "temporarily_unavailable": "Temporarily unavailable"
-    }
   },
   "pagination": {
     "showing": "Showing {{start}} to {{end}} of {{total}} entries",

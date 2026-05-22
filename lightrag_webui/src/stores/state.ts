@@ -1,22 +1,17 @@
 import { create } from 'zustand'
 import { createSelectors } from '@/lib/utils'
-import { ActivePromptVersionSummary, checkHealth, LightragStatus, PromptConfigGroup } from '@/api/lightrag'
+import { checkHealth, LightragStatus } from '@/api/lightrag'
 import { useSettingsStore } from './settings'
 import { healthCheckInterval } from '@/lib/constants'
-import { parseJwtPayload } from '@/utils/jwt'
-import { allGuestVisibleTabs, normalizeGuestVisibleTabs, type GuestVisibleTab } from '@/lib/guestFeatures'
 
 interface BackendState {
   health: boolean
   message: string | null
   messageTitle: string | null
   status: LightragStatus | null
-  workspaceCreateAllowed: boolean
-  guestVisibleTabs: GuestVisibleTab[]
-  allowPromptOverridesViaApi: boolean
-  activePromptVersions: Record<PromptConfigGroup, ActivePromptVersionSummary> | null
   lastCheckTime: number
   pipelineBusy: boolean
+  pipelineActive: boolean
   healthCheckIntervalId: ReturnType<typeof setInterval> | null
   healthCheckFunction: (() => void) | null
   healthCheckIntervalValue: number
@@ -55,11 +50,8 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
   messageTitle: null,
   lastCheckTime: Date.now(),
   status: null,
-  workspaceCreateAllowed: false,
-  guestVisibleTabs: [...allGuestVisibleTabs],
-  allowPromptOverridesViaApi: false,
-  activePromptVersions: null,
   pipelineBusy: false,
+  pipelineActive: false,
   healthCheckIntervalId: null,
   healthCheckFunction: null,
   healthCheckIntervalValue: healthCheckInterval * 1000, // Use constant from lib/constants
@@ -108,18 +100,9 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
         messageTitle: null,
         lastCheckTime: Date.now(),
         status: health,
-        workspaceCreateAllowed: health.capabilities?.workspace_create === true,
-        guestVisibleTabs: normalizeGuestVisibleTabs(health.capabilities?.guest_visible_tabs),
-        allowPromptOverridesViaApi: health.configuration?.allow_prompt_overrides_via_api === true,
-        activePromptVersions: health.configuration?.active_prompt_versions || null,
-        pipelineBusy: health.pipeline_busy
+        pipelineBusy: health.pipeline_busy,
+        pipelineActive: health.pipeline_active ?? health.pipeline_busy
       })
-
-      const currentWorkspace = useSettingsStore.getState().currentWorkspace
-      const backendWorkspace = health.configuration?.workspace ?? ''
-      if (!currentWorkspace && backendWorkspace) {
-        useSettingsStore.getState().setCurrentWorkspace(backendWorkspace)
-      }
       return true
     }
     set({
@@ -127,41 +110,17 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
       message: health.message,
       messageTitle: 'Backend Health Check Error!',
       lastCheckTime: Date.now(),
-      status: null,
-      workspaceCreateAllowed: false,
-      guestVisibleTabs: [...allGuestVisibleTabs],
-      allowPromptOverridesViaApi: false,
-      activePromptVersions: null,
-      pipelineBusy: false,
+      status: null
     })
     return false
   },
 
   clear: () => {
-    set({
-      health: true,
-      message: null,
-      messageTitle: null,
-      status: null,
-      workspaceCreateAllowed: false,
-      guestVisibleTabs: [...allGuestVisibleTabs],
-      allowPromptOverridesViaApi: false,
-      activePromptVersions: null,
-      pipelineBusy: false,
-    })
+    set({ health: true, message: null, messageTitle: null })
   },
 
   setErrorMessage: (message: string, messageTitle: string) => {
-    set({
-      health: false,
-      message,
-      messageTitle,
-      status: null,
-      workspaceCreateAllowed: false,
-      allowPromptOverridesViaApi: false,
-      activePromptVersions: null,
-      pipelineBusy: false,
-    })
+    set({ health: false, message, messageTitle })
   },
 
   setPipelineBusy: (busy: boolean) => {
@@ -215,8 +174,18 @@ const formatTimestampToLocalString = (timestamp: number): string => {
   return `${localTime} (UTC${offsetSign}${offsetHours})`;
 };
 
-const parseTokenPayload = (token: string): { sub?: string; role?: string; exp?: number } =>
-  parseJwtPayload(token) ?? {}
+const parseTokenPayload = (token: string): { sub?: string; role?: string; exp?: number } => {
+  try {
+    // JWT tokens are in the format: header.payload.signature
+    const parts = token.split('.');
+    if (parts.length !== 3) return {};
+    const payload = JSON.parse(atob(parts[1]));
+    return payload;
+  } catch (e) {
+    console.error('Error parsing token payload:', e);
+    return {};
+  }
+};
 
 const getUsernameFromToken = (token: string): string | null => {
   const payload = parseTokenPayload(token);

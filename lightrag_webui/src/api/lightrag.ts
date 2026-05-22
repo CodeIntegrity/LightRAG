@@ -4,8 +4,6 @@ import { errorMessage } from '@/lib/utils'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/state'
 import { navigationService } from '@/services/navigation'
-import { type GuestVisibleTab } from '@/lib/guestFeatures'
-import { parseJwtPayload } from '@/utils/jwt'
 
 // Types
 export type LightragNodeType = {
@@ -27,228 +25,37 @@ export type LightragGraphType = {
   edges: LightragEdgeType[]
 }
 
-export type GraphQueryScope = {
-  label: string
-  max_depth: number
-  max_nodes: number
-  direction: 'both' | 'outbound' | 'inbound'
-  only_matched_neighborhood: boolean
+export type LightragQueueStatus = {
+  available: boolean
+  queue_name?: string
+  max_async?: number
+  max_queue_size?: number
+  queued?: number
+  running?: number
+  in_flight?: number
+  worker_count?: number
+  initialized?: boolean
+  submitted_total?: number
+  completed_total?: number
+  failed_total?: number
+  cancelled_total?: number
+  rejected_total?: number
 }
 
-export type GraphNodeFiltersV1 = {
-  entity_types: string[]
-  name_query: string
-  description_query: string
-  degree_min: number | null
-  degree_max: number | null
-  isolated_only: boolean
-}
-
-export type GraphEdgeFiltersV1 = {
-  relation_types: string[]
-  keyword_query: string
-  weight_min: number | null
-  weight_max: number | null
-  source_entity_types: string[]
-  target_entity_types: string[]
-}
-
-export type GraphSourceFiltersV1 = {
-  source_id_query: string
-  file_paths: string[]
-  time_from: string | null
-  time_to: string | null
-}
-
-export type GraphViewOptionsV1 = {
-  show_nodes_only: boolean
-  show_edges_only: boolean
-  hide_low_weight_edges: boolean
-  hide_empty_description: boolean
-  highlight_matches: boolean
-}
-
-export type GraphWorkbenchQueryRequest = {
-  scope: GraphQueryScope
-  node_filters: GraphNodeFiltersV1
-  edge_filters: GraphEdgeFiltersV1
-  source_filters: GraphSourceFiltersV1
-  view_options: GraphViewOptionsV1
-}
-
-export type GraphQueryFilterSemantics = {
-  group_operator: 'AND'
-  field_operator: 'AND'
-  array_operator: 'OR'
-  version: 'v1'
-}
-
-export type GraphQueryMeta = {
-  filter_semantics: GraphQueryFilterSemantics
-  execution_mode: string
-  filtering_applied: boolean
-  ignored_filter_groups: string[]
-}
-
-export type GraphQueryTruncation = {
-  requested_max_nodes: number
-  effective_max_nodes: number
-  was_truncated_before_filtering: boolean
-  was_truncated_after_filtering: boolean
-}
-
-export type GraphWorkbenchQueryResponse = {
-  data: LightragGraphType & {
-    is_truncated?: boolean
-  }
-  truncation: GraphQueryTruncation
-  meta: GraphQueryMeta
-}
-
-export type GraphDeletionResponse = {
-  status: 'success' | 'not_found' | 'not_allowed' | 'fail'
-  doc_id: string
-  message: string
-  status_code: number
-  file_path?: string | null
-}
-
-export type GraphMergeSuggestionReason = {
-  code: string
-  score: number
-}
-
-export type GraphMergeSuggestionCandidate = {
-  target_entity: string
-  source_entities: string[]
-  score: number
-  reasons: GraphMergeSuggestionReason[]
-}
-
-export type GraphMergeSuggestionsRequest = {
-  scope: GraphQueryScope
-  limit?: number
-  min_score?: number
-  use_llm?: boolean
-}
-
-export type GraphMergeSuggestionsResponse = {
-  candidates: GraphMergeSuggestionCandidate[]
-  meta: {
-    strategy: string
-    requested_limit: number
-    min_score: number
-    returned_candidates: number
-    llm_requested?: boolean
-    llm_used?: boolean
-    llm_fallback_reason?: string | null
-    scoped_nodes?: number | null
-    evaluated_pairs?: number | null
-  }
-}
-
-export type PromptConfigGroup = 'indexing' | 'retrieval'
-
-export type ActivePromptVersionSummary = {
-  active_version_id: string | null
-  active_version_name: string | null
-}
-
-export type PromptVersionRecord = {
-  version_id: string
-  group_type: PromptConfigGroup
-  version_name: string
-  version_number: number
-  comment: string
-  source_version_id?: string | null
-  created_at: string
-  payload: Record<string, unknown>
-}
-
-export type PromptVersionRegistry = {
-  group_type: PromptConfigGroup
-  active_version_id: string | null
-  versions: PromptVersionRecord[]
-}
-
-export type PromptConfigGroupsResponse = {
-  indexing: PromptVersionRegistry
-  retrieval: PromptVersionRegistry
-}
-
-export type PromptVersionCreateRequest = {
-  version_name: string
-  comment: string
-  payload: Record<string, unknown>
-  source_version_id?: string | null
-}
-
-export type PromptVersionUpdateRequest = {
-  version_name: string
-  comment: string
-  payload: Record<string, unknown>
-}
-
-export type WorkspaceVisibility = 'public' | 'private'
-
-export type WorkspaceRecord = {
-  workspace: string
-  display_name: string
-  description: string
-  status: string
-  visibility: WorkspaceVisibility
-  created_by: string | null
-  owners: string[]
-  is_default: boolean
-  is_protected: boolean
-  created_at?: string
-  updated_at?: string
-  deleted_at?: string | null
-  deleted_by?: string | null
-  delete_error?: string | null
-}
-
-export type WorkspaceListResponse = {
-  workspaces: WorkspaceRecord[]
-}
-
-export type WorkspaceCreateRequest = {
-  workspace: string
-  display_name: string
-  description: string
-  visibility: WorkspaceVisibility
-}
-
-export type WorkspaceOperationResponse = {
-  workspace: string
-  kind?: string | null
-  state: string
-  requested_by?: string | null
-  started_at?: string | null
-  finished_at?: string | null
-  error?: string | null
-  progress?: Record<string, string>
-}
-
-export type WorkspaceStatsResponse = {
-  document_count: number | null
-  entity_count: number | null
-  relation_count: number | null
-  chunk_count: number | null
-  storage_size_bytes: number | null
-  prompt_version_count: number | null
-  capabilities: Record<string, string>
+export type LightragRoleLLMConfig = {
+  binding?: string | null
+  model?: string | null
+  host?: string | null
+  max_async?: number
+  timeout?: number
+  has_model_kwargs?: boolean
+  metadata?: Record<string, any>
 }
 
 export type LightragStatus = {
   status: 'healthy'
   working_directory: string
   input_directory: string
-  capabilities?: {
-    workspace_create?: boolean
-    guest_login?: boolean
-    guest_visible_tabs?: GuestVisibleTab[]
-  }
   configuration: {
     llm_binding: string
     llm_binding_host: string
@@ -261,28 +68,44 @@ export type LightragStatus = {
     graph_storage: string
     vector_storage: string
     workspace?: string
+    storage_workspaces?: {
+      kv_storage?: string | null
+      doc_status_storage?: string | null
+      graph_storage?: string | null
+      vector_storage?: string | null
+    }
     max_graph_nodes?: string
     enable_rerank?: boolean
     rerank_binding?: string | null
     rerank_model?: string | null
     rerank_binding_host?: string | null
+    rerank_max_async?: number
+    rerank_timeout?: number
     summary_language: string
     force_llm_summary_on_merge: boolean
     max_parallel_insert: number
     max_async: number
+    llm_timeout?: number
     embedding_func_max_async: number
     embedding_batch_num: number
+    embedding_timeout?: number
     cosine_threshold: number
     min_rerank_score: number
     related_chunk_number: number
-    allow_prompt_overrides_via_api?: boolean
-    active_prompt_versions?: Record<PromptConfigGroup, ActivePromptVersionSummary>
+    role_llm_config?: Record<string, LightragRoleLLMConfig>
   }
   update_status?: Record<string, any>
   core_version?: string
   api_version?: string
   auth_mode?: 'enabled' | 'disabled'
   pipeline_busy: boolean
+  pipeline_active?: boolean
+  pipeline_scanning?: boolean
+  pipeline_destructive_busy?: boolean
+  pipeline_pending_enqueues?: number
+  llm_queue_status?: Record<string, LightragQueueStatus>
+  embedding_queue_status?: LightragQueueStatus
+  rerank_queue_status?: LightragQueueStatus
   keyed_locks?: {
     process_id: number
     cleanup_performed: {
@@ -319,34 +142,12 @@ export type LightragDocumentsScanProgress = {
  */
 export type QueryMode = 'naive' | 'local' | 'global' | 'hybrid' | 'mix' | 'bypass'
 
-export type QueryPromptOverrides = {
-  query?: {
-    rag_response?: string
-    naive_rag_response?: string
-    kg_query_context?: string
-    naive_query_context?: string
-  }
-  keywords?: {
-    keywords_extraction?: string
-    keywords_extraction_examples?: string[]
-  }
-}
-
-const graphLabelSearchCacheTtlMs = 5000
-const graphLabelSearchCache = new Map<string, { expiresAt: number; labels: string[] }>()
-
 export type Message = {
   role: 'user' | 'assistant' | 'system'
   content: string
   thinkingContent?: string
   displayContent?: string
   thinkingTime?: number | null
-}
-
-export type ReferenceItem = {
-  reference_id: string
-  file_path: string
-  content?: string[]
 }
 
 export type QueryRequest = {
@@ -380,31 +181,12 @@ export type QueryRequest = {
   history_turns?: number
   /** User-provided prompt for the query. If provided, this will be used instead of the default value from prompt template. */
   user_prompt?: string
-  /** Optional per-request prompt template overrides. */
-  prompt_overrides?: QueryPromptOverrides
   /** Enable reranking for retrieved text chunks. If True but no rerank model is configured, a warning will be issued. Default is True. */
   enable_rerank?: boolean
-  /** If True, includes reference list in responses. Default is True. */
-  include_references?: boolean
-  /** If True, includes actual chunk text content in references. Only applies when include_references=true. */
-  include_chunk_content?: boolean
 }
 
 export type QueryResponse = {
   response: string
-  references?: ReferenceItem[]
-}
-
-export type QueryDataResponse = {
-  status: string
-  message: string
-  data: {
-    entities?: Record<string, any>[]
-    relationships?: Record<string, any>[]
-    chunks?: Record<string, any>[]
-    references?: ReferenceItem[]
-  }
-  metadata: Record<string, any>
 }
 
 export type EntityUpdateResponse = {
@@ -422,20 +204,14 @@ export type EntityUpdateResponse = {
   }
 }
 
-export type GraphMutationResponse = {
-  status: string
-  message: string
-  data: Record<string, any>
-}
-
 export type DocActionResponse = {
-  status: 'success' | 'partial_success' | 'failure' | 'duplicated'
+  status: 'success' | 'partial_success' | 'failure'
   message: string
   track_id?: string
 }
 
 export type ScanResponse = {
-  status: 'scanning_started'
+  status: 'scanning_started' | 'scanning_skipped_pipeline_busy'
   message: string
   track_id: string
 }
@@ -446,19 +222,20 @@ export type ReprocessFailedResponse = {
   track_id: string
 }
 
-export type RebuildDocumentsResponse = {
-  status: 'rebuild_started' | 'busy'
-  message: string
-  track_id: string
-}
-
 export type DeleteDocResponse = {
   status: 'deletion_started' | 'busy' | 'not_allowed'
   message: string
   doc_id: string
 }
 
-export type DocStatus = 'pending' | 'processing' | 'preprocessed' | 'processed' | 'failed'
+export type DocStatus =
+  | 'pending'
+  | 'parsing'
+  | 'analyzing'
+  | 'processing'
+  | 'preprocessed'
+  | 'processed'
+  | 'failed'
 
 export type DocStatusResponse = {
   id: string
@@ -474,21 +251,8 @@ export type DocStatusResponse = {
   file_path: string
 }
 
-export type DocumentChunkResponse = {
-  id: string
-  content: string
-  tokens?: number | null
-  order: number
-}
-
-export type DocumentChunksResponse = {
-  doc_id: string
-  chunk_count: number
-  chunks: DocumentChunkResponse[]
-}
-
 export type DocsStatusesResponse = {
-  statuses: Record<DocStatus, DocStatusResponse[]>
+  statuses: Partial<Record<DocStatus, DocStatusResponse[]>>
 }
 
 export type TrackStatusResponse = {
@@ -498,18 +262,9 @@ export type TrackStatusResponse = {
   status_summary: Record<string, number>
 }
 
-export type CustomChunksGraphRebuildResponse = {
-  status: 'rebuild_started' | 'busy'
-  message: string
-  track_id: string
-}
-
-export type RebuildGraphsRequest = {
-  doc_ids?: string[]
-}
-
 export type DocumentsRequest = {
   status_filter?: DocStatus | null
+  status_filters?: DocStatus[] | null
   page: number
   page_size: number
   sort_field: 'created_at' | 'updated_at' | 'id' | 'file_path'
@@ -535,90 +290,11 @@ export type StatusCountsResponse = {
   status_counts: Record<string, number>
 }
 
-const documentStatuses: DocStatus[] = [
-  'pending',
-  'processing',
-  'preprocessed',
-  'processed',
-  'failed'
-]
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null
-
-const normalizeDocStatus = (value: unknown): DocStatus | null => {
-  if (typeof value !== 'string') {
-    return null
-  }
-
-  switch (value.toLowerCase()) {
-    case 'pending':
-    case 'processing':
-    case 'preprocessed':
-    case 'processed':
-    case 'failed':
-      return value.toLowerCase() as DocStatus
-    default:
-      return null
-  }
-}
-
-const isPaginationInfo = (value: unknown): value is PaginationInfo =>
-  isRecord(value) &&
-  typeof value.page === 'number' &&
-  typeof value.page_size === 'number' &&
-  typeof value.total_count === 'number' &&
-  typeof value.total_pages === 'number' &&
-  typeof value.has_next === 'boolean' &&
-  typeof value.has_prev === 'boolean'
-
-const isPaginatedDocsResponse = (value: unknown): value is PaginatedDocsResponse =>
-  isRecord(value) &&
-  Array.isArray(value.documents) &&
-  isPaginationInfo(value.pagination) &&
-  isRecord(value.status_counts)
-
-const isDocumentChunkResponse = (value: unknown): value is DocumentChunkResponse =>
-  isRecord(value) &&
-  typeof value.id === 'string' &&
-  typeof value.content === 'string' &&
-  typeof value.order === 'number' &&
-  (value.tokens === undefined || value.tokens === null || typeof value.tokens === 'number')
-
-const isDocumentChunksResponse = (value: unknown): value is DocumentChunksResponse =>
-  isRecord(value) &&
-  typeof value.doc_id === 'string' &&
-  typeof value.chunk_count === 'number' &&
-  Array.isArray(value.chunks) &&
-  value.chunks.every(isDocumentChunkResponse)
-
-const normalizePaginatedDocumentsResponse = (
-  payload: unknown
-): PaginatedDocsResponse => {
-  if (isPaginatedDocsResponse(payload)) {
-    return payload
-  }
-
-  throw new Error('Unexpected paginated documents response format')
-}
-
-const normalizeDocumentChunksResponse = (
-  payload: unknown
-): DocumentChunksResponse => {
-  if (isDocumentChunksResponse(payload)) {
-    return payload
-  }
-
-  throw new Error('Unexpected document chunks response format')
-}
-
 export type AuthStatusResponse = {
   auth_configured: boolean
-  guest_login_allowed?: boolean
-  guest_visible_tabs?: GuestVisibleTab[]
   access_token?: string
   token_type?: string
-  auth_mode?: 'enabled' | 'disabled' | 'guest'
+  auth_mode?: 'enabled' | 'disabled'
   message?: string
   core_version?: string
   api_version?: string
@@ -644,9 +320,8 @@ export type PipelineStatusResponse = {
 export type LoginResponse = {
   access_token: string
   token_type: string
-  auth_mode?: 'enabled' | 'disabled' | 'guest'  // Authentication mode identifier
+  auth_mode?: 'enabled' | 'disabled'  // Authentication mode identifier
   message?: string                    // Optional message
-  guest_visible_tabs?: GuestVisibleTab[]
   core_version?: string
   api_version?: string
   webui_title?: string
@@ -663,16 +338,6 @@ const axiosInstance = axios.create({
     'Content-Type': 'application/json'
   }
 })
-
-export const resolveWorkspaceHeader = (
-  workspace: string | null | undefined
-): string | undefined => {
-  if (typeof workspace !== 'string') {
-    return undefined
-  }
-  const trimmed = workspace.trim()
-  return trimmed.length > 0 ? trimmed : undefined
-}
 
 // ========== Token Management ==========
 // Prevent multiple requests from triggering token refresh simultaneously
@@ -698,7 +363,9 @@ const silentRefreshGuestToken = async (): Promise<string> => {
 
       if (response.data.access_token && !response.data.auth_configured) {
         const newToken = response.data.access_token;
+        // Update localStorage
         localStorage.setItem('LIGHTRAG-API-TOKEN', newToken);
+        // Update auth state
         useAuthStore.getState().login(
           newToken,
           true,
@@ -708,29 +375,9 @@ const silentRefreshGuestToken = async (): Promise<string> => {
           response.data.webui_description || null
         );
         return newToken;
+      } else {
+        throw new Error('Failed to get guest token');
       }
-
-      if (response.data.guest_login_allowed === true) {
-        const guestLoginResponse = await axios.post('/login/guest', null, {
-          baseURL: backendBaseUrl,
-          headers: { 'X-Skip-Interceptor': 'true' }
-        });
-        if (guestLoginResponse.data.access_token) {
-          const newToken = guestLoginResponse.data.access_token;
-          localStorage.setItem('LIGHTRAG-API-TOKEN', newToken);
-          useAuthStore.getState().login(
-            newToken,
-            true,
-            guestLoginResponse.data.core_version,
-            guestLoginResponse.data.api_version,
-            guestLoginResponse.data.webui_title || null,
-            guestLoginResponse.data.webui_description || null
-          );
-          return newToken;
-        }
-      }
-
-      throw new Error('Failed to get guest token');
     } finally {
       isRefreshingGuestToken = false;
       refreshTokenPromise = null;
@@ -749,7 +396,6 @@ axiosInstance.interceptors.request.use((config) => {
   }
 
   const apiKey = useSettingsStore.getState().apiKey
-  const currentWorkspace = useSettingsStore.getState().currentWorkspace
   const token = localStorage.getItem('LIGHTRAG-API-TOKEN');
 
   // Always include token if it exists, regardless of path
@@ -758,10 +404,6 @@ axiosInstance.interceptors.request.use((config) => {
   }
   if (apiKey) {
     config.headers['X-API-Key'] = apiKey
-  }
-  const workspaceHeader = resolveWorkspaceHeader(currentWorkspace)
-  if (workspaceHeader) {
-    config.headers['LIGHTRAG-WORKSPACE'] = workspaceHeader
   }
   return config
 })
@@ -781,9 +423,9 @@ axiosInstance.interceptors.response.use(
 
       // Update auth state with renewal tracking
       try {
-        const payload = parseJwtPayload<{ sub?: string; exp?: number }>(newToken)
+        const payload = JSON.parse(atob(newToken.split('.')[1]));
         const authStore = useAuthStore.getState();
-        if (authStore.isAuthenticated && payload) {
+        if (authStore.isAuthenticated) {
           // Track token renewal time and expiration
           const renewalTime = Date.now();
           const expiresAt = payload.exp ? payload.exp * 1000 : 0;
@@ -864,66 +506,14 @@ axiosInstance.interceptors.response.use(
 export const queryGraphs = async (
   label: string,
   maxDepth: number,
-  maxNodes: number,
-  signal?: AbortSignal
+  maxNodes: number
 ): Promise<LightragGraphType> => {
-  const response = await axiosInstance.get(
-    `/graphs?label=${encodeURIComponent(label)}&max_depth=${maxDepth}&max_nodes=${maxNodes}`,
-    { signal }
-  )
-  return response.data
-}
-
-export const queryGraphWorkbench = async (
-  request: GraphWorkbenchQueryRequest,
-  signal?: AbortSignal
-): Promise<GraphWorkbenchQueryResponse> => {
-  const response = await axiosInstance.post('/graph/query', request, { signal })
-  return response.data
-}
-
-export const deleteGraphEntity = async (
-  entityName: string,
-  expectedRevisionToken?: string
-): Promise<GraphDeletionResponse> => {
-  const response = await axiosInstance.delete('/graph/entity', {
-    data: {
-      entity_name: entityName,
-      ...(expectedRevisionToken ? { expected_revision_token: expectedRevisionToken } : {})
-    }
-  })
-  return response.data
-}
-
-export const deleteGraphRelation = async (
-  sourceEntity: string,
-  targetEntity: string,
-  expectedRevisionToken?: string
-): Promise<GraphDeletionResponse> => {
-  const response = await axiosInstance.delete('/graph/relation', {
-    data: {
-      source_entity: sourceEntity,
-      target_entity: targetEntity,
-      ...(expectedRevisionToken ? { expected_revision_token: expectedRevisionToken } : {})
-    }
-  })
-  return response.data
-}
-
-export const fetchMergeSuggestions = async (
-  request: GraphMergeSuggestionsRequest
-): Promise<GraphMergeSuggestionsResponse> => {
-  const response = await axiosInstance.post('/graph/merge/suggestions', request)
+  const response = await axiosInstance.get(`/graphs?label=${encodeURIComponent(label)}&max_depth=${maxDepth}&max_nodes=${maxNodes}`)
   return response.data
 }
 
 export const getGraphLabels = async (): Promise<string[]> => {
   const response = await axiosInstance.get('/graph/label/list')
-  return response.data
-}
-
-export const getGraphEntityTypes = async (): Promise<string[]> => {
-  const response = await axiosInstance.get('/graph/entity-type/list')
   return response.data
 }
 
@@ -933,23 +523,7 @@ export const getPopularLabels = async (limit: number = popularLabelsDefaultLimit
 }
 
 export const searchLabels = async (query: string, limit: number = searchLabelsDefaultLimit): Promise<string[]> => {
-  const normalizedQuery = query.trim()
-  if (normalizedQuery.length < 2) {
-    return []
-  }
-
-  const workspace = useSettingsStore.getState().currentWorkspace ?? ''
-  const cacheKey = `${workspace}:${limit}:${normalizedQuery.toLowerCase()}`
-  const cachedEntry = graphLabelSearchCache.get(cacheKey)
-  if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
-    return cachedEntry.labels
-  }
-
-  const response = await axiosInstance.get(`/graph/label/search?q=${encodeURIComponent(normalizedQuery)}&limit=${limit}`)
-  graphLabelSearchCache.set(cacheKey, {
-    expiresAt: Date.now() + graphLabelSearchCacheTtlMs,
-    labels: response.data
-  })
+  const response = await axiosInstance.get(`/graph/label/search?q=${encodeURIComponent(query)}&limit=${limit}`)
   return response.data
 }
 
@@ -967,125 +541,8 @@ export const checkHealth = async (): Promise<
   }
 }
 
-export const listWorkspaces = async (includeDeleted: boolean = false): Promise<WorkspaceListResponse> => {
-  const suffix = includeDeleted ? '?include_deleted=true' : ''
-  const response = await axiosInstance.get(`/workspaces${suffix}`)
-  return response.data
-}
-
-export const createWorkspace = async (payload: WorkspaceCreateRequest): Promise<WorkspaceRecord> => {
-  const response = await axiosInstance.post('/workspaces', payload)
-  return response.data
-}
-
-export const softDeleteWorkspace = async (workspace: string): Promise<WorkspaceRecord> => {
-  const response = await axiosInstance.post(`/workspaces/${encodeURIComponent(workspace)}/soft-delete`)
-  return response.data
-}
-
-export const getWorkspaceStats = async (
-  workspace: string,
-  options?: { include_runtime?: boolean }
-): Promise<WorkspaceStatsResponse> => {
-  const suffix = options?.include_runtime ? '?include_runtime=true' : ''
-  const response = await axiosInstance.get(
-    `/workspaces/${encodeURIComponent(workspace)}/stats${suffix}`
-  )
-  return response.data
-}
-
-export const restoreWorkspace = async (workspace: string): Promise<WorkspaceRecord> => {
-  const response = await axiosInstance.post(`/workspaces/${encodeURIComponent(workspace)}/restore`)
-  return response.data
-}
-
-export const hardDeleteWorkspace = async (workspace: string): Promise<{
-  workspace: string
-  status: string
-  operation: WorkspaceOperationResponse
-}> => {
-  const response = await axiosInstance.post(`/workspaces/${encodeURIComponent(workspace)}/hard-delete`)
-  return response.data
-}
-
-export const getWorkspaceOperation = async (workspace: string): Promise<WorkspaceOperationResponse> => {
-  const response = await axiosInstance.get(`/workspaces/${encodeURIComponent(workspace)}/operation`)
-  return response.data
-}
-
-export const initializePromptConfig = async (locale: string = 'zh'): Promise<PromptConfigGroupsResponse> => {
-  const response = await axiosInstance.post(`/prompt-config/initialize?locale=${encodeURIComponent(locale)}`)
-  return response.data
-}
-
-export const getPromptConfigGroups = async (): Promise<PromptConfigGroupsResponse> => {
-  const response = await axiosInstance.get('/prompt-config/groups')
-  return response.data
-}
-
-export const getPromptConfigVersions = async (group: PromptConfigGroup): Promise<PromptVersionRegistry> => {
-  const response = await axiosInstance.get(`/prompt-config/${group}/versions`)
-  return response.data
-}
-
-export const getPromptConfigVersion = async (
-  group: PromptConfigGroup,
-  versionId: string
-): Promise<PromptVersionRecord> => {
-  const response = await axiosInstance.get(`/prompt-config/${group}/versions/${versionId}`)
-  return response.data
-}
-
-export const createPromptConfigVersion = async (
-  group: PromptConfigGroup,
-  payload: PromptVersionCreateRequest
-): Promise<PromptVersionRecord> => {
-  const response = await axiosInstance.post(`/prompt-config/${group}/versions`, payload)
-  return response.data
-}
-
-export const updatePromptConfigVersion = async (
-  group: PromptConfigGroup,
-  versionId: string,
-  payload: PromptVersionUpdateRequest
-): Promise<PromptVersionRecord> => {
-  const response = await axiosInstance.patch(`/prompt-config/${group}/versions/${versionId}`, payload)
-  return response.data
-}
-
-export const activatePromptConfigVersion = async (
-  group: PromptConfigGroup,
-  versionId: string
-): Promise<{
-  group_type: PromptConfigGroup
-  active_version_id: string
-  active_version: PromptVersionRecord
-  warning?: string | null
-}> => {
-  const response = await axiosInstance.post(`/prompt-config/${group}/versions/${versionId}/activate`)
-  return response.data
-}
-
-export const deletePromptConfigVersion = async (
-  group: PromptConfigGroup,
-  versionId: string
-): Promise<{ status: string; version_id: string }> => {
-  const response = await axiosInstance.delete(`/prompt-config/${group}/versions/${versionId}`)
-  return response.data
-}
-
-export const diffPromptConfigVersion = async (
-  group: PromptConfigGroup,
-  versionId: string,
-  baseVersionId?: string | null
-): Promise<{
-  group_type: PromptConfigGroup
-  base_version_id: string | null
-  version_id: string
-  changes: Record<string, { before: unknown; after: unknown }>
-}> => {
-  const suffix = baseVersionId ? `?base_version_id=${encodeURIComponent(baseVersionId)}` : ''
-  const response = await axiosInstance.get(`/prompt-config/${group}/versions/${versionId}/diff${suffix}`)
+export const getDocuments = async (): Promise<DocsStatusesResponse> => {
+  const response = await axiosInstance.get('/documents')
   return response.data
 }
 
@@ -1099,124 +556,22 @@ export const reprocessFailedDocuments = async (): Promise<ReprocessFailedRespons
   return response.data
 }
 
-export const rebuildCustomChunksGraph = async (
-  docIds?: string[]
-): Promise<CustomChunksGraphRebuildResponse> => {
-  const payload: RebuildGraphsRequest | undefined =
-    docIds && docIds.length > 0 ? { doc_ids: docIds } : undefined
-  const response = await axiosInstance.post('/documents/rebuild_custom_chunks_graph', payload)
-  return response.data
-}
-
-export const getDocumentChunks = async (docId: string): Promise<DocumentChunksResponse> => {
-  const response = await axiosInstance.get(`/documents/${encodeURIComponent(docId)}/chunks`)
-  return normalizeDocumentChunksResponse(response.data)
-}
-
-export const rebuildDocumentsFromIndexingVersion = async (
-  versionId: string
-): Promise<RebuildDocumentsResponse> => {
-  const response = await axiosInstance.post('/documents/rebuild_from_indexing_version', {
-    version_id: versionId
-  })
-  return response.data
-}
-
 export const getDocumentsScanProgress = async (): Promise<LightragDocumentsScanProgress> => {
   const response = await axiosInstance.get('/documents/scan-progress')
   return response.data
 }
 
-export const queryText = async (request: QueryRequest, signal?: AbortSignal): Promise<QueryResponse> => {
-  const response = await axiosInstance.post('/query', request, {
-    signal,
-    timeout: 120_000,
-  })
+export const queryText = async (request: QueryRequest): Promise<QueryResponse> => {
+  const response = await axiosInstance.post('/query', request)
   return response.data
 }
-
-export const queryData = async (request: QueryRequest, signal?: AbortSignal): Promise<QueryDataResponse> => {
-  const response = await axiosInstance.post('/query/data', request, {
-    signal,
-    timeout: 120_000,
-  })
-  return response.data
-}
-
-const dispatchNDJSONPayload = (
-  parsed: Record<string, any>,
-  onChunk: (chunk: string) => void,
-  onError: ((error: string) => void) | undefined,
-  onReferences: ((references: ReferenceItem[]) => void) | undefined,
-) => {
-  if (Array.isArray(parsed.references)) {
-    onReferences?.(parsed.references as ReferenceItem[])
-  }
-  if (typeof parsed.response === 'string') {
-    onChunk(parsed.response)
-  }
-  if (typeof parsed.error === 'string') {
-    onError?.(parsed.error)
-  }
-}
-
-export const __dispatchNDJSONPayloadForTests = dispatchNDJSONPayload
-
-/** Process an NDJSON stream response, calling callbacks for references, content chunks, and errors. */
-const processNDJSONStream = async (
-  response: Response,
-  onChunk: (chunk: string) => void,
-  onError: ((error: string) => void) | undefined,
-  onReferences: ((references: ReferenceItem[]) => void) | undefined,
-) => {
-  if (!response.body) {
-    throw new Error('Response body is null');
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      if (line.trim()) {
-        try {
-          const parsed = JSON.parse(line)
-          dispatchNDJSONPayload(parsed, onChunk, onError, onReferences)
-        } catch (parseError) {
-          console.error('Failed to parse JSON:', parseError, 'Line:', line);
-          onError?.(`JSON parse error: ${parseError}`);
-        }
-      }
-    }
-  }
-
-  if (buffer.trim()) {
-    try {
-      const parsed = JSON.parse(buffer)
-      dispatchNDJSONPayload(parsed, onChunk, onError, onReferences)
-    } catch (parseError) {
-      console.error('Failed to parse final buffer:', parseError);
-    }
-  }
-};
 
 export const queryTextStream = async (
   request: QueryRequest,
   onChunk: (chunk: string) => void,
-  onError?: (error: string) => void,
-  signal?: AbortSignal,
-  onReferences?: (references: ReferenceItem[]) => void
+  onError?: (error: string) => void
 ) => {
   const apiKey = useSettingsStore.getState().apiKey;
-  const currentWorkspace = useSettingsStore.getState().currentWorkspace;
   const token = localStorage.getItem('LIGHTRAG-API-TOKEN');
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -1228,17 +583,12 @@ export const queryTextStream = async (
   if (apiKey) {
     headers['X-API-Key'] = apiKey;
   }
-  const workspaceHeader = resolveWorkspaceHeader(currentWorkspace)
-  if (workspaceHeader) {
-    headers['LIGHTRAG-WORKSPACE'] = workspaceHeader
-  }
 
   try {
     const response = await fetch(`${backendBaseUrl}/query/stream`, {
       method: 'POST',
       headers: headers,
       body: JSON.stringify(request),
-      signal,
     });
 
     if (!response.ok) {
@@ -1262,14 +612,61 @@ export const queryTextStream = async (
               method: 'POST',
               headers: retryHeaders,
               body: JSON.stringify(request),
-              signal,
             });
 
             if (!retryResponse.ok) {
               throw new Error(`HTTP error! status: ${retryResponse.status}`);
             }
 
-            await processNDJSONStream(retryResponse, onChunk, onError, onReferences);
+            // Retry successful, process stream response
+            // Re-execute the stream processing logic with retryResponse
+            if (!retryResponse.body) {
+              throw new Error('Response body is null');
+            }
+
+            const reader = retryResponse.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                if (line.trim()) {
+                  try {
+                    const parsed = JSON.parse(line);
+                    if (parsed.response) {
+                      onChunk(parsed.response);
+                    } else if (parsed.error) {
+                      onError?.(parsed.error);
+                    }
+                  } catch (parseError) {
+                    console.error('Failed to parse JSON:', parseError, 'Line:', line);
+                    onError?.(`JSON parse error: ${parseError}`);
+                  }
+                }
+              }
+            }
+
+            // Process any remaining data in buffer
+            if (buffer.trim()) {
+              try {
+                const parsed = JSON.parse(buffer);
+                if (parsed.response) {
+                  onChunk(parsed.response);
+                } else if (parsed.error) {
+                  onError?.(parsed.error);
+                }
+              } catch (parseError) {
+                console.error('Failed to parse final buffer:', parseError);
+              }
+            }
+
             return; // Successfully completed retry
           } catch (refreshError) {
             console.error('Failed to refresh guest token for streaming:', refreshError);
@@ -1305,14 +702,56 @@ export const queryTextStream = async (
       throw new Error('Response body is null');
     }
 
-    await processNDJSONStream(response, onChunk, onError, onReferences);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
 
-  } catch (error) {
-    // Silently handle abort
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      return;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break; // Stream finished
+      }
+
+      // Decode the chunk and add to buffer
+      buffer += decoder.decode(value, { stream: true }); // stream: true handles multi-byte chars split across chunks
+
+      // Process complete lines (NDJSON)
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep potentially incomplete line in buffer
+
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.response) {
+              onChunk(parsed.response);
+            } else if (parsed.error && onError) {
+              onError(parsed.error);
+            }
+          } catch (error) {
+            console.error('Error parsing stream chunk:', line, error);
+            if (onError) onError(`Error parsing server response: ${line}`);
+          }
+        }
+      }
     }
 
+    // Process any remaining data in the buffer after the stream ends
+    if (buffer.trim()) {
+      try {
+        const parsed = JSON.parse(buffer);
+        if (parsed.response) {
+          onChunk(parsed.response);
+        } else if (parsed.error && onError) {
+          onError(parsed.error);
+        }
+      } catch (error) {
+        console.error('Error parsing final chunk:', buffer, error);
+        if (onError) onError(`Error parsing final server response: ${buffer}`);
+      }
+    }
+
+  } catch (error) {
     const message = errorMessage(error);
 
     // Check if this is an authentication error
@@ -1474,7 +913,8 @@ export const getAuthStatus = async (): Promise<AuthStatusResponse> => {
     });
 
     // Check if response is HTML (which indicates a redirect or wrong endpoint)
-    const contentType = String(response.headers['content-type'] ?? '');
+    const contentTypeHeader = response.headers['content-type'];
+    const contentType = typeof contentTypeHeader === 'string' ? contentTypeHeader : '';
     if (contentType.includes('text/html')) {
       console.warn('Received HTML response instead of JSON for auth-status endpoint');
       return {
@@ -1546,33 +986,25 @@ export const loginToServer = async (username: string, password: string): Promise
   return response.data;
 }
 
-export const loginAsGuest = async (): Promise<LoginResponse> => {
-  const response = await axiosInstance.post('/login/guest')
-  return response.data
-}
-
 /**
  * Updates an entity's properties in the knowledge graph
  * @param entityName The name of the entity to update
  * @param updatedData Dictionary containing updated attributes
  * @param allowRename Whether to allow renaming the entity (default: false)
  * @param allowMerge Whether to merge into an existing entity when renaming to a duplicate name
- * @param expectedRevisionToken Expected revision token for optimistic concurrency control
  * @returns Promise with the updated entity information
  */
 export const updateEntity = async (
   entityName: string,
   updatedData: Record<string, any>,
   allowRename: boolean = false,
-  allowMerge: boolean = false,
-  expectedRevisionToken?: string
+  allowMerge: boolean = false
 ): Promise<EntityUpdateResponse> => {
   const response = await axiosInstance.post('/graph/entity/edit', {
     entity_name: entityName,
     updated_data: updatedData,
     allow_rename: allowRename,
-    allow_merge: allowMerge,
-    ...(expectedRevisionToken ? { expected_revision_token: expectedRevisionToken } : {})
+    allow_merge: allowMerge
   })
   return response.data
 }
@@ -1582,57 +1014,17 @@ export const updateEntity = async (
  * @param sourceEntity The source entity name
  * @param targetEntity The target entity name
  * @param updatedData Dictionary containing updated attributes
- * @param expectedRevisionToken Expected revision token for optimistic concurrency control
  * @returns Promise with the updated relation information
  */
 export const updateRelation = async (
   sourceEntity: string,
   targetEntity: string,
-  updatedData: Record<string, any>,
-  expectedRevisionToken?: string
-): Promise<GraphMutationResponse> => {
+  updatedData: Record<string, any>
+): Promise<DocActionResponse> => {
   const response = await axiosInstance.post('/graph/relation/edit', {
     source_id: sourceEntity,
     target_id: targetEntity,
-    updated_data: updatedData,
-    ...(expectedRevisionToken ? { expected_revision_token: expectedRevisionToken } : {})
-  })
-  return response.data
-}
-
-export const createGraphEntity = async (
-  entityName: string,
-  entityData: Record<string, any>
-): Promise<GraphMutationResponse> => {
-  const response = await axiosInstance.post('/graph/entity/create', {
-    entity_name: entityName,
-    entity_data: entityData
-  })
-  return response.data
-}
-
-export const createGraphRelation = async (
-  sourceEntity: string,
-  targetEntity: string,
-  relationData: Record<string, any>
-): Promise<GraphMutationResponse> => {
-  const response = await axiosInstance.post('/graph/relation/create', {
-    source_entity: sourceEntity,
-    target_entity: targetEntity,
-    relation_data: relationData
-  })
-  return response.data
-}
-
-export const mergeGraphEntities = async (
-  entitiesToChange: string[],
-  entityToChangeInto: string,
-  expectedRevisionTokens?: Record<string, string>
-): Promise<GraphMutationResponse> => {
-  const response = await axiosInstance.post('/graph/entities/merge', {
-    entities_to_change: entitiesToChange,
-    entity_to_change_into: entityToChangeInto,
-    ...(expectedRevisionTokens ? { expected_revision_tokens: expectedRevisionTokens } : {})
+    updated_data: updatedData
   })
   return response.data
 }
@@ -1753,7 +1145,7 @@ const defaultPaginatedDocumentsPost = async (
   const response = await axiosInstance.post('/documents/paginated', request, {
     signal: controller.signal
   })
-  return normalizePaginatedDocumentsResponse(response.data)
+  return response.data
 }
 
 let paginatedDocumentsPost = defaultPaginatedDocumentsPost
@@ -1781,10 +1173,7 @@ export const __resetPaginatedDocumentRequestsForTests = (): void => {
 export const __setPaginatedDocumentsPostForTests = (
   post: typeof defaultPaginatedDocumentsPost
 ): void => {
-  paginatedDocumentsPost = async (
-    request: DocumentsRequest,
-    controller: AbortController
-  ) => normalizePaginatedDocumentsResponse(await post(request, controller))
+  paginatedDocumentsPost = post
 }
 
 /**

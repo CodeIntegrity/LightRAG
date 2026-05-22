@@ -57,7 +57,7 @@ rag_storage/
 data/
 workspaces/
 
-# Runtime-provided entity type prompt profiles (keep sample files only)
+# User cumstomized prompt directory
 prompts/entity_type/
 
 # Evaluation results
@@ -85,13 +85,9 @@ download_models_hf.py
 # temporary test files in project root
 /test_*
 
-# Cline files
+# AI Agent files
 memory-bank
-.claude/CLAUDE.md
 .claude/
-
-# Claude Code
-CLAUDE.md
 
 # Google Jules
 .jules/
