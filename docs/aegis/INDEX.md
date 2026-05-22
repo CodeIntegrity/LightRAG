@@ -8,6 +8,7 @@
 
 - `plans/2026-05-08-upstream-main-merge.md` - 上游 `upstream/main` 合并执行方案
 - `plans/2026-05-13-backend-runtime-and-workspace-optimization.md` - 后端 runtime 绑定与 workspace 校验优化计划
+- `plans/2026-05-21-upstream-main-merge-with-prompt-retirement.md` - 上游合并并退役本地 Prompt Management 的执行计划
 
 ## SOP
 
