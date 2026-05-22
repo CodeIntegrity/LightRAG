@@ -11,13 +11,14 @@ from fastapi.openapi.docs import (
 )
 import json
 import os
-import re
+import asyncio
+import shutil
 import logging
 import logging.config
 import sys
+from importlib import import_module
 import uvicorn
 import pipmaster as pm
-from typing import Any
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from pathlib import Path
@@ -38,33 +39,52 @@ from .config import (
     PREFIX_ASYMMETRIC_EMBEDDING_BINDINGS,
 )
 from lightrag.utils import get_env_value
-from lightrag import LightRAG, ROLES, RoleLLMConfig, __version__ as core_version
-from lightrag.api import __api_version__
+from lightrag import LightRAG, __version__ as core_version
 from lightrag.utils import EmbeddingFunc
+from lightrag.base import DocStatus
 from lightrag.constants import (
     DEFAULT_LOG_MAX_BYTES,
     DEFAULT_LOG_BACKUP_COUNT,
     DEFAULT_LOG_FILENAME,
+    DEFAULT_LLM_TIMEOUT,
+    DEFAULT_EMBEDDING_TIMEOUT,
 )
 from lightrag.api.routers.document_routes import (
     DocumentManager,
     create_document_routes,
 )
-from lightrag.parser_routing import validate_parser_routing_config
+from lightrag.api.routers.workspace_routes import (
+    _identity_from_request,
+    create_workspace_routes,
+    workspace_create_allowed,
+)
 from lightrag.api.routers.query_routes import create_query_routes
 from lightrag.api.routers.graph_routes import create_graph_routes
 from lightrag.api.routers.ollama_api import OllamaAPI
+from lightrag.api.workspace_registry import (
+    WorkspaceRegistryStore,
+    WorkspaceNotFoundError,
+    WorkspaceValidationError,
+    normalize_workspace_identifier,
+)
+from lightrag.api.workspace_runtime import (
+    WorkspaceRuntimeBundle,
+    WorkspaceRuntimeManager,
+    WorkspaceRuntimeProxy,
+    WorkspaceStateError,
+    bind_current_runtime,
+    reset_current_runtime,
+)
 
 from lightrag.utils import logger, set_verbose_debug
 from lightrag.kg.shared_storage import (
     get_namespace_data,
     get_default_workspace,
-    # set_default_workspace,
+    set_default_workspace,
     cleanup_keyed_lock,
     finalize_share_data,
 )
 from fastapi.security import OAuth2PasswordRequestForm
-from lightrag.api.auth import auth_handler
 
 # use the .env that is inside the current folder
 # allows to use different .env file for each lightrag instance
@@ -74,9 +94,44 @@ load_dotenv(dotenv_path=".env", override=False)
 
 webui_title = os.getenv("WEBUI_TITLE")
 webui_description = os.getenv("WEBUI_DESCRIPTION")
+ALL_GUEST_VISIBLE_TABS = (
+    "documents",
+    "knowledge-graph",
+    "retrieval",
+    "api",
+)
 
-# Global authentication configuration
-auth_configured = bool(auth_handler.accounts)
+def _get_auth_handler():
+    return import_module("lightrag.api.auth").auth_handler
+
+
+def _sync_auth_handler(args) -> None:
+    auth_module = import_module("lightrag.api.auth")
+    existing_handler = getattr(auth_module, "auth_handler", None)
+    existing_args = getattr(auth_module, "global_args", None)
+    preserve_runtime_accounts = (
+        existing_handler is not None
+        and not getattr(args, "auth_accounts", "")
+        and not getattr(existing_args, "auth_accounts", "")
+        and bool(getattr(existing_handler, "accounts", {}))
+    )
+    preserved_accounts = (
+        dict(existing_handler.accounts) if preserve_runtime_accounts else None
+    )
+    auth_module.global_args = args
+    rebuilt_handler = auth_module.AuthHandler()
+    if preserved_accounts is not None:
+        rebuilt_handler.accounts = preserved_accounts
+    if existing_handler is None:
+        auth_module.auth_handler = rebuilt_handler
+        return
+
+    existing_handler.secret = rebuilt_handler.secret
+    existing_handler.algorithm = rebuilt_handler.algorithm
+    existing_handler.expire_hours = rebuilt_handler.expire_hours
+    existing_handler.guest_expire_hours = rebuilt_handler.guest_expire_hours
+    existing_handler.admin_users = rebuilt_handler.admin_users
+    existing_handler.accounts = rebuilt_handler.accounts
 
 
 # Fixed WebUI mount path. Used as `app.mount(WEBUI_PATH, ...)` and as the
@@ -86,46 +141,6 @@ auth_configured = bool(auth_handler.accounts)
 # and matches how LightRAG is deployed in practice. See
 # docs/MultiSiteDeployment.md.
 WEBUI_PATH = "/webui"
-
-
-def _clean_workspace_value(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _get_storage_workspace(storage: Any) -> str | None:
-    if storage is None:
-        return None
-
-    effective_workspace = _clean_workspace_value(
-        getattr(storage, "effective_workspace", None)
-    )
-    if effective_workspace:
-        return effective_workspace
-
-    final_namespace = _clean_workspace_value(getattr(storage, "final_namespace", None))
-    namespace = _clean_workspace_value(getattr(storage, "namespace", None))
-    if final_namespace and namespace:
-        suffix = f"_{namespace}"
-        if final_namespace.endswith(suffix):
-            workspace = final_namespace[: -len(suffix)]
-            if workspace:
-                return workspace
-
-    return _clean_workspace_value(getattr(storage, "workspace", None))
-
-
-def _get_storage_workspaces(rag: Any) -> dict[str, str | None]:
-    return {
-        "kv_storage": _get_storage_workspace(getattr(rag, "full_docs", None)),
-        "doc_status_storage": _get_storage_workspace(getattr(rag, "doc_status", None)),
-        "graph_storage": _get_storage_workspace(
-            getattr(rag, "chunk_entity_relation_graph", None)
-        ),
-        "vector_storage": _get_storage_workspace(getattr(rag, "entities_vdb", None)),
-    }
 
 
 class LLMConfigCache:
@@ -140,7 +155,6 @@ class LLMConfigCache:
         self.gemini_embedding_options = None
         self.ollama_llm_options = None
         self.ollama_embedding_options = None
-        self.bedrock_llm_options = None
 
         # Only initialize and log OpenAI options when using OpenAI-related bindings
         if args.llm_binding in ["openai", "azure_openai"]:
@@ -154,12 +168,6 @@ class LLMConfigCache:
 
             self.gemini_llm_options = GeminiLLMOptions.options_dict(args)
             logger.info(f"Gemini LLM Options: {self.gemini_llm_options}")
-
-        if args.llm_binding == "bedrock":
-            from lightrag.llm.binding_options import BedrockLLMOptions
-
-            self.bedrock_llm_options = BedrockLLMOptions.options_dict(args)
-            logger.info(f"Bedrock LLM Options: {self.bedrock_llm_options}")
 
         # Only initialize and log Ollama LLM options when using Ollama LLM binding
         if args.llm_binding == "ollama":
@@ -207,52 +215,6 @@ class LLMConfigCache:
                     "GeminiEmbeddingOptions not available, using default configuration"
                 )
                 self.gemini_embedding_options = {}
-
-
-_PROVIDER_LOG_LABELS = {
-    "azure_openai": "Azure OpenAI",
-    "bedrock": "Bedrock",
-    "gemini": "Gemini",
-    "lollms": "Lollms",
-    "ollama": "Ollama",
-    "openai": "OpenAI",
-}
-
-
-def _provider_log_label(binding: Any) -> str:
-    binding_name = str(binding)
-    return _PROVIDER_LOG_LABELS.get(
-        binding_name, binding_name.replace("_", " ").title()
-    )
-
-
-def _log_role_provider_options(rag: Any) -> None:
-    """Log sanitized provider options for every role LLM."""
-    try:
-        role_configs = rag.get_llm_role_config()
-    except Exception as e:
-        logger.warning(f"Failed to read role LLM configuration for logging: {e}")
-        return
-
-    logger.info("Role LLM Option:")
-
-    for spec in ROLES:
-        role_config = role_configs.get(spec.name)
-        if not isinstance(role_config, dict):
-            continue
-
-        metadata = role_config.get("metadata") or {}
-        binding = role_config.get("binding") or metadata.get("binding")
-        if not binding:
-            continue
-
-        provider_options = metadata.get("provider_options") or {}
-        logger.info(
-            " - %s: %s %s",
-            spec.name,
-            _provider_log_label(binding),
-            provider_options,
-        )
 
 
 def check_frontend_build():
@@ -385,6 +347,14 @@ def check_frontend_build():
 
 
 def create_app(args):
+    _sync_auth_handler(args)
+    import_module("lightrag.api.routers.workspace_routes").get_combined_auth_dependency = (
+        get_combined_auth_dependency
+    )
+    import_module("lightrag.api.routers.query_routes").get_combined_auth_dependency = (
+        get_combined_auth_dependency
+    )
+
     # Check frontend build first and get status
     webui_assets_exist, is_frontend_outdated = check_frontend_build()
 
@@ -396,7 +366,6 @@ def create_app(args):
     # Setup logging
     logger.setLevel(args.log_level)
     set_verbose_debug(args.verbose)
-    validate_parser_routing_config()
 
     # Create configuration cache (this will output configuration logs)
     config_cache = LLMConfigCache(args)
@@ -407,7 +376,7 @@ def create_app(args):
         "ollama",
         "openai",
         "azure_openai",
-        "bedrock",
+        "aws_bedrock",
         "gemini",
     ]:
         raise Exception("llm binding not supported")
@@ -417,7 +386,7 @@ def create_app(args):
         "ollama",
         "openai",
         "azure_openai",
-        "bedrock",
+        "aws_bedrock",
         "jina",
         "gemini",
         "voyageai",
@@ -447,35 +416,279 @@ def create_app(args):
 
     # Initialize document manager with workspace support for data isolation
     doc_manager = DocumentManager(args.input_dir, workspace=args.workspace)
+    workspace_registry = WorkspaceRegistryStore(
+        args.workspace_registry_path,
+        busy_timeout_ms=args.workspace_registry_busy_timeout_ms,
+    )
+    set_default_workspace(args.workspace)
+    # Keep default workspace metadata available even before ASGI lifespan runs.
+    # Some tests instantiate `TestClient` without an explicit context manager,
+    # which means startup may not have initialized the registry yet.
+    workspace_registry._initialize_sync(args.workspace)
+
+    async def initialize_workspace_assets(workspace: str) -> None:
+        DocumentManager(args.input_dir, workspace=workspace)
+
+    async def build_runtime_bundle(
+        workspace: str, *, isolate_primary_runtime: bool = False
+    ) -> WorkspaceRuntimeBundle:
+        if workspace == args.workspace and not isolate_primary_runtime:
+            return WorkspaceRuntimeBundle(
+                workspace=workspace,
+                rag=rag,
+                doc_manager=doc_manager,
+            )
+
+        runtime_doc_manager = DocumentManager(args.input_dir, workspace=workspace)
+        runtime_rag = LightRAG(
+            working_dir=args.working_dir,
+            workspace=workspace,
+            llm_model_func=create_llm_model_func(args.llm_binding),
+            llm_model_name=args.llm_model,
+            llm_model_max_async=args.max_async,
+            summary_max_tokens=args.summary_max_tokens,
+            summary_context_size=args.summary_context_size,
+            chunk_token_size=int(args.chunk_size),
+            chunk_overlap_token_size=int(args.chunk_overlap_size),
+            llm_model_kwargs=create_llm_model_kwargs(
+                args.llm_binding, args, llm_timeout
+            ),
+            embedding_func=embedding_func,
+            default_llm_timeout=llm_timeout,
+            default_embedding_timeout=embedding_timeout,
+            kv_storage=args.kv_storage,
+            graph_storage=args.graph_storage,
+            vector_storage=args.vector_storage,
+            doc_status_storage=args.doc_status_storage,
+            vector_db_storage_cls_kwargs={
+                "cosine_better_than_threshold": args.cosine_threshold
+            },
+            enable_llm_cache_for_entity_extract=args.enable_llm_cache_for_extract,
+            enable_llm_cache=args.enable_llm_cache,
+            rerank_model_func=rerank_model_func,
+            max_parallel_insert=args.max_parallel_insert,
+            max_graph_nodes=args.max_graph_nodes,
+            addon_params={
+                "language": args.summary_language,
+                "entity_types": args.entity_types,
+            },
+            ollama_server_infos=ollama_server_infos,
+        )
+        await runtime_rag.initialize_storages()
+        await runtime_rag.check_and_migrate_data()
+        return WorkspaceRuntimeBundle(
+            workspace=workspace,
+            rag=runtime_rag,
+            doc_manager=runtime_doc_manager,
+        )
+
+    async def close_runtime_bundle(bundle: WorkspaceRuntimeBundle) -> None:
+        if bundle.rag is rag:
+            return
+        await bundle.rag.finalize_storages()
+
+    runtime_manager = WorkspaceRuntimeManager(
+        build_runtime_bundle,
+        close_bundle=close_runtime_bundle,
+        max_cached_workspaces=args.max_cached_workspaces,
+        idle_ttl_seconds=args.workspace_runtime_idle_ttl,
+    )
+
+    rag_proxy = WorkspaceRuntimeProxy(lambda bundle: bundle.rag)
+    doc_manager_proxy = WorkspaceRuntimeProxy(lambda bundle: bundle.doc_manager)
+
+    def should_bind_runtime(path: str) -> bool:
+        runtime_prefixes = (
+            "/documents",
+            "/query",
+            "/graph",
+            "/graphs",
+            "/api",
+        )
+        return any(path.startswith(prefix) for prefix in runtime_prefixes)
+
+    async def delete_workspace_data(workspace: str, requested_by: str) -> None:
+        delete_bundle: WorkspaceRuntimeBundle | None = None
+        delete_timeout = args.workspace_drain_timeout
+        try:
+            await runtime_manager.mark_workspace_draining(workspace)
+            drained = await runtime_manager.wait_for_drain(
+                workspace, timeout_seconds=delete_timeout
+            )
+            if not drained:
+                await workspace_registry.fail_hard_delete(
+                    workspace, "WORKSPACE_DRAIN_TIMEOUT"
+                )
+                await runtime_manager.mark_workspace_ready(workspace)
+                return
+
+            delete_bundle = await build_runtime_bundle(
+                workspace, isolate_primary_runtime=True
+            )
+
+            storages = [
+                delete_bundle.rag.text_chunks,
+                delete_bundle.rag.full_docs,
+                delete_bundle.rag.full_entities,
+                delete_bundle.rag.full_relations,
+                delete_bundle.rag.entity_chunks,
+                delete_bundle.rag.relation_chunks,
+                delete_bundle.rag.entities_vdb,
+                delete_bundle.rag.relationships_vdb,
+                delete_bundle.rag.chunks_vdb,
+                delete_bundle.rag.chunk_entity_relation_graph,
+                delete_bundle.rag.doc_status,
+            ]
+            for storage in storages:
+                if storage is not None:
+                    await storage.drop()
+            await workspace_registry.update_hard_delete_progress(
+                workspace, {"storages": "done"}
+            )
+
+            shutil.rmtree(delete_bundle.doc_manager.input_dir, ignore_errors=True)
+            await workspace_registry.update_hard_delete_progress(
+                workspace, {"storages": "done", "input_dir": "done"}
+            )
+
+            try:
+                await runtime_manager.evict_runtime(workspace)
+            except WorkspaceStateError:
+                pass
+
+            await workspace_registry.complete_hard_delete(workspace)
+            await runtime_manager.mark_workspace_ready(workspace)
+        except Exception as exc:
+            logger.error(f"Error hard deleting workspace '{workspace}': {exc}")
+            await workspace_registry.fail_hard_delete(workspace, str(exc))
+            await runtime_manager.mark_workspace_ready(workspace)
+        finally:
+            if delete_bundle is not None:
+                await close_runtime_bundle(delete_bundle)
+
+    async def get_workspace_stats(
+        workspace: str, include_runtime: bool = False
+    ) -> dict[str, object]:
+        document_count: int | None = None
+        document_capability = "not_loaded"
+        chunk_count: int | None = None
+        chunk_capability = "not_loaded"
+
+        if not include_runtime:
+            return {
+                "document_count": document_count,
+                "entity_count": None,
+                "relation_count": None,
+                "chunk_count": chunk_count,
+                "storage_size_bytes": None,
+                "capabilities": {
+                    "document_count": document_capability,
+                    "entity_count": "unsupported_by_backend",
+                    "relation_count": "unsupported_by_backend",
+                    "chunk_count": chunk_capability,
+                    "storage_size_bytes": "unsupported_by_backend",
+                },
+            }
+
+        try:
+            bundle = await runtime_manager.acquire_runtime(workspace)
+        except WorkspaceStateError:
+            bundle = None
+            document_capability = "temporarily_unavailable"
+            chunk_capability = "temporarily_unavailable"
+
+        if bundle is not None:
+            try:
+                # Keep document_count logic unchanged for compatibility with existing clients.
+                status_counts = await bundle.rag.doc_status.get_all_status_counts()
+                document_count = int(status_counts.get("all", 0))
+                document_capability = "available"
+            except Exception as exc:
+                logger.warning(
+                    f"Workspace stats document count failed: workspace={workspace} error={exc}"
+                )
+                document_count = None
+                document_capability = "unsupported_by_backend"
+            try:
+                total_chunks = 0
+                for status in DocStatus:
+                    docs_by_status = await bundle.rag.doc_status.get_docs_by_status(
+                        status
+                    )
+                    for doc_record in docs_by_status.values():
+                        chunks_count = getattr(doc_record, "chunks_count", 0)
+                        if chunks_count is None:
+                            continue
+                        total_chunks += int(chunks_count)
+                chunk_count = total_chunks
+                chunk_capability = "available"
+            except Exception as exc:
+                logger.warning(
+                    f"Workspace stats chunk count failed: workspace={workspace} error={exc}"
+                )
+                chunk_count = None
+                chunk_capability = "unsupported_by_backend"
+            finally:
+                await runtime_manager.release_runtime(workspace)
+
+        return {
+            "document_count": document_count,
+            "entity_count": None,
+            "relation_count": None,
+            "chunk_count": chunk_count,
+            "storage_size_bytes": None,
+            "capabilities": {
+                "document_count": document_capability,
+                "entity_count": "unsupported_by_backend",
+                "relation_count": "unsupported_by_backend",
+                "chunk_count": chunk_capability,
+                "storage_size_bytes": "unsupported_by_backend",
+            },
+        }
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Lifespan context manager for startup and shutdown events"""
-        # Store background tasks
         app.state.background_tasks = set()
+        prune_task: asyncio.Task[None] | None = None
+
+        async def _periodic_prune_idle_runtimes():
+            while True:
+                await asyncio.sleep(args.workspace_runtime_idle_ttl)
+                try:
+                    evicted = await runtime_manager.prune_idle_runtimes()
+                    if evicted:
+                        logger.debug(f"Evicted idle workspace runtimes: {evicted}")
+                except Exception as exc:
+                    logger.warning(f"Periodic runtime prune failed: {exc}")
 
         try:
-            # Initialize database connections
-            # Note: initialize_storages() now auto-initializes pipeline_status for rag.workspace
+            await workspace_registry.initialize(default_workspace=args.workspace)
             await rag.initialize_storages()
-
-            # Data migration regardless of storage implementation
             await rag.check_and_migrate_data()
+
+            prune_task = asyncio.create_task(_periodic_prune_idle_runtimes())
+            app.state.background_tasks.add(prune_task)
+            prune_task.add_done_callback(app.state.background_tasks.discard)
 
             ASCIIColors.green("\nServer is ready to accept connections! 🚀\n")
 
             yield
 
         finally:
-            # Clean up database connections
+            if prune_task is not None:
+                prune_task.cancel()
+                try:
+                    await prune_task
+                except asyncio.CancelledError:
+                    pass
+
             await rag.finalize_storages()
 
             if "LIGHTRAG_GUNICORN_MODE" not in os.environ:
-                # Only perform cleanup in Uvicorn single-process mode
                 logger.debug("Unvicorn Mode: finalizing shared storage...")
                 finalize_share_data()
             else:
-                # In Gunicorn mode with preload_app=True, cleanup is handled by on_exit hooks
                 logger.debug(
                     "Gunicorn Mode: postpone shared storage finalization to master process"
                 )
@@ -525,6 +738,61 @@ def create_app(args):
     }
 
     app = FastAPI(**app_kwargs)
+
+    @app.middleware("http")
+    async def workspace_runtime_binding(request: Request, call_next):
+        if not should_bind_runtime(request.url.path):
+            return await call_next(request)
+
+        try:
+            workspace = resolve_request_workspace(request)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        try:
+            bundle = await runtime_manager.acquire_cached_runtime(workspace)
+        except WorkspaceStateError as exc:
+            return JSONResponse(status_code=409, content={"detail": str(exc)})
+        if bundle is None:
+            try:
+                workspace_record = await workspace_registry.get_workspace(workspace)
+            except WorkspaceNotFoundError:
+                return JSONResponse(
+                    status_code=404,
+                    content={"detail": f"Workspace '{workspace}' is not registered"},
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to resolve workspace '%s' before runtime binding",
+                    workspace,
+                )
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "detail": f"Failed to resolve workspace '{workspace}' runtime binding"
+                    },
+                )
+
+            if workspace_record["status"] != "ready":
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "detail": f"Workspace '{workspace}' is not ready (status={workspace_record['status']})"
+                    },
+                )
+
+            try:
+                bundle = await runtime_manager.acquire_runtime(workspace)
+            except WorkspaceStateError as exc:
+                return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+        tokens = bind_current_runtime(bundle)
+        request.state.workspace_runtime = bundle
+        try:
+            response = await call_next(request)
+        finally:
+            reset_current_runtime(tokens)
+            await runtime_manager.release_runtime(workspace)
+        return response
 
     # Add custom validation error handler for /query/data endpoint
     @app.exception_handler(RequestValidationError)
@@ -599,15 +867,69 @@ def create_app(args):
         if not workspace:
             workspace = None
         else:
-            sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", workspace)
-            if sanitized != workspace:
-                logger.warning(
-                    f"Workspace header '{workspace}' contains invalid characters. "
-                    f"Sanitized to '{sanitized}'."
-                )
-                workspace = sanitized
+            try:
+                workspace = normalize_workspace_identifier(workspace)
+            except WorkspaceValidationError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         return workspace
+
+    def resolve_request_workspace(request: Request) -> str:
+        workspace = get_workspace_from_request(request)
+        default_workspace = get_default_workspace()
+        if workspace is None:
+            workspace = default_workspace
+        return workspace or ""
+
+    def _workspace_create_capability_for_request(request: Request) -> bool:
+        identity = _identity_from_request(request)
+        return workspace_create_allowed(
+            identity=identity,
+            allow_guest_create=args.allow_guest_workspace_create,
+        )
+
+    def _guest_login_capability() -> bool:
+        return bool(_get_auth_handler().accounts) and bool(args.enable_guest_login_entry)
+
+    def _auth_configured() -> bool:
+        return bool(_get_auth_handler().accounts)
+
+    def _guest_visible_tabs() -> list[str]:
+        configured_tabs = getattr(args, "guest_visible_tabs", None)
+        if not isinstance(configured_tabs, list):
+            return list(ALL_GUEST_VISIBLE_TABS)
+
+        allowed_tabs: list[str] = []
+        seen_tabs: set[str] = set()
+        for tab in configured_tabs:
+            if not isinstance(tab, str):
+                continue
+            normalized_tab = tab.strip()
+            if (
+                normalized_tab in ALL_GUEST_VISIBLE_TABS
+                and normalized_tab not in seen_tabs
+            ):
+                allowed_tabs.append(normalized_tab)
+                seen_tabs.add(normalized_tab)
+        return allowed_tabs
+
+    def _build_guest_login_response(
+        *, auth_mode: str, message: str
+    ) -> dict[str, object]:
+        guest_token = _get_auth_handler().create_token(
+            username="guest", role="guest", metadata={"auth_mode": auth_mode}
+        )
+        return {
+            "access_token": guest_token,
+            "token_type": "bearer",
+            "auth_mode": auth_mode,
+            "message": message,
+            "guest_visible_tabs": _guest_visible_tabs(),
+            "core_version": core_version,
+            "api_version": api_version_display,
+            "webui_title": webui_title,
+            "webui_description": webui_description,
+        }
 
     # Create working directory if it doesn't exist
     Path(args.working_dir).mkdir(parents=True, exist_ok=True)
@@ -621,17 +943,16 @@ def create_app(args):
             prompt,
             system_prompt=None,
             history_messages=None,
+            keyword_extraction=False,
             **kwargs,
         ) -> str:
             from lightrag.llm.openai import openai_complete_if_cache
 
+            keyword_extraction = kwargs.pop("keyword_extraction", None)
             if history_messages is None:
                 history_messages = []
 
-            # Use pre-processed configuration to avoid repeated parsing.
-            # response_format and legacy keyword_extraction/entity_extraction
-            # flags flow through **kwargs; openai_complete_if_cache handles
-            # the deprecation shim for the legacy booleans.
+            # Use pre-processed configuration to avoid repeated parsing
             kwargs["timeout"] = llm_timeout
             if config_cache.openai_llm_options:
                 kwargs.update(config_cache.openai_llm_options)
@@ -657,15 +978,16 @@ def create_app(args):
             prompt,
             system_prompt=None,
             history_messages=None,
+            keyword_extraction=False,
             **kwargs,
         ) -> str:
             from lightrag.llm.azure_openai import azure_openai_complete_if_cache
 
+            keyword_extraction = kwargs.pop("keyword_extraction", None)
             if history_messages is None:
                 history_messages = []
 
-            # response_format and legacy extraction booleans flow through kwargs
-            # to azure_openai_complete_if_cache, which handles deprecation shims.
+            # Use pre-processed configuration to avoid repeated parsing
             kwargs["timeout"] = llm_timeout
             if config_cache.openai_llm_options:
                 kwargs.update(config_cache.openai_llm_options)
@@ -692,6 +1014,7 @@ def create_app(args):
             prompt,
             system_prompt=None,
             history_messages=None,
+            keyword_extraction=False,
             **kwargs,
         ) -> str:
             from lightrag.llm.gemini import gemini_complete_if_cache
@@ -699,8 +1022,7 @@ def create_app(args):
             if history_messages is None:
                 history_messages = []
 
-            # response_format and legacy extraction booleans flow through kwargs
-            # to gemini_complete_if_cache, which handles deprecation shims.
+            # Use pre-processed configuration to avoid repeated parsing
             kwargs["timeout"] = llm_timeout
             if (
                 config_cache.gemini_llm_options is not None
@@ -715,6 +1037,7 @@ def create_app(args):
                 history_messages=history_messages,
                 api_key=args.llm_binding_api_key,
                 base_url=args.llm_binding_host,
+                keyword_extraction=keyword_extraction,
                 **kwargs,
             )
 
@@ -734,7 +1057,7 @@ def create_app(args):
                 from lightrag.llm.ollama import ollama_model_complete
 
                 return ollama_model_complete
-            elif binding == "bedrock":
+            elif binding == "aws_bedrock":
                 return bedrock_model_complete  # Already defined locally
             elif binding == "azure_openai":
                 # Use optimized function with pre-processed configuration
@@ -766,303 +1089,6 @@ def create_app(args):
                 }
             except ImportError as e:
                 raise Exception(f"Failed to import {binding} options: {e}")
-        return {}
-
-    def resolve_role_llm_settings(
-        role: str, override_meta: dict | None = None
-    ) -> dict[str, Any]:
-        attr = role.lower()
-        override_meta = override_meta or {}
-
-        role_binding = (
-            override_meta.get("binding")
-            or getattr(args, f"{attr}_llm_binding", None)
-            or args.llm_binding
-        )
-        role_model = (
-            override_meta.get("model")
-            or getattr(args, f"{attr}_llm_model", None)
-            or args.llm_model
-        )
-        role_host = (
-            override_meta.get("host")
-            or getattr(args, f"{attr}_llm_binding_host", None)
-            or args.llm_binding_host
-        )
-        explicit_role_apikey = override_meta.get("api_key") or getattr(
-            args, f"{attr}_llm_binding_api_key", None
-        )
-        if role_binding == "bedrock":
-            if explicit_role_apikey:
-                raise ValueError(
-                    f"Bedrock role '{role}' does not support role-specific "
-                    "LLM_BINDING_API_KEY; use role-specific SigV4 AWS_* "
-                    "variables or process-level AWS_BEARER_TOKEN_BEDROCK."
-                )
-            role_apikey = None
-        else:
-            role_apikey = explicit_role_apikey or args.llm_binding_api_key
-        role_timeout = (
-            override_meta.get("timeout")
-            or getattr(args, f"{attr}_llm_timeout", None)
-            or llm_timeout
-        )
-        role_max_async = override_meta.get("max_async")
-        if role_max_async is None:
-            role_max_async = getattr(args, f"{attr}_llm_max_async", None)
-        is_cross_provider = role_binding != args.llm_binding
-
-        role_provider_options = override_meta.get("provider_options")
-        if role_provider_options is None:
-            if role_binding in ["openai", "azure_openai"]:
-                from lightrag.llm.binding_options import OpenAILLMOptions
-
-                role_provider_options = OpenAILLMOptions.options_dict_for_role(
-                    args, role, is_cross_provider
-                )
-            elif role_binding == "gemini":
-                from lightrag.llm.binding_options import GeminiLLMOptions
-
-                role_provider_options = GeminiLLMOptions.options_dict_for_role(
-                    args, role, is_cross_provider
-                )
-            elif role_binding in ["lollms", "ollama"]:
-                from lightrag.llm.binding_options import OllamaLLMOptions
-
-                role_provider_options = OllamaLLMOptions.options_dict_for_role(
-                    args, role, is_cross_provider
-                )
-            elif role_binding == "bedrock":
-                from lightrag.llm.binding_options import BedrockLLMOptions
-
-                role_provider_options = BedrockLLMOptions.options_dict_for_role(
-                    args, role, is_cross_provider
-                )
-            else:
-                role_provider_options = {}
-
-        bedrock_aws_options = {}
-        if role_binding == "bedrock":
-            override_bedrock_aws_options = override_meta.get("bedrock_aws_options", {})
-            bedrock_aws_options = {
-                "aws_region": override_meta.get("aws_region")
-                or override_bedrock_aws_options.get("aws_region")
-                or getattr(args, f"{attr}_aws_region", None)
-                or getattr(args, "aws_region", None),
-                "aws_access_key_id": override_meta.get("aws_access_key_id")
-                or override_bedrock_aws_options.get("aws_access_key_id")
-                or getattr(args, f"{attr}_aws_access_key_id", None)
-                or getattr(args, "aws_access_key_id", None),
-                "aws_secret_access_key": override_meta.get("aws_secret_access_key")
-                or override_bedrock_aws_options.get("aws_secret_access_key")
-                or getattr(args, f"{attr}_aws_secret_access_key", None)
-                or getattr(args, "aws_secret_access_key", None),
-                "aws_session_token": override_meta.get("aws_session_token")
-                or override_bedrock_aws_options.get("aws_session_token")
-                or getattr(args, f"{attr}_aws_session_token", None)
-                or getattr(args, "aws_session_token", None),
-            }
-
-        return {
-            "binding": role_binding,
-            "model": role_model,
-            "host": role_host,
-            "api_key": role_apikey,
-            "timeout": role_timeout,
-            "max_async": role_max_async,
-            "provider_options": role_provider_options,
-            "is_cross_provider": is_cross_provider,
-            "bedrock_aws_options": bedrock_aws_options,
-        }
-
-    def create_role_llm_func(role: str, override_meta: dict | None = None):
-        """Create an independent raw LLM function for a role."""
-        settings = resolve_role_llm_settings(role, override_meta)
-        role_binding = settings["binding"]
-        role_model = settings["model"]
-        role_host = settings["host"]
-        role_apikey = settings["api_key"]
-        role_timeout = settings["timeout"]
-        role_provider_options = settings["provider_options"]
-        bedrock_aws_options = settings["bedrock_aws_options"]
-
-        try:
-            if role_binding == "ollama":
-                from lightrag.llm.ollama import _ollama_model_if_cache
-
-                async def role_ollama_complete(
-                    prompt,
-                    system_prompt=None,
-                    history_messages=None,
-                    enable_cot: bool = False,
-                    **kwargs,
-                ):
-                    # response_format and legacy extraction booleans flow
-                    # through kwargs to _ollama_model_if_cache, which handles
-                    # the deprecation shim and emits a single warning.
-                    if history_messages is None:
-                        history_messages = []
-                    if role_provider_options:
-                        kwargs.setdefault("options", dict(role_provider_options))
-                    return await _ollama_model_if_cache(
-                        role_model,
-                        prompt,
-                        system_prompt=system_prompt,
-                        history_messages=history_messages,
-                        enable_cot=enable_cot,
-                        host=role_host,
-                        timeout=role_timeout,
-                        api_key=role_apikey,
-                        **kwargs,
-                    )
-
-                return role_ollama_complete
-            if role_binding == "lollms":
-                from lightrag.llm.lollms import lollms_model_if_cache
-
-                async def role_lollms_complete(
-                    prompt,
-                    system_prompt=None,
-                    history_messages=None,
-                    enable_cot: bool = False,
-                    **kwargs,
-                ):
-                    # response_format and legacy extraction booleans flow
-                    # through kwargs to lollms_model_if_cache, which drops
-                    # them and emits deprecation warnings when booleans are set.
-                    if history_messages is None:
-                        history_messages = []
-                    if role_provider_options:
-                        kwargs = {**role_provider_options, **kwargs}
-                    return await lollms_model_if_cache(
-                        role_model,
-                        prompt,
-                        system_prompt=system_prompt,
-                        history_messages=history_messages,
-                        enable_cot=enable_cot,
-                        base_url=role_host,
-                        api_key=role_apikey,
-                        timeout=role_timeout,
-                        **kwargs,
-                    )
-
-                return role_lollms_complete
-            if role_binding == "bedrock":
-                from lightrag.llm.bedrock import bedrock_complete_if_cache
-
-                async def role_bedrock_complete(
-                    prompt,
-                    system_prompt=None,
-                    history_messages=None,
-                    **kwargs,
-                ) -> str:
-                    if history_messages is None:
-                        history_messages = []
-                    if role_provider_options:
-                        kwargs = {**role_provider_options, **kwargs}
-                    return await bedrock_complete_if_cache(
-                        role_model,
-                        prompt,
-                        system_prompt=system_prompt,
-                        history_messages=history_messages,
-                        endpoint_url=role_host,
-                        **bedrock_aws_options,
-                        **kwargs,
-                    )
-
-                return role_bedrock_complete
-            if role_binding == "azure_openai":
-                from lightrag.llm.azure_openai import azure_openai_complete_if_cache
-
-                async def role_azure_openai_complete(
-                    prompt,
-                    system_prompt=None,
-                    history_messages=None,
-                    **kwargs,
-                ) -> str:
-                    if history_messages is None:
-                        history_messages = []
-                    kwargs["timeout"] = role_timeout
-                    if role_provider_options:
-                        kwargs.update(role_provider_options)
-                    return await azure_openai_complete_if_cache(
-                        role_model,
-                        prompt,
-                        system_prompt=system_prompt,
-                        history_messages=history_messages,
-                        base_url=role_host,
-                        api_key=role_apikey or os.getenv("AZURE_OPENAI_API_KEY"),
-                        api_version=os.getenv(
-                            "AZURE_OPENAI_API_VERSION", "2024-08-01-preview"
-                        ),
-                        **kwargs,
-                    )
-
-                return role_azure_openai_complete
-            if role_binding == "gemini":
-                from lightrag.llm.gemini import gemini_complete_if_cache
-
-                async def role_gemini_complete(
-                    prompt,
-                    system_prompt=None,
-                    history_messages=None,
-                    **kwargs,
-                ) -> str:
-                    if history_messages is None:
-                        history_messages = []
-                    kwargs["timeout"] = role_timeout
-                    if role_provider_options and "generation_config" not in kwargs:
-                        kwargs["generation_config"] = dict(role_provider_options)
-                    return await gemini_complete_if_cache(
-                        role_model,
-                        prompt,
-                        system_prompt=system_prompt,
-                        history_messages=history_messages,
-                        api_key=role_apikey,
-                        base_url=role_host,
-                        **kwargs,
-                    )
-
-                return role_gemini_complete
-
-            from lightrag.llm.openai import openai_complete_if_cache
-
-            async def role_openai_complete(
-                prompt,
-                system_prompt=None,
-                history_messages=None,
-                **kwargs,
-            ) -> str:
-                if history_messages is None:
-                    history_messages = []
-                kwargs["timeout"] = role_timeout
-                if role_provider_options:
-                    kwargs.update(role_provider_options)
-                return await openai_complete_if_cache(
-                    role_model,
-                    prompt,
-                    system_prompt=system_prompt,
-                    history_messages=history_messages,
-                    base_url=role_host,
-                    api_key=role_apikey,
-                    **kwargs,
-                )
-
-            return role_openai_complete
-        except ImportError as e:
-            raise Exception(f"Failed to create LLM for role '{role}': {e}")
-
-    def create_role_llm_model_kwargs(
-        role: str, override_meta: dict | None = None
-    ) -> dict[str, Any] | None:
-        """Create role-specific kwargs for runtime wrapper injection.
-
-        Role functions built above already encapsulate provider host/model/api_key/options,
-        so we intentionally return an empty dict here to prevent base kwargs inheritance
-        from polluting cross-provider role calls.
-        """
-        _ = role
-        _ = override_meta
         return {}
 
     def create_optimized_embedding_function(
@@ -1124,7 +1150,7 @@ def create_app(args):
                 from lightrag.llm.azure_openai import azure_openai_embed
 
                 provider_func = azure_openai_embed
-            elif binding == "bedrock":
+            elif binding == "aws_bedrock":
                 from lightrag.llm.bedrock import bedrock_embed
 
                 provider_func = bedrock_embed
@@ -1245,7 +1271,7 @@ def create_app(args):
                         if document_prefix:
                             kwargs["document_prefix"] = document_prefix
                     return await actual_func(**kwargs)
-                elif binding == "bedrock":
+                elif binding == "aws_bedrock":
                     from lightrag.llm.bedrock import bedrock_embed
 
                     actual_func = (
@@ -1254,17 +1280,7 @@ def create_app(args):
                         else bedrock_embed
                     )
                     # Pass model only if provided, let function use its default otherwise
-                    kwargs = {
-                        "texts": texts,
-                        "aws_region": getattr(args, "aws_region", None),
-                        "aws_access_key_id": getattr(args, "aws_access_key_id", None),
-                        "aws_secret_access_key": getattr(
-                            args, "aws_secret_access_key", None
-                        ),
-                        "aws_session_token": getattr(args, "aws_session_token", None),
-                    }
-                    if host is not None:
-                        kwargs["endpoint_url"] = host
+                    kwargs = {"texts": texts}
                     if model:
                         kwargs["model"] = model
                     return await actual_func(**kwargs)
@@ -1391,37 +1407,35 @@ def create_app(args):
 
         return embedding_func_instance
 
-    llm_timeout = args.llm_timeout
-    embedding_timeout = args.embedding_timeout
+    llm_timeout = get_env_value("LLM_TIMEOUT", DEFAULT_LLM_TIMEOUT, int)
+    embedding_timeout = get_env_value(
+        "EMBEDDING_TIMEOUT", DEFAULT_EMBEDDING_TIMEOUT, int
+    )
 
     async def bedrock_model_complete(
         prompt,
         system_prompt=None,
         history_messages=None,
+        keyword_extraction=False,
         **kwargs,
     ) -> str:
         # Lazy import
         from lightrag.llm.bedrock import bedrock_complete_if_cache
 
+        keyword_extraction = kwargs.pop("keyword_extraction", None)
+        if keyword_extraction:
+            kwargs["response_format"] = GPTKeywordExtractionFormat
         if history_messages is None:
             history_messages = []
 
-        # Bedrock Converse API has no JSON mode; response_format and the legacy
-        # extraction booleans flow through kwargs to bedrock_complete_if_cache,
-        # which drops them and emits deprecation warnings when booleans are set.
-        if config_cache.bedrock_llm_options:
-            kwargs = {**config_cache.bedrock_llm_options, **kwargs}
+        # Use global temperature for Bedrock
+        kwargs["temperature"] = get_env_value("BEDROCK_LLM_TEMPERATURE", 1.0, float)
 
         return await bedrock_complete_if_cache(
             args.llm_model,
             prompt,
             system_prompt=system_prompt,
             history_messages=history_messages,
-            endpoint_url=args.llm_binding_host,
-            aws_region=getattr(args, "aws_region", None),
-            aws_access_key_id=getattr(args, "aws_access_key_id", None),
-            aws_secret_access_key=getattr(args, "aws_secret_access_key", None),
-            aws_session_token=getattr(args, "aws_session_token", None),
             **kwargs,
         )
 
@@ -1434,9 +1448,7 @@ def create_app(args):
         binding=args.embedding_binding,
         model=args.embedding_model,
         host=args.embedding_binding_host,
-        api_key=None
-        if args.embedding_binding == "bedrock"
-        else args.embedding_binding_api_key,
+        api_key=args.embedding_binding_api_key,
         args=args,
         document_prefix=args.embedding_document_prefix,
         query_prefix=args.embedding_query_prefix,
@@ -1562,22 +1574,6 @@ def create_app(args):
         name=args.simulated_model_name, tag=args.simulated_model_tag
     )
 
-    # LightRAG.__post_init__ normalizes addon_params and backfills env-based defaults
-    # (SUMMARY_LANGUAGE, ENTITY_TYPE_PROMPT_FILE, ...), so we only need to pass the
-    # API-level overrides here.
-    addon_params = {
-        "language": args.summary_language,
-    }
-
-    role_llm_configs = {
-        spec.name: {
-            **resolve_role_llm_settings(spec.name),
-            "func": create_role_llm_func(spec.name),
-            "kwargs": create_role_llm_model_kwargs(spec.name),
-        }
-        for spec in ROLES
-    }
-
     # Initialize RAG with unified configuration
     try:
         rag = LightRAG(
@@ -1605,62 +1601,49 @@ def create_app(args):
             },
             enable_llm_cache_for_entity_extract=args.enable_llm_cache_for_extract,
             enable_llm_cache=args.enable_llm_cache,
-            vlm_process_enable=args.vlm_process_enable,
             rerank_model_func=rerank_model_func,
-            rerank_model_max_async=args.rerank_max_async,
-            default_rerank_timeout=args.rerank_timeout,
             max_parallel_insert=args.max_parallel_insert,
             max_graph_nodes=args.max_graph_nodes,
-            addon_params=addon_params,
-            ollama_server_infos=ollama_server_infos,
-            role_llm_configs={
-                spec.name: RoleLLMConfig(
-                    func=role_llm_configs[spec.name]["func"],
-                    kwargs=role_llm_configs[spec.name]["kwargs"],
-                    max_async=role_llm_configs[spec.name]["max_async"],
-                    timeout=role_llm_configs[spec.name]["timeout"],
-                    metadata={
-                        "base_binding": args.llm_binding,
-                        "binding": role_llm_configs[spec.name]["binding"],
-                        "model": role_llm_configs[spec.name]["model"],
-                        "host": role_llm_configs[spec.name]["host"],
-                        "api_key": role_llm_configs[spec.name]["api_key"],
-                        "provider_options": role_llm_configs[spec.name][
-                            "provider_options"
-                        ],
-                        "bedrock_aws_options": role_llm_configs[spec.name][
-                            "bedrock_aws_options"
-                        ],
-                        "is_cross_provider": role_llm_configs[spec.name][
-                            "is_cross_provider"
-                        ],
-                    },
-                )
-                for spec in ROLES
+            addon_params={
+                "language": args.summary_language,
+                "entity_types": args.entity_types,
             },
+            ollama_server_infos=ollama_server_infos,
         )
     except Exception as e:
         logger.error(f"Failed to initialize LightRAG: {e}")
         raise
 
-    _log_role_provider_options(rag)
-
-    rag.register_role_llm_builder(
-        lambda role, meta: (
-            create_role_llm_func(role, meta),
-            create_role_llm_model_kwargs(role, meta),
+    # Add routes
+    app.include_router(
+        create_document_routes(
+            rag_proxy,
+            doc_manager_proxy,
+            api_key,
         )
     )
-
-    # Add routes
-    # root_path is set on the app for reverse proxy support;
-    # routes stay at their natural paths and are prefixed by the proxy or uvicorn --root-path
-    app.include_router(create_document_routes(rag, doc_manager, api_key))
-    app.include_router(create_query_routes(rag, api_key, args.top_k))
-    app.include_router(create_graph_routes(rag, api_key))
+    app.include_router(
+        create_query_routes(
+            rag_proxy,
+            api_key,
+            args.top_k,
+        )
+    )
+    app.include_router(
+        create_workspace_routes(
+            registry_store=workspace_registry,
+            delete_scheduler=delete_workspace_data,
+            workspace_initializer=initialize_workspace_assets,
+            stats_provider=get_workspace_stats,
+            api_key=api_key,
+            allow_guest_create=args.allow_guest_workspace_create,
+        )
+    )
+    app.include_router(create_graph_routes(rag_proxy, api_key))
 
     # Add Ollama API routes
     ollama_api = OllamaAPI(rag, top_k=args.top_k, api_key=api_key)
+    ollama_api.rag = rag_proxy
     app.include_router(ollama_api.router, prefix="/api")
 
     # Custom Swagger UI endpoint for offline support
@@ -1700,26 +1683,22 @@ def create_app(args):
     async def get_auth_status():
         """Get authentication status and guest token if auth is not configured"""
 
-        if not auth_handler.accounts:
+        if not _auth_configured():
             # Authentication not configured, return guest token
-            guest_token = auth_handler.create_token(
-                username="guest", role="guest", metadata={"auth_mode": "disabled"}
-            )
             return {
                 "auth_configured": False,
-                "access_token": guest_token,
-                "token_type": "bearer",
-                "auth_mode": "disabled",
-                "message": "Authentication is disabled. Using guest access.",
-                "core_version": core_version,
-                "api_version": api_version_display,
-                "webui_title": webui_title,
-                "webui_description": webui_description,
+                "guest_login_allowed": False,
+                **_build_guest_login_response(
+                    auth_mode="disabled",
+                    message="Authentication is disabled. Using guest access.",
+                ),
             }
 
         return {
             "auth_configured": True,
             "auth_mode": "enabled",
+            "guest_login_allowed": _guest_login_capability(),
+            "guest_visible_tabs": _guest_visible_tabs(),
             "core_version": core_version,
             "api_version": api_version_display,
             "webui_title": webui_title,
@@ -1728,28 +1707,21 @@ def create_app(args):
 
     @app.post("/login")
     async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-        if not auth_handler.accounts:
+        if not _auth_configured():
             # Authentication not configured, return guest token
-            guest_token = auth_handler.create_token(
-                username="guest", role="guest", metadata={"auth_mode": "disabled"}
+            return _build_guest_login_response(
+                auth_mode="disabled",
+                message="Authentication is disabled. Using guest access.",
             )
-            return {
-                "access_token": guest_token,
-                "token_type": "bearer",
-                "auth_mode": "disabled",
-                "message": "Authentication is disabled. Using guest access.",
-                "core_version": core_version,
-                "api_version": api_version_display,
-                "webui_title": webui_title,
-                "webui_description": webui_description,
-            }
         username = form_data.username
+        auth_handler = _get_auth_handler()
         if not auth_handler.verify_password(username, form_data.password):
             raise HTTPException(status_code=401, detail="Incorrect credentials")
 
         # Regular user login
+        resolved_role = auth_handler.resolve_role(username)
         user_token = auth_handler.create_token(
-            username=username, role="user", metadata={"auth_mode": "enabled"}
+            username=username, role=resolved_role, metadata={"auth_mode": "enabled"}
         )
         return {
             "access_token": user_token,
@@ -1760,6 +1732,20 @@ def create_app(args):
             "webui_title": webui_title,
             "webui_description": webui_description,
         }
+
+    @app.post("/login/guest")
+    async def login_guest():
+        if not _auth_configured():
+            return _build_guest_login_response(
+                auth_mode="disabled",
+                message="Authentication is disabled. Using guest access.",
+            )
+        if not _guest_login_capability():
+            raise HTTPException(status_code=403, detail="Guest login is disabled")
+        return _build_guest_login_response(
+            auth_mode="guest",
+            message="Guest access enabled.",
+        )
 
     @app.get(
         "/health",
@@ -1783,12 +1769,6 @@ def create_app(args):
                                 "embedding_binding": "openai",
                                 "embedding_model": "text-embedding-ada-002",
                                 "workspace": "default",
-                                "storage_workspaces": {
-                                    "kv_storage": "default",
-                                    "doc_status_storage": "default",
-                                    "graph_storage": "default",
-                                    "vector_storage": "default",
-                                },
                             },
                             "auth_mode": "enabled",
                             "pipeline_busy": False,
@@ -1803,30 +1783,12 @@ def create_app(args):
     async def get_status(request: Request):
         """Get current system status including WebUI availability"""
         try:
-            workspace = get_workspace_from_request(request)
-            default_workspace = get_default_workspace()
-            if workspace is None:
-                workspace = default_workspace
+            workspace = resolve_request_workspace(request)
             pipeline_status = await get_namespace_data(
                 "pipeline_status", workspace=workspace
             )
 
-            pipeline_busy = bool(pipeline_status.get("busy", False))
-            pipeline_scanning = bool(pipeline_status.get("scanning", False))
-            pipeline_destructive_busy = bool(
-                pipeline_status.get("destructive_busy", False)
-            )
-            pipeline_pending_enqueues = int(
-                pipeline_status.get("pending_enqueues", 0) or 0
-            )
-            pipeline_active = (
-                pipeline_busy
-                or pipeline_scanning
-                or pipeline_destructive_busy
-                or pipeline_pending_enqueues > 0
-            )
-
-            if not auth_configured:
+            if not _auth_configured():
                 auth_mode = "disabled"
             else:
                 auth_mode = "enabled"
@@ -1856,9 +1818,7 @@ def create_app(args):
                     "vector_storage": args.vector_storage,
                     "enable_llm_cache_for_extract": args.enable_llm_cache_for_extract,
                     "enable_llm_cache": args.enable_llm_cache,
-                    "vlm_process_enable": args.vlm_process_enable,
-                    "workspace": default_workspace,
-                    "storage_workspaces": _get_storage_workspaces(rag),
+                    "workspace": workspace,
                     "max_graph_nodes": args.max_graph_nodes,
                     # Rerank configuration
                     "enable_rerank": rerank_model_func is not None,
@@ -1867,8 +1827,6 @@ def create_app(args):
                     "rerank_binding_host": args.rerank_binding_host
                     if rerank_model_func
                     else None,
-                    "rerank_max_async": args.rerank_max_async,
-                    "rerank_timeout": args.rerank_timeout,
                     # Environment variable status (requested configuration)
                     "summary_language": args.summary_language,
                     "force_llm_summary_on_merge": args.force_llm_summary_on_merge,
@@ -1877,27 +1835,26 @@ def create_app(args):
                     "min_rerank_score": args.min_rerank_score,
                     "related_chunk_number": args.related_chunk_number,
                     "max_async": args.max_async,
-                    "llm_timeout": args.llm_timeout,
                     "embedding_func_max_async": args.embedding_func_max_async,
                     "embedding_batch_num": args.embedding_batch_num,
-                    "embedding_timeout": args.embedding_timeout,
-                    "role_llm_config": rag.get_llm_role_config(),
                 },
                 "auth_mode": auth_mode,
-                "pipeline_busy": pipeline_busy,
-                "pipeline_active": pipeline_active,
-                "pipeline_scanning": pipeline_scanning,
-                "pipeline_destructive_busy": pipeline_destructive_busy,
-                "pipeline_pending_enqueues": pipeline_pending_enqueues,
+                "capabilities": {
+                    "workspace_create": _workspace_create_capability_for_request(
+                        request
+                    ),
+                    "guest_login": _guest_login_capability(),
+                    "guest_visible_tabs": _guest_visible_tabs(),
+                },
+                "pipeline_busy": pipeline_status.get("busy", False),
                 "keyed_locks": keyed_lock_info,
-                "llm_queue_status": await rag.get_llm_queue_status(include_base=True),
-                "embedding_queue_status": await rag.get_embedding_queue_status(),
-                "rerank_queue_status": await rag.get_rerank_queue_status(),
                 "core_version": core_version,
                 "api_version": api_version_display,
                 "webui_title": webui_title,
                 "webui_description": webui_description,
             }
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error getting health status: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
