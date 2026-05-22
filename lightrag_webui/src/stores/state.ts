@@ -55,6 +55,8 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
   status: null,
   pipelineBusy: false,
   pipelineActive: false,
+  workspaceCreateAllowed: false,
+  guestVisibleTabs: [...allGuestVisibleTabs],
   healthCheckIntervalId: null,
   healthCheckFunction: null,
   healthCheckIntervalValue: healthCheckInterval * 1000, // Use constant from lib/constants
