@@ -138,7 +138,7 @@ RUN --mount=type=cache,id=lightrag-cn-uv-cache,target=/root/.local/share/uv \
     && /app/.venv/bin/python -m ensurepip --upgrade
 
 # Create persistent data directories AFTER package installation
-RUN mkdir -p /app/data/rag_storage /app/data/inputs /app/data/tiktoken
+RUN mkdir -p /app/data/rag_storage /app/data/inputs /app/data/prompts /app/data/tiktoken
 
 # Copy offline cache into the newly created directory
 COPY --from=builder /app/data/tiktoken /app/data/tiktoken
