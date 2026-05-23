@@ -87,4 +87,12 @@ describe('Settings', () => {
     expect(source).toContain('inputClassName="w-24"')
     expect(source).not.toContain('md:grid-cols-[minmax(0,1fr)_auto]')
   })
+
+  test('defaults graph max nodes to 1000 while keeping a 10000 upper bound', async () => {
+    const { useSettingsStore } = await import('@/stores/settings')
+    const source = readFileSync(resolve('src/components/graph/Settings.tsx'), 'utf8')
+
+    expect(useSettingsStore.getState().graphMaxNodes).toBe(1000)
+    expect(source).toContain('10000')
+  })
 })
