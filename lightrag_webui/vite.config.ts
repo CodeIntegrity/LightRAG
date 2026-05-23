@@ -1,6 +1,6 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import path from 'path'
-import react from '@vitejs/plugin-react-swc'
+import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 // Use relative imports here. The '@' alias is configured in resolve.alias
