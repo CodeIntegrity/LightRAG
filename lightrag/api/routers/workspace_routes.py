@@ -154,8 +154,9 @@ def create_workspace_routes(
         identity = _identity_from_request(request)
         records = await registry_store.list_workspaces()
         visible: list[dict[str, Any]] = []
+        visible_statuses = {"ready", "create_failed", "delete_failed"}
         for record in records:
-            if not include_deleted and record["status"] != "ready":
+            if not include_deleted and record["status"] not in visible_statuses:
                 continue
             if _can_view_workspace(identity, record):
                 visible.append(_normalize_workspace_response(record))

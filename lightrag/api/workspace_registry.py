@@ -176,6 +176,7 @@ class WorkspaceRegistryStore:
                 conn.commit()
 
             self._ensure_single_default_workspace_sync(conn, default_workspace)
+            self._ensure_operations_rows_sync(conn)
             self._purge_hard_deleted_sync(conn)
             self._recover_stuck_creates_sync(conn)
             self._recover_stuck_hard_deletes_sync(conn)
@@ -224,6 +225,24 @@ class WorkspaceRegistryStore:
             )
             """,
             (default_workspace, default_workspace),
+        )
+        conn.commit()
+
+    def _ensure_operations_rows_sync(self, conn: sqlite3.Connection) -> None:
+        """Create missing workspace_operations rows for any workspace that lacks one."""
+        conn.execute(
+            """
+            INSERT INTO workspace_operations (
+                workspace, kind, state, requested_by, started_at,
+                finished_at, error, progress_json
+            )
+            SELECT w.workspace, NULL, 'idle', NULL, NULL, NULL, NULL, '{}'
+            FROM workspaces w
+            WHERE NOT EXISTS (
+                SELECT 1 FROM workspace_operations op
+                WHERE op.workspace = w.workspace
+            )
+            """
         )
         conn.commit()
 
@@ -502,17 +521,20 @@ class WorkspaceRegistryStore:
             )
             conn.execute(
                 """
-                UPDATE workspace_operations
-                SET kind = 'hard_delete',
-                    state = 'running',
-                    requested_by = ?,
-                    started_at = ?,
-                    finished_at = NULL,
-                    error = NULL,
-                    progress_json = '{}'
-                WHERE workspace = ?
+                INSERT INTO workspace_operations (
+                    workspace, kind, state, requested_by, started_at,
+                    finished_at, error, progress_json
+                ) VALUES (?, 'hard_delete', 'running', ?, ?, NULL, NULL, '{}')
+                ON CONFLICT(workspace) DO UPDATE SET
+                    kind = excluded.kind,
+                    state = excluded.state,
+                    requested_by = excluded.requested_by,
+                    started_at = excluded.started_at,
+                    finished_at = excluded.finished_at,
+                    error = excluded.error,
+                    progress_json = excluded.progress_json
                 """,
-                (requested_by, now, workspace),
+                (workspace, requested_by, now),
             )
             conn.commit()
 
