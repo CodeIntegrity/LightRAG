@@ -29,6 +29,7 @@ services:
       - ./data/inputs:/app/data/inputs
       - .//workspaces:/app/workspaces
       - ./.env:/app/.env
+      - ./prompts:/app/prompts
     deploy:
       restart_policy:
         condition: on-failure
