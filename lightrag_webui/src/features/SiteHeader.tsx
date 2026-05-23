@@ -57,6 +57,11 @@ function TabsNavigation() {
             {t('header.retrieval')}
           </NavigationTab>
         )}
+        {visibleTabs.includes('prompts') && (
+          <NavigationTab value="prompts" currentTab={currentTab}>
+            {t('header.prompts', 'Prompts')}
+          </NavigationTab>
+        )}
         {visibleTabs.includes('api') && (
           <NavigationTab value="api" currentTab={currentTab}>
             {t('header.api')}

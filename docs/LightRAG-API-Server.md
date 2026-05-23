@@ -530,6 +530,28 @@ OPENAI_LLM_MAX_COMPLETION_TOKENS=9000
 
 It's very common to set `ENABLE_LLM_CACHE_FOR_EXTRACT` to true for a test environment to reduce the cost of LLM calls.
 
+#### Workspace entity extraction prompt files
+
+Entity extraction prompt profiles are still loaded from files under `PROMPT_DIR/entity_type` and selected by `ENTITY_TYPE_PROMPT_FILE` or `addon_params["entity_type_prompt_file"]`. The WebUI Prompts page and the `/prompts/entity-type` API add a workspace-aware editor on top of that file mechanism; they do not replace manual prompt files.
+
+Workspace-owned files use this generated name format:
+
+```text
+<workspace>--<prompt_slug>--v<version>.yml
+```
+
+For example, `default--entity-type--v1.yml` belongs to workspace `default`. The API only lists and reads files owned by the current `LIGHTRAG-WORKSPACE` header plus legacy global `.yml` / `.yaml` files that do not match the workspace naming format. Users never submit filesystem paths through these APIs.
+
+Available endpoints:
+
+* `GET /prompts/entity-type`: list usable prompt files for the current workspace.
+* `GET /prompts/entity-type/{file_name}`: read and validate one workspace-owned or global prompt file.
+* `POST /prompts/entity-type/validate`: validate YAML content without writing a file.
+* `PUT /prompts/entity-type/{prompt_slug}/versions/{version}`: save a validated workspace-owned file; pass `activate: true` to activate it after saving.
+* `POST /prompts/entity-type/activate`: validate an existing usable file and set it as the current runtime's `entity_type_prompt_file`.
+
+Prompt files created by the editor require the server process to have write permission to `PROMPT_DIR/entity_type`. Manually placed files such as `foo.yml` remain supported through `ENTITY_TYPE_PROMPT_FILE` or constructor `addon_params`. In multiprocess Gunicorn deployments, activation updates the runtime that handles the request; use a consistent configuration or restart workers when all workers must immediately share the same active prompt.
+
 ### Storage Types Supported
 
 LightRAG uses 4 types of storage for different purposes:

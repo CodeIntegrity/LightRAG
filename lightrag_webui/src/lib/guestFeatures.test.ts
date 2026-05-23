@@ -28,7 +28,7 @@ describe('guestFeatures', () => {
   })
 
   test('resolveActiveTabForSession falls back to first visible tab when current tab is hidden', () => {
-    expect(resolveActiveTabForSession('prompt-management', ['documents', 'api'])).toBe(
+    expect(resolveActiveTabForSession('prompts', ['documents', 'api'])).toBe(
       'documents'
     )
   })

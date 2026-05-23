@@ -52,6 +52,7 @@ const defaultApiEndpoints = [
   '/login',
   '/openapi.json',
   '/prompt-config',
+  '/prompts',
   '/query',
   '/redoc',
   '/static',
@@ -111,6 +112,7 @@ export default defineConfig(({ mode }) => {
                 'vendor-markdown-core': ['react-markdown', 'rehype-raw', 'rehype-react', 'remark-gfm', 'remark-math'],
                 'vendor-katex': ['rehype-katex', 'katex'],
                 'vendor-highlight': ['react-syntax-highlighter'],
+                'vendor-codemirror': ['@uiw/react-codemirror', '@codemirror/lang-yaml'],
                 'vendor-ui': [
                   '@radix-ui/react-alert-dialog', '@radix-ui/react-checkbox',
                   '@radix-ui/react-dialog', '@radix-ui/react-popover',

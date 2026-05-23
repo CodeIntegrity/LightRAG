@@ -225,6 +225,64 @@ export type WorkspaceStatsResponse = {
   capabilities: Record<string, string>
 }
 
+export type EntityTypePromptSource = 'workspace' | 'global'
+
+export type EntityTypePromptFile = {
+  file_name: string
+  workspace: string
+  prompt_slug: string
+  version: number
+  active: boolean
+  source: EntityTypePromptSource
+  updated_at: string | null
+  size_bytes: number
+}
+
+export type EntityTypePromptValidation = {
+  valid: boolean
+  errors: string[]
+}
+
+export type EntityTypePromptListResponse = {
+  workspace: string
+  active_file: string | null
+  files: EntityTypePromptFile[]
+}
+
+export type EntityTypePromptReadResponse = {
+  file_name: string
+  content: string
+  profile: Record<string, any>
+  validation: EntityTypePromptValidation
+}
+
+export type EntityTypePromptValidateRequest = {
+  content: string
+  use_json?: boolean
+}
+
+export type EntityTypePromptSaveRequest = {
+  content: string
+  activate: boolean
+}
+
+export type EntityTypePromptSaveResponse = {
+  file: EntityTypePromptFile
+  validation: EntityTypePromptValidation
+  active_file: string | null
+}
+
+export type EntityTypePromptActivateResponse = {
+  active_file: string
+  file: EntityTypePromptFile
+  validation: EntityTypePromptValidation
+}
+
+export type EntityTypePromptDeactivateResponse = {
+  active_file: null
+  previous_file: EntityTypePromptFile | null
+}
+
 export type LightragStatus = {
   status: 'healthy'
   working_directory: string
@@ -859,6 +917,18 @@ axiosInstance.interceptors.response.use(
   }
 )
 
+type PromptHttpClient = Pick<typeof axiosInstance, 'get' | 'post' | 'put'>
+
+let promptHttpClient: PromptHttpClient = axiosInstance
+
+export const __setPromptHttpClientForTests = (client: PromptHttpClient): void => {
+  promptHttpClient = client
+}
+
+export const __resetPromptHttpClientForTests = (): void => {
+  promptHttpClient = axiosInstance
+}
+
 // API methods
 export const queryGraphs = async (
   label: string,
@@ -1009,6 +1079,53 @@ export const hardDeleteWorkspace = async (workspace: string): Promise<{
 
 export const getWorkspaceOperation = async (workspace: string): Promise<WorkspaceOperationResponse> => {
   const response = await axiosInstance.get(`/workspaces/${encodeURIComponent(workspace)}/operation`)
+  return response.data
+}
+
+export const listEntityTypePrompts = async (): Promise<EntityTypePromptListResponse> => {
+  const response = await promptHttpClient.get('/prompts/entity-type')
+  return response.data
+}
+
+export const readEntityTypePrompt = async (
+  fileName: string
+): Promise<EntityTypePromptReadResponse> => {
+  const response = await promptHttpClient.get(
+    `/prompts/entity-type/${encodeURIComponent(fileName)}`
+  )
+  return response.data
+}
+
+export const validateEntityTypePrompt = async (
+  request: EntityTypePromptValidateRequest
+): Promise<EntityTypePromptValidation> => {
+  const response = await promptHttpClient.post('/prompts/entity-type/validate', request)
+  return response.data
+}
+
+export const saveEntityTypePromptVersion = async (
+  promptSlug: string,
+  version: number,
+  request: EntityTypePromptSaveRequest
+): Promise<EntityTypePromptSaveResponse> => {
+  const response = await promptHttpClient.put(
+    `/prompts/entity-type/${encodeURIComponent(promptSlug)}/versions/${version}`,
+    request
+  )
+  return response.data
+}
+
+export const activateEntityTypePrompt = async (
+  fileName: string
+): Promise<EntityTypePromptActivateResponse> => {
+  const response = await promptHttpClient.post('/prompts/entity-type/activate', {
+    file_name: fileName
+  })
+  return response.data
+}
+
+export const deactivateEntityTypePrompt = async (): Promise<EntityTypePromptDeactivateResponse> => {
+  const response = await promptHttpClient.post('/prompts/entity-type/deactivate')
   return response.data
 }
 

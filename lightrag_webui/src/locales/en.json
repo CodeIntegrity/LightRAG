@@ -19,7 +19,8 @@
       "switchToDark": "Switch to dark theme"
     },
     "promptManagement": "Prompt Management",
-    "login": "Login"
+    "login": "Login",
+    "prompts": "Prompts"
   },
   "login": {
     "description": "Please enter your account and password to log in to the system",
@@ -40,6 +41,7 @@
   },
   "common": {
     "cancel": "Cancel",
+    "close": "Close",
     "save": "Save",
     "saving": "Saving...",
     "saveFailed": "Save failed"
@@ -934,5 +936,33 @@
       "temporarily_unavailable": "Temporarily unavailable"
     },
     "softDeleteDisabledCurrent": "Cannot soft delete current workspace"
+  },
+  "prompts": {
+    "title": "Prompts",
+    "workspace": "Workspace",
+    "refresh": "Refresh",
+    "files": "Files",
+    "presets": "Presets",
+    "savedPrompts": "Saved Prompts",
+    "loadFromPreset": "Load from preset",
+    "newBlank": "New blank",
+    "unsavedWarning": "You have unsaved changes. Discard them?",
+    "loading": "Loading...",
+    "empty": "No prompt files",
+    "active": "Active",
+    "promptSlug": "Prompt slug",
+    "version": "Version",
+    "activateOnSave": "Activate on save",
+    "newFile": "New workspace prompt",
+    "validate": "Validate",
+    "activate": "Activate",
+    "deactivate": "Deactivate",
+    "saved": "Prompt saved",
+    "activated": "Prompt activated",
+    "deactivated": "Prompt deactivated",
+    "validation": {
+      "valid": "Prompt is valid",
+      "failed": "Validation failed"
+    }
   }
 }

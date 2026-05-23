@@ -22,6 +22,7 @@ import {
 const DocumentManager = lazy(() => import('@/features/DocumentManager'))
 const GraphViewer = lazy(() => import('@/features/GraphViewer'))
 const RetrievalTesting = lazy(() => import('@/features/RetrievalTesting'))
+const Prompts = lazy(() => import('@/pages/Prompts'))
 const ApiSite = lazy(() => import('@/features/ApiSite'))
 
 function App() {
@@ -270,6 +271,15 @@ function App() {
                     {visitedTabs.has('retrieval') ? (
                       <Suspense fallback={tabFallback}>
                         <RetrievalTesting />
+                      </Suspense>
+                    ) : null}
+                  </TabsContent>
+                )}
+                {visibleTabs.includes('prompts') && (
+                  <TabsContent value="prompts" className="absolute top-0 right-0 bottom-0 left-0 overflow-hidden">
+                    {visitedTabs.has('prompts') ? (
+                      <Suspense fallback={tabFallback}>
+                        <Prompts />
                       </Suspense>
                     ) : null}
                   </TabsContent>

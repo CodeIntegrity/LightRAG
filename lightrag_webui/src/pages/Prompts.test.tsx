@@ -1,0 +1,259 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, test, vi } from 'vitest'
+
+import type {
+  EntityTypePromptFile,
+  EntityTypePromptListResponse,
+  EntityTypePromptReadResponse,
+  EntityTypePromptSaveResponse,
+  EntityTypePromptValidation
+} from '@/api/lightrag'
+import { presetPrompts } from '../features/promptPresets'
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, fallback?: string) => fallback || key
+  })
+}))
+
+vi.mock('sonner', () => ({
+  toast: {
+    error: vi.fn(),
+    success: vi.fn()
+  }
+}))
+
+vi.mock('@/api/lightrag', () => ({
+  listEntityTypePrompts: vi.fn(),
+  readEntityTypePrompt: vi.fn(),
+  validateEntityTypePrompt: vi.fn(),
+  saveEntityTypePromptVersion: vi.fn(),
+  activateEntityTypePrompt: vi.fn(),
+  deactivateEntityTypePrompt: vi.fn()
+}))
+
+vi.mock('@/components/ui/YamlEditor', () => ({
+  default: ({ value, placeholder, className }: { value: string; placeholder?: string; className?: string }) =>
+    createElement('div', { className }, createElement('textarea', { value, placeholder, readOnly: true }))
+}))
+
+const workspaceFile = (overrides: Partial<EntityTypePromptFile> = {}): EntityTypePromptFile => ({
+  file_name: 'default--entity-type--v1.yml',
+  workspace: 'default',
+  prompt_slug: 'entity-type',
+  version: 1,
+  active: false,
+  source: 'workspace',
+  updated_at: '2026-05-23T00:00:00Z',
+  size_bytes: 120,
+  ...overrides
+})
+
+describe('Preset prompts', () => {
+  test('preset array is non-empty and has valid structure', () => {
+    expect(presetPrompts.length).toBeGreaterThan(0)
+    const preset = presetPrompts[0]
+    expect(preset.id).toBe('general-knowledge-graph')
+    expect(preset.name).toBeTruthy()
+    expect(preset.description).toBeTruthy()
+    expect(preset.content).toContain('entity_types_guidance')
+    expect(preset.content).toContain('entity_extraction_examples')
+    expect(preset.content).toContain('entity_extraction_json_examples')
+    expect(preset.content).toContain('<|#|>')
+    expect(preset.content).toContain('<|COMPLETE|>')
+  })
+
+  test('preset content contains Chinese entity type definitions', () => {
+    const preset = presetPrompts[0]
+    expect(preset.content).toContain('人类个体')
+    expect(preset.content).toContain('公司、机构、政府组织')
+    expect(preset.content).toContain('地理场所')
+    expect(preset.content).toContain('抽象概念')
+    expect(preset.content).toContain('流程、技术、算法')
+    expect(preset.content).toContain('自然非生物对象')
+  })
+})
+
+describe('Prompts page state', () => {
+  test('loads list and reads the active prompt first', async () => {
+    const api = await import('@/api/lightrag')
+    const page = await import('./Prompts')
+    const files = [
+      workspaceFile({ file_name: 'default--entity-type--v1.yml', active: true }),
+      workspaceFile({
+        file_name: 'foo.yml',
+        prompt_slug: 'foo',
+        version: 0,
+        source: 'global'
+      })
+    ]
+
+    ;(api.listEntityTypePrompts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      workspace: 'default',
+      active_file: 'default--entity-type--v1.yml',
+      files
+    } satisfies EntityTypePromptListResponse)
+    ;(api.readEntityTypePrompt as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      file_name: 'default--entity-type--v1.yml',
+      content: 'entity_types_guidance: test\n',
+      profile: {},
+      validation: { valid: true, errors: [] }
+    } satisfies EntityTypePromptReadResponse)
+
+    const state = await page.loadPromptEditorState('workspace-a')
+
+    expect(api.listEntityTypePrompts).toHaveBeenCalledTimes(1)
+    expect(api.readEntityTypePrompt).toHaveBeenCalledWith('default--entity-type--v1.yml')
+    expect(state.workspaceKey).toBe('workspace-a')
+    expect(state.selectedFileName).toBe('default--entity-type--v1.yml')
+    expect(state.content).toContain('entity_types_guidance')
+    expect(state.validation.valid).toBe(true)
+  })
+
+  test('returns empty state with null selection when no files exist', async () => {
+    const api = await import('@/api/lightrag')
+    const page = await import('./Prompts')
+
+    ;(api.listEntityTypePrompts as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      workspace: 'default',
+      active_file: null,
+      files: []
+    } satisfies EntityTypePromptListResponse)
+
+    const state = await page.loadPromptEditorState('workspace-a')
+
+    expect(state.selectedFileName).toBeNull()
+    expect(state.content).toBe('')
+    expect(state.list.files).toHaveLength(0)
+  })
+
+  test('selects validates saves activates and reloads when workspace changes', async () => {
+    const api = await import('@/api/lightrag')
+    const page = await import('./Prompts')
+    const baseState = page.createPromptEditorState({
+      workspaceKey: 'workspace-a',
+      list: {
+        workspace: 'default',
+        active_file: null,
+        files: [workspaceFile()]
+      },
+      selectedFileName: null,
+      content: '',
+      validation: { valid: false, errors: [] }
+    })
+
+    ;(api.readEntityTypePrompt as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      file_name: 'default--entity-type--v1.yml',
+      content: 'entity_types_guidance: selected\n',
+      profile: {},
+      validation: { valid: true, errors: [] }
+    } satisfies EntityTypePromptReadResponse)
+
+    const selected = await page.selectPromptFile(baseState, 'default--entity-type--v1.yml')
+
+    expect(api.readEntityTypePrompt).toHaveBeenCalledWith('default--entity-type--v1.yml')
+    expect(selected.selectedFileName).toBe('default--entity-type--v1.yml')
+
+    ;(api.validateEntityTypePrompt as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      valid: true,
+      errors: []
+    } satisfies EntityTypePromptValidation)
+
+    const validated = await page.validatePromptContent(selected)
+
+    expect(api.validateEntityTypePrompt).toHaveBeenCalledWith({
+      content: 'entity_types_guidance: selected\n'
+    })
+    expect(validated.validation.valid).toBe(true)
+
+    ;(api.saveEntityTypePromptVersion as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      file: workspaceFile({
+        file_name: 'default--entity-type--v2.yml',
+        version: 2,
+        active: true
+      }),
+      validation: { valid: true, errors: [] },
+      active_file: 'default--entity-type--v2.yml'
+    } satisfies EntityTypePromptSaveResponse)
+
+    const saved = await page.savePromptVersion(validated, {
+      promptSlug: 'entity-type',
+      version: 2,
+      activate: true
+    })
+
+    expect(api.saveEntityTypePromptVersion).toHaveBeenCalledWith('entity-type', 2, {
+      content: 'entity_types_guidance: selected\n',
+      activate: true
+    })
+    expect(saved.selectedFileName).toBe('default--entity-type--v2.yml')
+    expect(saved.list.active_file).toBe('default--entity-type--v2.yml')
+
+    ;(api.activateEntityTypePrompt as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      active_file: 'default--entity-type--v2.yml',
+      file: workspaceFile({
+        file_name: 'default--entity-type--v2.yml',
+        version: 2,
+        active: true
+      }),
+      validation: { valid: true, errors: [] }
+    })
+
+    const activated = await page.activateSelectedPrompt(saved)
+
+    expect(api.activateEntityTypePrompt).toHaveBeenCalledWith('default--entity-type--v2.yml')
+    expect(activated.list.active_file).toBe('default--entity-type--v2.yml')
+
+    expect(page.shouldReloadPromptEditor(activated, 'workspace-b')).toBe(true)
+    expect(page.shouldReloadPromptEditor(activated, 'workspace-a')).toBe(false)
+  })
+
+  test('formats prompt files with logical fields instead of real file names', async () => {
+    const page = await import('./Prompts')
+    const file = workspaceFile()
+
+    expect(page.formatPromptFileTitle(file)).toBe('entity-type')
+    expect(page.formatPromptFileMeta(file)).toContain('v1')
+    expect(page.formatPromptFileMeta(file)).toContain('workspace')
+    expect(page.formatPromptFileMeta(file)).toContain('2026-05-23T00:00:00Z')
+    expect(page.formatPromptFileMeta(file)).not.toContain(file.file_name)
+  })
+})
+
+describe('Prompts page shell', () => {
+  test('renders preset list, editor and action controls', async () => {
+    const page = await import('./Prompts')
+    const html = renderToStaticMarkup(createElement(page.default))
+
+    expect(html).toContain('Prompts')
+    expect(html).toContain('Presets')
+    expect(html).toContain('No prompt files')
+    expect(html).toContain('Prompt slug')
+    expect(html).toContain('Version')
+    expect(html).toContain('Save')
+    expect(html).toContain('Activate')
+    expect(html).toContain('Load from preset')
+    expect(html).toContain('New blank')
+    expect(html).toContain('Refresh')
+  })
+})
+
+describe('PromptEditorState creations', () => {
+  test('chooseInitialFile returns null when files list is empty', async () => {
+    const page = await import('./Prompts')
+    const result = page.chooseInitialFile({ workspace: 'default', active_file: null, files: [] })
+    expect(result).toBeNull()
+  })
+
+  test('chooseInitialFile returns active file when available', async () => {
+    const page = await import('./Prompts')
+    const activeFile = workspaceFile({ file_name: 'active.yml', active: true })
+    const result = page.chooseInitialFile({
+      workspace: 'default',
+      active_file: 'active.yml',
+      files: [workspaceFile({ file_name: 'other.yml' }), activeFile]
+    })
+    expect(result?.file_name).toBe('active.yml')
+  })
+})

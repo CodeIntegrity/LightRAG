@@ -62,6 +62,7 @@ from lightrag.api.routers.workspace_routes import (
 )
 from lightrag.api.routers.query_routes import create_query_routes
 from lightrag.api.routers.graph_routes import create_graph_routes
+from lightrag.api.routers.prompt_routes import create_prompt_routes
 from lightrag.api.routers.ollama_api import OllamaAPI
 from lightrag.api.workspace_registry import (
     WorkspaceRegistryStore,
@@ -75,6 +76,7 @@ from lightrag.api.workspace_runtime import (
     WorkspaceRuntimeProxy,
     WorkspaceStateError,
     bind_current_runtime,
+    get_current_workspace,
     reset_current_runtime,
 )
 
@@ -100,6 +102,7 @@ ALL_GUEST_VISIBLE_TABS = (
     "documents",
     "knowledge-graph",
     "retrieval",
+    "prompts",
     "api",
 )
 
@@ -422,6 +425,9 @@ def create_app(args):
     import_module("lightrag.api.routers.query_routes").get_combined_auth_dependency = (
         get_combined_auth_dependency
     )
+    import_module("lightrag.api.routers.prompt_routes").get_combined_auth_dependency = (
+        get_combined_auth_dependency
+    )
 
     # Check frontend build first and get status
     webui_assets_exist, is_frontend_outdated = check_frontend_build()
@@ -596,6 +602,7 @@ def create_app(args):
             "/query",
             "/graph",
             "/graphs",
+            "/prompts",
             "/api",
         )
         return any(path.startswith(prefix) for prefix in runtime_prefixes)
@@ -2094,6 +2101,14 @@ def create_app(args):
         )
     )
     app.include_router(create_graph_routes(rag_proxy, api_key))
+
+    app.include_router(
+        create_prompt_routes(
+            rag_proxy,
+            api_key,
+            workspace_getter=lambda: get_current_workspace() or args.workspace,
+        )
+    )
 
     # Add Ollama API routes
     ollama_api = OllamaAPI(rag, top_k=args.top_k, api_key=api_key)

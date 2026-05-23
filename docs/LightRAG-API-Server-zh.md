@@ -528,6 +528,28 @@ OPENAI_LLM_MAX_COMPLETION_TOKENS=9000
 
 在测试环境中将 `ENABLE_LLM_CACHE_FOR_EXTRACT` 设置为 true 以减少 LLM 调用成本是很常见的做法。
 
+#### 工作区实体抽取提示词文件
+
+实体抽取提示词 profile 仍从 `PROMPT_DIR/entity_type` 下的文件加载，并由 `ENTITY_TYPE_PROMPT_FILE` 或 `addon_params["entity_type_prompt_file"]` 指定。WebUI 的 Prompts 页面和 `/prompts/entity-type` API 只是基于现有文件机制增加工作区感知的编辑入口，不替代手动提示词文件。
+
+工作区自有文件使用后端生成的文件名格式：
+
+```text
+<workspace>--<prompt_slug>--v<version>.yml
+```
+
+例如，`default--entity-type--v1.yml` 属于 `default` 工作区。API 只列出和读取当前 `LIGHTRAG-WORKSPACE` 请求头对应工作区的文件，以及不匹配该命名格式的旧全局 `.yml` / `.yaml` 文件。用户不会通过这些 API 提交文件系统路径。
+
+可用端点：
+
+* `GET /prompts/entity-type`：列出当前工作区可用的提示词文件。
+* `GET /prompts/entity-type/{file_name}`：读取并校验一个工作区自有或全局提示词文件。
+* `POST /prompts/entity-type/validate`：只校验 YAML 内容，不写入文件。
+* `PUT /prompts/entity-type/{prompt_slug}/versions/{version}`：保存校验通过的工作区自有文件；传入 `activate: true` 可在保存后启用。
+* `POST /prompts/entity-type/activate`：校验已有可用文件，并把它设置为当前 runtime 的 `entity_type_prompt_file`。
+
+编辑器创建的提示词文件要求服务进程对 `PROMPT_DIR/entity_type` 有写权限。手动放置的 `foo.yml` 等文件仍可通过 `ENTITY_TYPE_PROMPT_FILE` 或构造参数 `addon_params` 使用。在多进程 Gunicorn 部署中，启用操作只更新处理该请求的 runtime；如果需要所有 worker 立即共享同一个 active prompt，请使用一致配置或重启 worker。
+
 ### 支持的存储类型
 
 LightRAG 使用 4 种类型的存储用于不同目的：

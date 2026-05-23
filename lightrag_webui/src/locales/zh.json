@@ -19,7 +19,8 @@
       "switchToDark": "切换到深色主题"
     },
     "promptManagement": "提示词管理",
-    "login": "登录"
+    "login": "登录",
+    "prompts": "提示词"
   },
   "login": {
     "description": "请输入您的账号和密码登录系统",
@@ -40,6 +41,7 @@
   },
   "common": {
     "cancel": "取消",
+    "close": "关闭",
     "save": "保存",
     "saving": "保存中...",
     "saveFailed": "保存失败"
@@ -932,5 +934,33 @@
       "temporarily_unavailable": "暂时不可用"
     },
     "softDeleteDisabledCurrent": "无法软删除当前工作区"
+  },
+  "prompts": {
+    "title": "提示词",
+    "workspace": "工作区",
+    "refresh": "刷新",
+    "files": "文件",
+    "presets": "预设",
+    "savedPrompts": "已保存提示词",
+    "loadFromPreset": "从预设加载",
+    "newBlank": "新建空白",
+    "unsavedWarning": "您有未保存的更改。确定丢弃吗？",
+    "loading": "加载中...",
+    "empty": "暂无提示词文件",
+    "active": "已启用",
+    "promptSlug": "提示词标识",
+    "version": "版本",
+    "activateOnSave": "保存后启用",
+    "newFile": "新的工作区提示词",
+    "validate": "校验",
+    "activate": "启用",
+    "deactivate": "停用",
+    "saved": "提示词已保存",
+    "activated": "提示词已启用",
+    "deactivated": "提示词已停用",
+    "validation": {
+      "valid": "提示词校验通过",
+      "failed": "校验未通过"
+    }
   }
 }

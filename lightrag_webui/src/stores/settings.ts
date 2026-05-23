@@ -7,7 +7,7 @@ import { DEFAULT_LAYOUT_PARAMS } from '@/utils/graphViewPersistence'
 
 type Theme = 'dark' | 'light' | 'system'
 type Language = 'en' | 'zh' | 'fr' | 'ar' | 'zh_TW' | 'ru' | 'ja' | 'de' | 'uk' | 'ko' | 'vi'
-type Tab = 'documents' | 'knowledge-graph' | 'prompt-management' | 'retrieval' | 'api'
+type Tab = 'documents' | 'knowledge-graph' | 'retrieval' | 'prompts' | 'api'
 
 interface SettingsState {
   currentWorkspace: string
