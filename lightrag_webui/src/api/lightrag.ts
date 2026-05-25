@@ -283,6 +283,22 @@ export type EntityTypePromptDeactivateResponse = {
   previous_file: EntityTypePromptFile | null
 }
 
+export type EntityTypePromptAssistLanguage = 'auto' | 'en' | 'zh' | 'ja'
+
+export type EntityTypePromptAssistRequest = {
+  requirements: string
+  current_content?: string
+  language?: EntityTypePromptAssistLanguage
+}
+
+export type EntityTypePromptAssistResponse = {
+  content: string
+  validation: EntityTypePromptValidation
+  warnings: string[]
+  raw_output: string
+  model: string | null
+}
+
 export type LightragStatus = {
   status: 'healthy'
   working_directory: string
@@ -1126,6 +1142,24 @@ export const activateEntityTypePrompt = async (
 
 export const deactivateEntityTypePrompt = async (): Promise<EntityTypePromptDeactivateResponse> => {
   const response = await promptHttpClient.post('/prompts/entity-type/deactivate')
+  return response.data
+}
+
+export const assistEntityTypePrompt = async (
+  request: EntityTypePromptAssistRequest
+): Promise<EntityTypePromptAssistResponse> => {
+  // Strip undefined fields so the backend applies its own defaults
+  // (language="auto", use_json from runtime config). The client never sends
+  // use_json — keeping that decision server-side avoids leaking runtime
+  // configuration into the UI surface.
+  const payload: Record<string, unknown> = { requirements: request.requirements }
+  if (request.current_content !== undefined) {
+    payload.current_content = request.current_content
+  }
+  if (request.language !== undefined) {
+    payload.language = request.language
+  }
+  const response = await promptHttpClient.post('/prompts/entity-type/assist', payload)
   return response.data
 }
 

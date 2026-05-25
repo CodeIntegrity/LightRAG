@@ -130,5 +130,77 @@ describe('entity type prompt api client', () => {
     )
     expect(calls[1].url).toBe('/prompts/entity-type/entity%20type/versions/3')
   })
+
+  test('assistEntityTypePrompt posts requirements/current_content/language and returns full response shape', async () => {
+    const calls: Array<{ method: string; url: string; data?: unknown }> = []
+    const backendResponse = {
+      content: 'entity_types_guidance: ok\n',
+      validation: { valid: true, errors: [] },
+      warnings: [],
+      raw_output: 'entity_types_guidance: ok\n',
+      model: 'role-query-model'
+    }
+
+    apiModule.__setPromptHttpClientForTests({
+      get: async () => ({ data: {} }),
+      post: async (url, data) => {
+        calls.push({ method: 'post', url, data })
+        return { data: backendResponse }
+      },
+      put: async () => ({ data: {} })
+    })
+
+    const result = await apiModule.assistEntityTypePrompt({
+      requirements: 'Generate medical entity types',
+      current_content: 'entity_types_guidance: previous\n',
+      language: 'zh'
+    })
+
+    // Endpoint + method + payload must match the backend contract.
+    expect(calls).toEqual([
+      {
+        method: 'post',
+        url: '/prompts/entity-type/assist',
+        data: {
+          requirements: 'Generate medical entity types',
+          current_content: 'entity_types_guidance: previous\n',
+          language: 'zh'
+        }
+      }
+    ])
+    // use_json must NOT be sent by the client.
+    expect((calls[0].data as Record<string, unknown>).use_json).toBeUndefined()
+    // Full response (incl. raw_output and model) is passed through.
+    expect(result).toEqual(backendResponse)
+  })
+
+  test('assistEntityTypePrompt omits current_content and language when not provided', async () => {
+    const calls: Array<{ method: string; url: string; data?: unknown }> = []
+
+    apiModule.__setPromptHttpClientForTests({
+      get: async () => ({ data: {} }),
+      post: async (url, data) => {
+        calls.push({ method: 'post', url, data })
+        return {
+          data: {
+            content: '',
+            validation: { valid: false, errors: ['empty'] },
+            warnings: [],
+            raw_output: '',
+            model: null
+          }
+        }
+      },
+      put: async () => ({ data: {} })
+    })
+
+    await apiModule.assistEntityTypePrompt({ requirements: 'minimal' })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('/prompts/entity-type/assist')
+    // Payload should only carry fields that were explicitly provided so the
+    // backend can apply its own defaults (language="auto", use_json runtime).
+    expect(calls[0].data).toEqual({ requirements: 'minimal' })
+  })
 }
 )
