@@ -6,16 +6,18 @@ import { cn } from '@/lib/utils'
 
 export type YamlEditorProps = {
   value: string
-  onChange: (value: string) => void
+  onChange?: (value: string) => void
   placeholder?: string
   className?: string
+  readOnly?: boolean
 }
 
 export default function YamlEditor({
   value,
   onChange,
   placeholder,
-  className
+  className,
+  readOnly = false
 }: YamlEditorProps) {
   const { theme } = useTheme()
   const [isDark, setIsDark] = useState(
@@ -38,7 +40,7 @@ export default function YamlEditor({
   const extensions = useMemo(() => [yamlLang()], [])
 
   const handleChange = useCallback(
-    (val: string) => onChange(val),
+    (val: string) => onChange?.(val),
     [onChange]
   )
 
@@ -49,8 +51,10 @@ export default function YamlEditor({
       extensions={extensions}
       theme={isDark ? 'dark' : 'light'}
       placeholder={placeholder}
-      onChange={handleChange}
-      indentWithTab
+      onChange={readOnly ? undefined : handleChange}
+      readOnly={readOnly}
+      editable={!readOnly}
+      indentWithTab={!readOnly}
     />
   )
 }
