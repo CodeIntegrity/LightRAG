@@ -404,3 +404,103 @@ def test_assist_entity_type_prompt_falls_back_to_llm_model_func(monkeypatch):
     assert response.status_code == 200
     assert len(llm.calls) == 1
     assert response.json()["model"] == "fallback-model"
+
+
+def test_assist_system_prompt_embeds_full_default_guidance(monkeypatch):
+    import lightrag.prompt as prompt_module
+
+    yaml_payload = _profile_content(label="OK")
+    llm = _make_recording_llm(yaml_payload)
+    rag = _AssistDummyRAG(role_query_func=llm)
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist",
+        json={"requirements": "any"},
+    )
+    assert response.status_code == 200
+
+    default_profile = prompt_module.get_default_entity_extraction_prompt_profile()
+    default_guidance = default_profile["entity_types_guidance"].rstrip()
+    system_prompt = llm.calls[0]["system_prompt"]
+    # Full default guidance is embedded verbatim (not a summary), so tests
+    # don't drift when guidance copy changes.
+    assert default_guidance in system_prompt
+    # Output contract is stated.
+    assert "YAML" in system_prompt
+    assert "entity_types_guidance" in system_prompt
+
+
+def test_assist_user_prompt_separates_requirements_from_current_content(monkeypatch):
+    yaml_payload = _profile_content(label="OK")
+    llm = _make_recording_llm(yaml_payload)
+    rag = _AssistDummyRAG(role_query_func=llm)
+    client = _build_prompt_client(monkeypatch, rag)
+
+    requirements = "Generate medical entity types"
+    current = _profile_content(label="Current Baseline")
+    response = client.post(
+        "/prompts/entity-type/assist",
+        json={"requirements": requirements, "current_content": current},
+    )
+    assert response.status_code == 200
+
+    prompt = llm.calls[0]["prompt"]
+    # current_content must live inside <current_yaml> tags, not mixed into
+    # the requirements section.
+    assert "<current_yaml>" in prompt
+    assert "</current_yaml>" in prompt
+    assert current.rstrip() in prompt
+    # The block boundary keeps requirements and current_content distinct.
+    pre_tag, _, _post = prompt.partition("<current_yaml>")
+    assert requirements in pre_tag
+    assert current.rstrip() not in pre_tag
+
+
+def test_assist_strips_yaml_fence_from_llm_output(monkeypatch):
+    yaml_body = _profile_content(label="Fenced")
+    fenced = f"```yaml\n{yaml_body.rstrip()}\n```"
+    llm = _make_recording_llm(fenced)
+    rag = _AssistDummyRAG(role_query_func=llm)
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist",
+        json={"requirements": "any"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    # Cleaned content drops the outer ```yaml...``` wrapper. (Inner ``` from
+    # the YAML examples themselves are allowed.)
+    assert not body["content"].lstrip().startswith("```")
+    assert not body["content"].rstrip().endswith("```")
+    assert body["content"].rstrip() == yaml_body.rstrip()
+    # raw_output preserves the original LLM response unchanged.
+    assert body["raw_output"] == fenced
+    assert body["validation"]["valid"] is True
+
+
+def test_assist_rejects_overlong_requirements(monkeypatch):
+    rag = _AssistDummyRAG(role_query_func=_make_recording_llm("ignored"))
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist",
+        json={"requirements": "x" * 5000},
+    )
+    assert response.status_code == 422
+
+
+def test_assist_rejects_overlong_current_content(monkeypatch):
+    rag = _AssistDummyRAG(role_query_func=_make_recording_llm("ignored"))
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist",
+        json={
+            "requirements": "ok",
+            "current_content": "y" * 30001,
+        },
+    )
+    assert response.status_code == 422
