@@ -549,6 +549,7 @@ Available endpoints:
 * `POST /prompts/entity-type/validate`: validate YAML content without writing a file.
 * `PUT /prompts/entity-type/{prompt_slug}/versions/{version}`: save a validated workspace-owned file; pass `activate: true` to activate it after saving.
 * `POST /prompts/entity-type/activate`: validate an existing usable file and set it as the current runtime's `entity_type_prompt_file`.
+* `POST /prompts/entity-type/assist`: ask the runtime LLM to draft a YAML prompt profile from a natural-language requirement. The endpoint reuses the workspace's configured LLM (preferring the `query` role binding) and does not write any file or change the active prompt — the response carries `content` (cleaned draft), `validation`, `raw_output` (the unmodified LLM response, useful when validation fails) and the model name. The frontend asks for explicit user confirmation before applying the draft to the editor.
 
 Prompt files created by the editor require the server process to have write permission to `PROMPT_DIR/entity_type`. Manually placed files such as `foo.yml` remain supported through `ENTITY_TYPE_PROMPT_FILE` or constructor `addon_params`. In multiprocess Gunicorn deployments, activation updates the runtime that handles the request; use a consistent configuration or restart workers when all workers must immediately share the same active prompt.
 
