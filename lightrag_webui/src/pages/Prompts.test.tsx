@@ -30,12 +30,27 @@ vi.mock('@/api/lightrag', () => ({
   validateEntityTypePrompt: vi.fn(),
   saveEntityTypePromptVersion: vi.fn(),
   activateEntityTypePrompt: vi.fn(),
-  deactivateEntityTypePrompt: vi.fn()
+  deactivateEntityTypePrompt: vi.fn(),
+  assistEntityTypePrompt: vi.fn()
 }))
 
 vi.mock('@/components/ui/YamlEditor', () => ({
-  default: ({ value, placeholder, className }: { value: string; placeholder?: string; className?: string }) =>
-    createElement('div', { className }, createElement('textarea', { value, placeholder, readOnly: true }))
+  default: ({
+    value,
+    placeholder,
+    className,
+    readOnly
+  }: {
+    value: string
+    placeholder?: string
+    className?: string
+    readOnly?: boolean
+  }) =>
+    createElement(
+      'div',
+      { className, 'data-readonly': readOnly ? 'true' : 'false' },
+      createElement('textarea', { value, placeholder, readOnly: true })
+    )
 }))
 
 const workspaceFile = (overrides: Partial<EntityTypePromptFile> = {}): EntityTypePromptFile => ({
@@ -255,5 +270,123 @@ describe('PromptEditorState creations', () => {
       files: [workspaceFile({ file_name: 'other.yml' }), activeFile]
     })
     expect(result?.file_name).toBe('active.yml')
+  })
+})
+
+describe('Prompts assist draft', () => {
+  test('generateAssistDraft posts only provided fields and returns full response', async () => {
+    const api = await import('@/api/lightrag')
+    const page = await import('./Prompts')
+
+    ;(api.assistEntityTypePrompt as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      content: 'entity_types_guidance: drafted\n',
+      validation: { valid: true, errors: [] },
+      warnings: [],
+      raw_output: 'entity_types_guidance: drafted\n',
+      model: 'role-query-model'
+    })
+
+    const result = await page.generateAssistDraft({
+      requirements: 'medical',
+      currentContent: 'entity_types_guidance: prior\n'
+    })
+
+    expect(api.assistEntityTypePrompt).toHaveBeenCalledWith({
+      requirements: 'medical',
+      current_content: 'entity_types_guidance: prior\n'
+    })
+    // Response shape is forwarded unchanged for the UI to inspect.
+    expect(result.content).toBe('entity_types_guidance: drafted\n')
+    expect(result.raw_output).toBe('entity_types_guidance: drafted\n')
+    expect(result.model).toBe('role-query-model')
+    expect(result.validation.valid).toBe(true)
+  })
+
+  test('generateAssistDraft omits current_content when blank', async () => {
+    const api = await import('@/api/lightrag')
+    const page = await import('./Prompts')
+
+    ;(api.assistEntityTypePrompt as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      content: '',
+      validation: { valid: false, errors: ['empty'] },
+      warnings: [],
+      raw_output: '',
+      model: null
+    })
+
+    await page.generateAssistDraft({ requirements: 'minimal', currentContent: '' })
+
+    expect(api.assistEntityTypePrompt).toHaveBeenCalledWith({
+      requirements: 'minimal'
+    })
+  })
+
+  test('applyAssistDraft replaces content and resets validation to draft validation', async () => {
+    const page = await import('./Prompts')
+    const baseState = page.createPromptEditorState({
+      workspaceKey: 'workspace-a',
+      content: 'original',
+      validation: { valid: true, errors: [] }
+    })
+
+    const next = page.applyAssistDraft(baseState, {
+      content: 'drafted yaml',
+      validation: { valid: false, errors: ['draft issue'] },
+      warnings: [],
+      raw_output: 'drafted yaml',
+      model: 'm'
+    })
+
+    expect(next.content).toBe('drafted yaml')
+    expect(next.validation).toEqual({ valid: false, errors: ['draft issue'] })
+    // Apply must not touch list state.
+    expect(next.list).toEqual(baseState.list)
+  })
+
+  test('shouldConfirmAssistApply triggers on unsaved changes OR invalid draft', async () => {
+    const page = await import('./Prompts')
+
+    // No unsaved changes + valid draft → no confirm needed.
+    expect(
+      page.shouldConfirmAssistApply({
+        hasUnsavedChanges: false,
+        draftValidationValid: true
+      })
+    ).toBe(false)
+
+    // Unsaved changes alone → confirm.
+    expect(
+      page.shouldConfirmAssistApply({
+        hasUnsavedChanges: true,
+        draftValidationValid: true
+      })
+    ).toBe(true)
+
+    // Invalid draft alone → confirm.
+    expect(
+      page.shouldConfirmAssistApply({
+        hasUnsavedChanges: false,
+        draftValidationValid: false
+      })
+    ).toBe(true)
+
+    // Both → still a single confirm decision (not two).
+    expect(
+      page.shouldConfirmAssistApply({
+        hasUnsavedChanges: true,
+        draftValidationValid: false
+      })
+    ).toBe(true)
+  })
+
+  test('Prompts page renders the Assist button in the toolbar', async () => {
+    const page = await import('./Prompts')
+    const html = renderToStaticMarkup(createElement(page.default))
+
+    // Assist button label is taken from the i18n fallback ("Assist").
+    expect(html).toContain('Assist')
+    // The collapsible panel is hidden by default; aria-expanded must reflect
+    // the closed state so screen readers don't announce a phantom region.
+    expect(html).toContain('aria-expanded="false"')
   })
 })

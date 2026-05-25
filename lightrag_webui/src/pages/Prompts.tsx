@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2Icon, ChevronDownIcon, FileTextIcon, PlayIcon, RefreshCwIcon, SaveIcon, XCircleIcon } from 'lucide-react'
+import { CheckCircle2Icon, ChevronDownIcon, FileTextIcon, PlayIcon, RefreshCwIcon, SaveIcon, SparklesIcon, XCircleIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 
 import {
   activateEntityTypePrompt,
+  assistEntityTypePrompt,
   deactivateEntityTypePrompt,
   listEntityTypePrompts,
   readEntityTypePrompt,
   saveEntityTypePromptVersion,
   validateEntityTypePrompt,
+  type EntityTypePromptAssistRequest,
+  type EntityTypePromptAssistResponse,
   type EntityTypePromptFile,
   type EntityTypePromptListResponse,
   type EntityTypePromptValidation
@@ -26,6 +29,7 @@ import {
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Separator from '@/components/ui/Separator'
+import Textarea from '@/components/ui/Textarea'
 import YamlEditor from '@/components/ui/YamlEditor'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/Popover'
 import { useSettingsStore } from '@/stores/settings'
@@ -217,6 +221,64 @@ export const formatPromptFileMeta = (file: EntityTypePromptFile): string => {
   return `${version} · ${file.source}${updatedAt}`
 }
 
+export type AssistDraftResponse = EntityTypePromptAssistResponse
+
+/**
+ * Pure helper that wraps the API client and strips empty current_content.
+ * Keeping the request shape minimal lets the backend apply its own defaults
+ * (language="auto", use_json from runtime config).
+ */
+export const generateAssistDraft = async (params: {
+  requirements: string
+  currentContent: string
+}): Promise<AssistDraftResponse> => {
+  const request: EntityTypePromptAssistRequest = {
+    requirements: params.requirements
+  }
+  if (params.currentContent) {
+    request.current_content = params.currentContent
+  }
+  return await assistEntityTypePrompt(request)
+}
+
+/**
+ * Pure helper. Apply must overwrite editor content & validation while
+ * leaving list state alone — saved/selectedFileName tracking is the caller's
+ * responsibility.
+ */
+export const applyAssistDraft = (
+  state: PromptEditorState,
+  response: AssistDraftResponse
+): PromptEditorState => ({
+  ...state,
+  content: response.content,
+  validation: response.validation
+})
+
+/**
+ * Combined confirmation gate: a single user prompt covers both the
+ * "unsaved changes will be overwritten" and the "draft has not passed
+ * validation" risks. The caller decides the actual confirm UX.
+ */
+export const shouldConfirmAssistApply = (params: {
+  hasUnsavedChanges: boolean
+  draftValidationValid: boolean
+}): boolean => params.hasUnsavedChanges || !params.draftValidationValid
+
+const _ASSIST_ERROR_KEYS: Record<number, string> = {
+  500: 'prompts.assist.error.internal',
+  502: 'prompts.assist.error.providerFailed',
+  503: 'prompts.assist.error.unavailable'
+}
+
+const _resolveAssistErrorKey = (error: unknown): string | null => {
+  const status = (error as { response?: { status?: number } })?.response?.status
+  if (typeof status === 'number' && status in _ASSIST_ERROR_KEYS) {
+    return _ASSIST_ERROR_KEYS[status]
+  }
+  return null
+}
+
 export default function Prompts() {
   const { t } = useTranslation()
   const currentWorkspace = useSettingsStore.use.currentWorkspace()
@@ -233,6 +295,11 @@ export default function Prompts() {
   const [savedContent, setSavedContent] = useState('')
   const [presetPopoverOpen, setPresetPopoverOpen] = useState(false)
   const [validationDialogOpen, setValidationDialogOpen] = useState(false)
+  const [assistOpen, setAssistOpen] = useState(false)
+  const [assistRequirements, setAssistRequirements] = useState('')
+  const [assistDraft, setAssistDraft] = useState<AssistDraftResponse | null>(null)
+  const [assistLoading, setAssistLoading] = useState(false)
+  const [assistRawOpen, setAssistRawOpen] = useState(false)
 
   const hasUnsavedChanges = state.content !== savedContent
 
@@ -375,6 +442,70 @@ export default function Prompts() {
     }
   }, [state, t])
 
+  const handleCloseAssist = useCallback(() => setAssistOpen(false), [])
+
+  const handleToggleAssist = useCallback(() => setAssistOpen((open) => !open), [])
+
+  const handleGenerateAssistDraft = useCallback(async () => {
+    if (!assistRequirements.trim() || assistLoading) {
+      return
+    }
+    setAssistLoading(true)
+    try {
+      const response = await generateAssistDraft({
+        requirements: assistRequirements,
+        currentContent: state.content
+      })
+      setAssistDraft(response)
+      setAssistRawOpen(false)
+    } catch (error) {
+      const key = _resolveAssistErrorKey(error)
+      if (key) {
+        toast.error(t(key))
+      } else {
+        toast.error(error instanceof Error ? error.message : String(error))
+      }
+    } finally {
+      setAssistLoading(false)
+    }
+  }, [assistLoading, assistRequirements, state.content, t])
+
+  const handleApplyAssistDraft = useCallback(() => {
+    if (!assistDraft) {
+      return
+    }
+    const needsConfirm = shouldConfirmAssistApply({
+      hasUnsavedChanges,
+      draftValidationValid: assistDraft.validation.valid
+    })
+    if (
+      needsConfirm &&
+      !window.confirm(
+        t(
+          'prompts.assist.applyConfirm',
+          'Applying this draft will overwrite the editor (unsaved changes will be lost) and the draft has not passed validation. Continue?'
+        )
+      )
+    ) {
+      return
+    }
+    setState((previous) => applyAssistDraft(previous, assistDraft))
+    setAssistOpen(false)
+  }, [assistDraft, hasUnsavedChanges, t])
+
+  useEffect(() => {
+    if (!assistOpen) {
+      return
+    }
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setAssistOpen(false)
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [assistOpen])
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-14 shrink-0 items-center justify-between border-b px-4">
@@ -494,6 +625,18 @@ export default function Prompts() {
             <Button type="button" variant="outline" size="sm" onClick={handleNewBlank}>
               <span>{t('prompts.newBlank', 'New blank')}</span>
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-expanded={assistOpen}
+              aria-controls="prompts-assist-panel"
+              aria-label={t('prompts.assist.button', 'Assist')}
+              onClick={handleToggleAssist}
+            >
+              <SparklesIcon aria-hidden="true" />
+              <span>{t('prompts.assist.button', 'Assist')}</span>
+            </Button>
             <div className="flex-1" />
             <Button
               type="button"
@@ -505,6 +648,123 @@ export default function Prompts() {
               <RefreshCwIcon aria-hidden="true" />
             </Button>
           </div>
+
+          {assistOpen && (
+            <div
+              id="prompts-assist-panel"
+              role="region"
+              aria-labelledby="prompts-assist-title"
+              aria-live="polite"
+              className="mb-3 max-h-[40vh] space-y-3 overflow-auto rounded-md border bg-muted/30 p-3"
+            >
+              <div className="flex items-center justify-between">
+                <span id="prompts-assist-title" className="text-sm font-medium">
+                  {t('prompts.assist.panelTitle', 'Assist with LLM')}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label={t('common.close', 'Close')}
+                  onClick={handleCloseAssist}
+                >
+                  <XIcon aria-hidden="true" />
+                </Button>
+              </div>
+              <label className="grid gap-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {t('prompts.assist.requirementsLabel', 'Your requirements')}
+                </span>
+                <Textarea
+                  value={assistRequirements}
+                  onChange={(event) => setAssistRequirements(event.target.value)}
+                  placeholder={t(
+                    'prompts.assist.requirementsPlaceholder',
+                    'e.g., extract diseases, medications, symptoms and treatments from medical records'
+                  )}
+                  className="min-h-[80px]"
+                />
+              </label>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={assistLoading || !assistRequirements.trim()}
+                  onClick={() => void handleGenerateAssistDraft()}
+                >
+                  {assistLoading ? (
+                    <>
+                      <RefreshCwIcon aria-hidden="true" className="animate-spin" />
+                      <span>{t('prompts.assist.generating', 'Generating...')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <SparklesIcon aria-hidden="true" />
+                      <span>{t('prompts.assist.generate', 'Generate draft')}</span>
+                    </>
+                  )}
+                </Button>
+                {assistDraft && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleApplyAssistDraft}
+                  >
+                    <span>{t('prompts.assist.apply', 'Apply draft')}</span>
+                  </Button>
+                )}
+              </div>
+              {assistDraft && (
+                <div className="space-y-2">
+                  <div className="text-xs text-muted-foreground">
+                    {t('prompts.assist.draftMeta', 'Generated · {{model}} · {{lines}} lines', {
+                      model: assistDraft.model ?? '-',
+                      lines: assistDraft.content ? assistDraft.content.split('\n').length : 0
+                    })}
+                  </div>
+                  <YamlEditor
+                    value={assistDraft.content}
+                    readOnly
+                    className="max-h-[200px] text-sm"
+                  />
+                  {!assistDraft.validation.valid && (
+                    <div className="space-y-1 text-sm">
+                      <div className="font-medium text-destructive">
+                        {t('prompts.assist.errors.title', 'Draft did not pass validation')}
+                      </div>
+                      <ul className="list-inside list-disc text-destructive">
+                        {assistDraft.validation.errors.slice(0, 3).map((error, idx) => (
+                          <li key={idx}>{error}</li>
+                        ))}
+                      </ul>
+                      {assistDraft.validation.errors.length > 3 && (
+                        <div className="text-xs text-muted-foreground">
+                          {t('prompts.assist.errors.more', '(+{{count}} more)', {
+                            count: assistDraft.validation.errors.length - 3
+                          })}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        className="cursor-pointer text-xs text-muted-foreground underline"
+                        onClick={() => setAssistRawOpen((open) => !open)}
+                      >
+                        {assistRawOpen
+                          ? t('prompts.assist.rawOutputHide', 'Hide raw output')
+                          : t('prompts.assist.rawOutputShow', 'Show raw output')}
+                      </button>
+                      {assistRawOpen && (
+                        <pre className="max-h-40 overflow-auto rounded bg-muted p-2 text-xs">
+                          {assistDraft.raw_output}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="mb-3 grid shrink-0 grid-cols-[minmax(180px,1fr)_80px_auto] items-end gap-3">
             <label className="grid gap-1 text-sm">
