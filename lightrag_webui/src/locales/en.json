@@ -963,6 +963,28 @@
     "validation": {
       "valid": "Prompt is valid",
       "failed": "Validation failed"
+    },
+    "assist": {
+      "button": "Assist",
+      "panelTitle": "Assist with LLM",
+      "requirementsLabel": "Your requirements",
+      "requirementsPlaceholder": "e.g., extract diseases, medications, symptoms and treatments from medical records",
+      "generate": "Generate draft",
+      "generating": "Generating...",
+      "apply": "Apply draft",
+      "applyConfirm": "Applying this draft will overwrite the editor (unsaved changes will be lost) and/or the draft has not passed validation. Continue?",
+      "draftMeta": "Generated · {{model}} · {{lines}} lines",
+      "errors": {
+        "title": "Draft did not pass validation",
+        "more": "(+{{count}} more)"
+      },
+      "rawOutputShow": "Show raw output",
+      "rawOutputHide": "Hide raw output",
+      "error": {
+        "unavailable": "LLM is not configured for this workspace",
+        "providerFailed": "LLM provider call failed",
+        "internal": "LLM returned an unexpected response"
+      }
     }
   }
 }
