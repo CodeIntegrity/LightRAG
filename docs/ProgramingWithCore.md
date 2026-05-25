@@ -958,7 +958,17 @@ custom_kg = {
 }
 
 rag.insert_custom_kg(custom_kg)
+
+# Optional: preserve endpoint order when importing custom KG relations.
+# Default is False, which keeps upstream-compatible undirected endpoint-pair
+# deduplication for relations such as Alice -> Bob and Bob -> Alice.
+rag.insert_custom_kg(custom_kg, directed_relation_dedup=True)
 ```
+
+`directed_relation_dedup=True` only changes how the custom KG import path
+deduplicates relationships and writes relation vector records. Graph storage
+capabilities still depend on the configured `graph_storage` backend; the default
+`NetworkXStorage` uses an undirected graph.
 
 * Other Entity and Relation Operations
   - **create_entity**: Creates a new entity with specified attributes

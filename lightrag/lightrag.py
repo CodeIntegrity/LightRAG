@@ -239,6 +239,22 @@ def _normalize_string_list(raw_values: Any, context: str = "") -> list[str]:
     return result
 
 
+def _custom_kg_relation_key(
+    src_id: str, tgt_id: str, directed_relation_dedup: bool
+) -> tuple[str, str]:
+    if directed_relation_dedup:
+        return src_id, tgt_id
+    return tuple(sorted((src_id, tgt_id)))
+
+
+def _custom_kg_relation_vdb_id(
+    src_id: str, tgt_id: str, directed_relation_dedup: bool
+) -> str:
+    if directed_relation_dedup:
+        return compute_mdhash_id(src_id + tgt_id, prefix="rel-")
+    return make_relation_vdb_ids(src_id, tgt_id)[0]
+
+
 @final
 @dataclass
 class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
@@ -1642,10 +1658,15 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                 pipeline_status["history_messages"].append(log_message)
 
     def insert_custom_kg(
-        self, custom_kg: dict[str, Any], full_doc_id: str = None
+        self,
+        custom_kg: dict[str, Any],
+        full_doc_id: str = None,
+        directed_relation_dedup: bool = False,
     ) -> None:
         loop = always_get_an_event_loop()
-        loop.run_until_complete(self.ainsert_custom_kg(custom_kg, full_doc_id))
+        loop.run_until_complete(
+            self.ainsert_custom_kg(custom_kg, full_doc_id, directed_relation_dedup)
+        )
 
     async def arebuild_all_custom_chunks_graphs(
             self, doc_ids: list[str] | None = None
@@ -1917,6 +1938,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         self,
         custom_kg: dict[str, Any],
         full_doc_id: str = None,
+        directed_relation_dedup: bool = False,
     ) -> None:
         update_storage = False
         try:
@@ -2002,13 +2024,16 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             if entity_nodes:
                 await self.chunk_entity_relation_graph.upsert_nodes_batch(entity_nodes)
 
-            # Relationship storage is undirected, so keep only the last update
-            # for each endpoint pair regardless of order.
+            # Keep the default upstream-compatible undirected import behavior.
+            # Custom KG callers can opt into preserving endpoint order during
+            # import deduplication without changing global graph storage rules.
             deduped_relationships: dict[tuple[str, str], dict[str, Any]] = {}
             for relationship_data in custom_kg.get("relationships", []):
                 src_id = relationship_data["src_id"]
                 tgt_id = relationship_data["tgt_id"]
-                relation_key = tuple(sorted((src_id, tgt_id)))
+                relation_key = _custom_kg_relation_key(
+                    src_id, tgt_id, directed_relation_dedup
+                )
                 deduped_relationships.pop(relation_key, None)
                 deduped_relationships[relation_key] = relationship_data
 
@@ -2059,7 +2084,9 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                         )
                         existing_nodes.add(need_insert_id)
 
-                normalized_src_id, normalized_tgt_id = sorted((src_id, tgt_id))
+                relation_src_id, relation_tgt_id = _custom_kg_relation_key(
+                    src_id, tgt_id, directed_relation_dedup
+                )
 
                 edge_data = {
                     "weight": relationship_data.get("weight", 1.0),
@@ -2073,8 +2100,8 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
 
                 all_relationships_data.append(
                     {
-                        "src_id": normalized_src_id,
-                        "tgt_id": normalized_tgt_id,
+                        "src_id": relation_src_id,
+                        "tgt_id": relation_tgt_id,
                         "description": relationship_data["description"],
                         "keywords": relationship_data["keywords"],
                         "source_id": source_id,
@@ -2107,7 +2134,9 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             }
 
             data_for_rels_vdb = {
-                compute_mdhash_id(dp["src_id"] + dp["tgt_id"], prefix="rel-"): {
+                _custom_kg_relation_vdb_id(
+                    dp["src_id"], dp["tgt_id"], directed_relation_dedup
+                ): {
                     "src_id": dp["src_id"],
                     "tgt_id": dp["tgt_id"],
                     "source_id": dp["source_id"],
@@ -2120,12 +2149,18 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                 for dp in all_relationships_data
             }
 
-            legacy_rel_ids_to_delete = sorted(
-                {
-                    rel_id
-                    for dp in all_relationships_data
-                    for rel_id in make_relation_vdb_ids(dp["src_id"], dp["tgt_id"])[1:]
-                }
+            legacy_rel_ids_to_delete = (
+                []
+                if directed_relation_dedup
+                else sorted(
+                    {
+                        rel_id
+                        for dp in all_relationships_data
+                        for rel_id in make_relation_vdb_ids(
+                            dp["src_id"], dp["tgt_id"]
+                        )[1:]
+                    }
+                )
             )
 
             # Parallel VDB upserts (was serial in original)

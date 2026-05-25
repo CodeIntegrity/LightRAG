@@ -274,6 +274,7 @@ Accept: application/json
 
 ### Graph Import Custom KG
 # 用途：直接导入结构化知识图谱数据；未知字段会被收拢到 custom_properties。
+# directed_relation_dedup=false 保持默认无向端点对去重；设为 true 时导入阶段按 src_id/tgt_id 方向去重。
 # @ref login
 POST {{BASE_URL}}/graph/import/custom-kg
 Authorization: Bearer {{login.access_token}}
@@ -284,6 +285,7 @@ Accept: application/json
 
 {
   "full_doc_id": "httpyac-full-doc",
+  "directed_relation_dedup": false,
   "custom_kg": {
     "chunks": [
       {

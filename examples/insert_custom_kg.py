@@ -123,6 +123,10 @@ async def main() -> None:
         result = await rag.ainsert_custom_kg(
             custom_kg,
             full_doc_id="doc-custom-kg-example",
+            # Default is False: reverse endpoint pairs are deduplicated as the
+            # same relation. Set True when your custom KG needs import-time
+            # deduplication to distinguish A -> B from B -> A.
+            directed_relation_dedup=False,
         )
         # ainsert_custom_kg() returns a summary dict. Useful fields:
         #   full_doc_id        — required to call adelete_by_doc_id later

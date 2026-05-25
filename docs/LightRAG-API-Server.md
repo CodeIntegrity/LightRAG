@@ -790,6 +790,49 @@ Example request:
 }
 ```
 
+#### `POST /graph/import/custom-kg`
+
+Use this endpoint when an upstream system already has structured entities and
+relationships and you want to import them directly.
+
+Contract:
+
+- Request body includes `custom_kg`, optional `full_doc_id`, and optional `directed_relation_dedup`
+- `custom_kg.relationships` uses `src_id` and `tgt_id` for relation endpoints
+- Unknown entity or relationship fields are preserved in `custom_properties`
+- `directed_relation_dedup` defaults to `false`, preserving upstream-compatible undirected endpoint-pair deduplication
+- When `directed_relation_dedup` is `true`, custom KG import deduplicates relations by ordered `(src_id, tgt_id)` and writes direction-specific relation vector records
+- Graph storage capabilities still depend on the configured `graph_storage`; the default `NetworkXStorage` uses an undirected graph
+
+Example request:
+
+```json
+{
+  "full_doc_id": "custom-kg-doc-1",
+  "directed_relation_dedup": true,
+  "custom_kg": {
+    "entities": [
+      {"entity_name": "Alice", "entity_type": "PERSON"},
+      {"entity_name": "Bob", "entity_type": "PERSON"}
+    ],
+    "relationships": [
+      {
+        "src_id": "Alice",
+        "tgt_id": "Bob",
+        "description": "Alice mentors Bob",
+        "keywords": "mentorship"
+      },
+      {
+        "src_id": "Bob",
+        "tgt_id": "Alice",
+        "description": "Bob reports to Alice",
+        "keywords": "reporting"
+      }
+    ]
+  }
+}
+```
+
 #### `GET /documents/{doc_id}/chunks`
 
 Use this endpoint to inspect the persisted chunk content for a document in document order.

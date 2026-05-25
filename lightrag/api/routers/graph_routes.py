@@ -177,6 +177,14 @@ class CustomKGImportRequest(BaseModel):
         default=None,
         description="Optional full document ID associated with the imported KG.",
     )
+    directed_relation_dedup: bool = Field(
+        default=False,
+        description=(
+            "When true, relationship import deduplicates by ordered "
+            "(src_id, tgt_id). The default false value keeps upstream-compatible "
+            "undirected endpoint-pair deduplication."
+        ),
+    )
 
     @field_validator("full_doc_id", mode="before")
     @classmethod
@@ -609,6 +617,7 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
             result = await rag.ainsert_custom_kg(
                 payload,
                 request.full_doc_id,
+                directed_relation_dedup=request.directed_relation_dedup,
             )
             if not isinstance(result, dict):
                 # Backward-compatible safety net for older core implementations

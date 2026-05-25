@@ -848,6 +848,78 @@ class TestAinsertCustomKgBatchPath:
 
     @pytest.mark.offline
     @pytest.mark.asyncio
+    async def test_ainsert_custom_kg_can_preserve_directed_edges(self):
+        from lightrag import LightRAG
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=f"custom-directed-{time.time_ns()}",
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            graph = rag.chunk_entity_relation_graph
+            graph.upsert_nodes_batch = AsyncMock()
+            graph.has_nodes_batch = AsyncMock(return_value={"EntityA", "EntityB"})
+            graph.upsert_edges_batch = AsyncMock()
+
+            rag.entities_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.upsert = AsyncMock()
+            rag.relationships_vdb.delete = AsyncMock()
+
+            custom_kg = {
+                "entities": [
+                    {
+                        "entity_name": "EntityA",
+                        "entity_type": "CONCEPT",
+                        "description": "Entity A",
+                        "source_id": "src-1",
+                    },
+                    {
+                        "entity_name": "EntityB",
+                        "entity_type": "CONCEPT",
+                        "description": "Entity B",
+                        "source_id": "src-1",
+                    },
+                ],
+                "relationships": [
+                    {
+                        "src_id": "EntityA",
+                        "tgt_id": "EntityB",
+                        "description": "A to B",
+                        "keywords": "forward",
+                        "source_id": "src-1",
+                    },
+                    {
+                        "src_id": "EntityB",
+                        "tgt_id": "EntityA",
+                        "description": "B to A",
+                        "keywords": "reverse",
+                        "source_id": "src-1",
+                    },
+                ],
+            }
+
+            await rag.ainsert_custom_kg(custom_kg, directed_relation_dedup=True)
+
+            edge_batch = graph.upsert_edges_batch.await_args.args[0]
+            assert [(src, tgt) for src, tgt, _ in edge_batch] == [
+                ("EntityA", "EntityB"),
+                ("EntityB", "EntityA"),
+            ]
+
+            rel_vdb_payload = rag.relationships_vdb.upsert.await_args.args[0]
+            assert len(rel_vdb_payload) == 2
+            rel_pairs = {(rel["src_id"], rel["tgt_id"]) for rel in rel_vdb_payload.values()}
+            assert rel_pairs == {("EntityA", "EntityB"), ("EntityB", "EntityA")}
+            rag.relationships_vdb.delete.assert_not_awaited()
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
     async def test_query_graph_with_global_scope_direction_preserves_edge_direction(self):
         from lightrag import LightRAG
 

@@ -238,11 +238,15 @@ class _DummyRAG:
         ]
 
     async def ainsert_custom_kg(
-        self, custom_kg: dict[str, Any], full_doc_id: str | None = None
+        self,
+        custom_kg: dict[str, Any],
+        full_doc_id: str | None = None,
+        directed_relation_dedup: bool = False,
     ) -> dict[str, Any]:
         self.last_custom_kg_request = {
             "custom_kg": custom_kg,
             "full_doc_id": full_doc_id,
+            "directed_relation_dedup": directed_relation_dedup,
         }
         # Mirror the real method's structured return so the route handler
         # can populate the response body deterministically.
@@ -860,11 +864,32 @@ def test_graph_import_custom_kg_route_calls_core_method(graph_client):
     assert body["chunk_count"] == 1
     assert rag.last_custom_kg_request is not None
     assert rag.last_custom_kg_request["full_doc_id"] == "doc-custom-kg-1"
+    assert rag.last_custom_kg_request["directed_relation_dedup"] is False
     payload = rag.last_custom_kg_request["custom_kg"]
     assert payload["chunks"][0]["content"] == "Tesla text"
     assert payload["chunks"][0]["source_id"] == "Source1"
     assert payload["entities"][0]["entity_name"] == "Tesla"
     assert payload["relationships"] == []
+
+
+def test_graph_import_custom_kg_route_forwards_directed_relation_dedup(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/import/custom-kg",
+        json={
+            "custom_kg": {
+                "chunks": [],
+                "entities": [{"entity_name": "Tesla"}],
+                "relationships": [],
+            },
+            "directed_relation_dedup": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert rag.last_custom_kg_request is not None
+    assert rag.last_custom_kg_request["directed_relation_dedup"] is True
 
 
 def test_graph_import_custom_kg_route_rejects_missing_fields(graph_client):
