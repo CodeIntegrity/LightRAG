@@ -48,6 +48,53 @@ class _DummyRAG:
         self.refresh_count += 1
 
 
+class _AssistDummyRAG(_DummyRAG):
+    """DummyRAG variant exposing role_llm_funcs / llm_model_func for assist tests."""
+
+    def __init__(
+        self,
+        *,
+        use_json: bool = False,
+        active_file: str | None = None,
+        role_query_func=None,
+        llm_model_func=None,
+        model_name: str = "dummy-model",
+    ):
+        super().__init__(use_json=use_json, active_file=active_file)
+        # role_llm_funcs only includes "query" when explicitly provided so we
+        # can also exercise the capability-missing path.
+        self.role_llm_funcs: dict[str, object] = {}
+        if role_query_func is not None:
+            self.role_llm_funcs["query"] = role_query_func
+        self.llm_model_func = llm_model_func
+        self.llm_model_name = model_name
+        self.llm_calls: list[dict] = []
+
+
+def _make_recording_llm(return_value):
+    """Build an async LLM callable that records its invocation kwargs."""
+
+    calls: list[dict] = []
+
+    async def _llm(prompt, system_prompt=None, history_messages=None, **kwargs):
+        calls.append(
+            {
+                "prompt": prompt,
+                "system_prompt": system_prompt,
+                "history_messages": history_messages,
+                "kwargs": kwargs,
+            }
+        )
+        if isinstance(return_value, Exception):
+            raise return_value
+        if callable(return_value):
+            return return_value()
+        return return_value
+
+    _llm.calls = calls  # type: ignore[attr-defined]
+    return _llm
+
+
 def _build_prompt_client(monkeypatch, rag: _DummyRAG) -> TestClient:
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
 
@@ -250,3 +297,110 @@ def test_prompt_routes_include_in_server_runtime_binding(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert response.json()["file"]["file_name"] == "default--entity-type--v1.yml"
+
+
+def test_assist_entity_type_prompt_uses_runtime_llm_and_validates_output(monkeypatch):
+    yaml_payload = _profile_content(label="Assist OK")
+    llm = _make_recording_llm(yaml_payload)
+    rag = _AssistDummyRAG(role_query_func=llm, model_name="role-query-model")
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist",
+        json={
+            "requirements": "请为通用文档抽取人物、组织和地点",
+            "current_content": _profile_content(label="Current"),
+            "language": "zh",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["content"].rstrip() == yaml_payload.rstrip()
+    assert body["validation"]["valid"] is True
+    assert body["raw_output"] == yaml_payload
+    assert body["model"] == "role-query-model"
+    # Exactly one LLM call, with stream disabled.
+    assert len(llm.calls) == 1
+    call = llm.calls[0]
+    assert call["kwargs"].get("stream") is False
+    assert call["system_prompt"]
+    assert "请为通用文档抽取人物、组织和地点" in call["prompt"]
+
+
+def test_assist_entity_type_prompt_returns_503_when_llm_capability_missing(monkeypatch):
+    rag = _AssistDummyRAG()  # neither role_llm_funcs["query"] nor llm_model_func
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist",
+        json={"requirements": "anything"},
+    )
+
+    assert response.status_code == 503
+
+
+def test_assist_entity_type_prompt_returns_502_when_llm_call_raises(monkeypatch):
+    llm = _make_recording_llm(ConnectionError("upstream provider died: secret=abc"))
+    rag = _AssistDummyRAG(role_query_func=llm)
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist",
+        json={"requirements": "anything"},
+    )
+
+    assert response.status_code == 502
+    detail = str(response.json())
+    # Provider-internal error details must not leak through the response.
+    assert "secret=abc" not in detail
+    assert "upstream provider died" not in detail
+
+
+def test_assist_entity_type_prompt_returns_500_when_llm_returns_non_string(monkeypatch):
+    llm = _make_recording_llm({"unexpected": "dict"})
+    rag = _AssistDummyRAG(role_query_func=llm)
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist",
+        json={"requirements": "anything"},
+    )
+
+    assert response.status_code == 500
+
+
+def test_assist_entity_type_prompt_returns_validation_errors_for_invalid_yaml(monkeypatch):
+    raw = "not yaml at all: {{{ unbalanced"
+    llm = _make_recording_llm(raw)
+    rag = _AssistDummyRAG(role_query_func=llm)
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist",
+        json={"requirements": "anything"},
+    )
+
+    # The endpoint itself succeeds; the validation result reports the failure
+    # and raw_output preserves the original LLM response for UI debugging.
+    assert response.status_code == 200
+    body = response.json()
+    assert body["validation"]["valid"] is False
+    assert body["raw_output"] == raw
+
+
+def test_assist_entity_type_prompt_falls_back_to_llm_model_func(monkeypatch):
+    """role_llm_funcs.get('query') is preferred; llm_model_func is the fallback."""
+    yaml_payload = _profile_content(label="Fallback OK")
+    llm = _make_recording_llm(yaml_payload)
+    rag = _AssistDummyRAG(llm_model_func=llm, model_name="fallback-model")
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist",
+        json={"requirements": "anything"},
+    )
+
+    assert response.status_code == 200
+    assert len(llm.calls) == 1
+    assert response.json()["model"] == "fallback-model"

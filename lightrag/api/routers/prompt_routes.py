@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import logging
 import os
 from pathlib import Path
 import re
@@ -16,6 +17,9 @@ import lightrag.prompt as prompt_module
 from lightrag.api.utils_api import get_combined_auth_dependency
 from lightrag.api.workspace_runtime import get_current_runtime
 from lightrag.api.workspace_registry import normalize_workspace_identifier
+
+
+logger = logging.getLogger(__name__)
 
 
 _PROMPT_KIND_SLUG = "entity-type"
@@ -107,6 +111,25 @@ class PromptActivateResponse(BaseModel):
 class PromptDeactivateResponse(BaseModel):
     active_file: None = None
     previous_file: WorkspacePromptFile | None = None
+
+
+class PromptAssistRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requirements: str = Field(min_length=1, max_length=4000)
+    current_content: str | None = Field(default=None, max_length=30000)
+    language: Literal["auto", "en", "zh", "ja"] = "auto"
+    # Reserved for callers that want to override runtime default. Frontend UI
+    # does NOT expose this; defaults to ``rag.entity_extraction_use_json``.
+    use_json: bool | None = None
+
+
+class PromptAssistResponse(BaseModel):
+    content: str
+    validation: ValidationResult
+    warnings: list[str] = Field(default_factory=list)
+    raw_output: str
+    model: str | None = None
 
 
 def parse_workspace_prompt_file_name(
@@ -382,6 +405,127 @@ def _http_error_from_exception(exc: Exception) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
+def _resolve_assist_llm(rag: Any) -> tuple[Callable[..., Any], str | None]:
+    """Return ``(callable, model_name)`` for the assist endpoint.
+
+    Prefers ``rag.role_llm_funcs["query"]`` (matches the prompt-authoring
+    workload: short, user-driven, not tied to entity extraction caching).
+    Falls back to ``rag.llm_model_func``. Raises 503 if neither is callable.
+    """
+    rag = _resolve_rag(rag)
+    role_funcs = getattr(rag, "role_llm_funcs", None) or {}
+    candidate = role_funcs.get("query") if isinstance(role_funcs, dict) else None
+    if not callable(candidate):
+        candidate = getattr(rag, "llm_model_func", None)
+    if not callable(candidate):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM is not configured for this workspace.",
+        )
+    model_name = getattr(rag, "llm_model_name", None)
+    if model_name is not None:
+        model_name = str(model_name)
+    return candidate, model_name
+
+
+_YAML_FENCE_RE = re.compile(
+    r"^\s*```(?:ya?ml)?\s*\n(?P<body>.*?)\n```\s*$",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _strip_yaml_fence(raw: str) -> str:
+    """Remove a leading ```yaml ... ``` fence if the LLM wrapped its output."""
+    if not raw:
+        return raw
+    match = _YAML_FENCE_RE.match(raw.strip())
+    if match:
+        return match.group("body")
+    return raw
+
+
+def _build_prompt_assist_system_prompt(use_json: bool, default_profile: dict[str, Any]) -> str:
+    """Compose the system prompt for assist generation.
+
+    Embeds the full default ``entity_types_guidance`` so the LLM sees the
+    canonical baseline and a strict YAML output contract.
+    """
+    default_guidance = default_profile.get("entity_types_guidance", "").rstrip()
+    mode_hint = (
+        "Examples in `entity_extraction_json_examples` MUST be valid JSON strings."
+        if use_json
+        else "Examples in `entity_extraction_examples` MUST follow the text "
+        "delimiter format used by LightRAG."
+    )
+    return (
+        "You are helping the user author a LightRAG entity extraction prompt "
+        "profile. Return ONLY a YAML mapping with the keys "
+        "`entity_types_guidance` (non-empty string) and either "
+        "`entity_extraction_examples` (list of strings) or "
+        "`entity_extraction_json_examples` (list of strings).\n"
+        "Do not wrap the output in markdown fences. Do not add any prose "
+        "before or after the YAML.\n"
+        f"{mode_hint}\n\n"
+        "Default `entity_types_guidance` baseline (use as reference only, "
+        "adapt to the user's domain):\n"
+        f"{default_guidance}"
+    )
+
+
+def _build_prompt_assist_user_prompt(
+    request: PromptAssistRequest,
+) -> str:
+    """Compose the user prompt.
+
+    ``current_content`` is wrapped in a ``<current_yaml>`` tag so the model
+    treats it as a baseline to revise, not as part of the requirements.
+    """
+    parts = [
+        f"Requirements:\n{request.requirements.strip()}",
+        f"Generation language: {request.language}",
+    ]
+    if request.current_content:
+        parts.append(
+            "Current YAML draft (modify, do not echo verbatim unless "
+            "appropriate):\n"
+            f"<current_yaml>\n{request.current_content.rstrip()}\n</current_yaml>"
+        )
+    return "\n\n".join(parts)
+
+
+async def _invoke_assist_llm(
+    llm_callable: Callable[..., Any],
+    *,
+    user_prompt: str,
+    system_prompt: str,
+) -> str:
+    """Call the runtime LLM with strict expectations and normalize errors."""
+    try:
+        result = await llm_callable(
+            user_prompt,
+            system_prompt=system_prompt,
+            stream=False,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 — provider errors are heterogeneous
+        logger.warning("Assist LLM call failed: %s", exc.__class__.__name__)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="LLM provider call failed.",
+        ) from exc
+    if not isinstance(result, str):
+        logger.error(
+            "Assist LLM returned non-string payload of type %s",
+            type(result).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="LLM returned an unsupported response shape.",
+        )
+    return result
+
+
 def create_prompt_routes(
     rag: Any,
     api_key: str | None = None,
@@ -530,5 +674,35 @@ def create_prompt_routes(
             except ValueError:
                 pass
         return PromptDeactivateResponse(previous_file=previous_file)
+
+    @router.post(
+        "/entity-type/assist",
+        response_model=PromptAssistResponse,
+        dependencies=[Depends(combined_auth)],
+    )
+    async def assist_entity_type_prompt(request: PromptAssistRequest):
+        llm_callable, model_name = _resolve_assist_llm(rag)
+        use_json = _use_json_mode(rag, request.use_json)
+        default_profile = prompt_module.get_default_entity_extraction_prompt_profile()
+        system_prompt = _build_prompt_assist_system_prompt(use_json, default_profile)
+        user_prompt = _build_prompt_assist_user_prompt(request)
+        raw_output = await _invoke_assist_llm(
+            llm_callable,
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+        )
+        cleaned = _strip_yaml_fence(raw_output)
+        _profile, validation = _validate_content(
+            cleaned,
+            use_json=use_json,
+            source_label="assist draft",
+        )
+        return PromptAssistResponse(
+            content=cleaned,
+            validation=validation,
+            warnings=[],
+            raw_output=raw_output,
+            model=model_name,
+        )
 
     return router
