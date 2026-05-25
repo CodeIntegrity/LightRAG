@@ -403,35 +403,98 @@ Impact/Compatibility:
 
 UI Design:
 
-- 在编辑器上方或右侧工具区增加一个紧凑的 "Assist" 按钮。
-- 点击后展开/打开辅助面板：
-  - 多行输入框：用户要求（**不暴露 `use_json` 控件**，沿用后端默认）。
-  - 生成按钮，生成中禁用。
-  - 草稿预览区，只读显示 LLM 清理后的 YAML 结果（`response.content`）。
-  - 校验失败时，额外折叠展示 `raw_output`（LLM 原始返回）以便用户判断 LLM 是否答非所问。
-  - `Apply draft` 按钮，只有用户点击后才 `setState.content = draft`；校验失败时按钮可点击但需二次确认。
-  - validation 状态沿用现有 `validation.valid/failed` 风格。
-- 不使用营销式说明，不增加大 hero/card；保持管理工具密度。
+风格基线（必须遵循现有 `Prompts.tsx` 设计语言）：
+
+- 不引入 Card / shadow / hero / 营销描述；沿用 `border + rounded-md` 块密度。
+- 全部按钮 `size="sm"`、`variant="outline"`（除主提交用 default）；图标统一用 lucide。
+- 颜色复用：成功 `text-emerald-600` / 失败 `text-destructive` / meta `text-muted-foreground`。
+- 文案不暴露技术细节（不出现 `use_json`、`raw_output` 等字段名给用户）。
+
+Assist 按钮位置：
+
+- 嵌在第一行工具区，紧挨 `New blank` 右侧：`[Load from preset] [New blank] [Assist] ········ [Refresh]`。
+- 图标：`SparklesIcon` 或 `WandIcon`（lucide）。
+- `aria-label="Open prompt assistant"`。
+
+辅助面板形态（**inline collapsible** —— 不引入新组件）：
+
+- 经调研 webui 当前无 Sheet 组件；采用 inline collapsible 是最稳的选择：展开后在工具行下方插入一个 region，`max-h-[40vh] overflow-auto`，不遮挡主编辑器（YamlEditor 自然下移）。
+- 容器：`rounded-md border bg-muted/30 p-3 space-y-3`。
+- 顶部 header 一行：title (`text-sm font-medium`) + 关闭按钮（`XIcon` ghost button）。
+- 多行 `<Textarea>`：requirements（`min-h-[80px]`，placeholder 给一个具体示例）。**不暴露 `use_json` / `language` 控件**；语言默认 `"auto"`，由后端跟随当前 locale。
+- 操作行：`[Generate]`（主按钮）+ 草稿存在时显示 `[Apply draft]`；生成中 Generate 按钮替换为 `RefreshCwIcon` 旋转 + `prompts.assist.generating` 文案，禁用点击。
+- 草稿预览区（仅当 `assistDraft` 非空时渲染）：
+  - 上方 meta 行：`Generated · {model} · {lines} lines`（`text-xs muted-foreground`）。
+  - 主体：**只读 YamlEditor**（复用 `@/components/ui/YamlEditor`，传入 `readOnly` 或等价 prop；若组件目前不支持 readonly，则在 Task 4 实施时给 YamlEditor 增补一个最小 readonly 形参，保持改动最小）。
+- 校验失败展示（仅在 Sheet 内部内联，不弹 `AlertDialog`，避免与主编辑器的 Validate dialog 混淆）：
+  - 错误列表：`text-destructive text-sm` 列表，最多展示前 3 条 + `(n total)`。
+  - 折叠区：`prompts.assist.rawOutputToggle`，默认折叠；展开后 `<pre>` 显示 `raw_output`，`max-h-40 overflow-auto bg-muted text-xs`。
+
+Apply 行为：
+
+- 默认：`setState.content = response.content` + 关闭折叠面板。**保留** `assistRequirements` 与 `assistDraft` 在内存中，再次打开 Assist 时草稿仍可见（用户常需要再调整 requirements 重生成）。
+- 二次确认（合并规则，避免弹两次 confirm）：
+  - 若 `hasUnsavedChanges === true` **或** `assistValidation.valid === false`，弹一次 `window.confirm(prompts.assist.applyConfirm)`，文案同时覆盖"未保存改动会丢失"和"草稿未通过校验"两个风险。
+
+错误展示分流：
+
+- HTTP 502 / 503 / 500 → `toast.error`（沿用现有 toast 风格），草稿区与 requirements 输入区保持原状不污染。
+- HTTP 200 + `validation.valid === false` → 面板内联展示 errors + 折叠 `raw_output`，**不**触发 toast。
+
+i18n key（在 11 个 locale 中均需新增；非中英日可直接落英文兜底，但 key 必须存在）：
+
+```text
+prompts.assist.button                  ← "Assist"
+prompts.assist.panelTitle              ← 面板标题
+prompts.assist.requirementsLabel
+prompts.assist.requirementsPlaceholder
+prompts.assist.generate                ← "Generate draft"
+prompts.assist.generating              ← "Generating..."
+prompts.assist.draftMeta               ← "Generated · {{model}} · {{lines}} lines"
+prompts.assist.apply                   ← "Apply draft"
+prompts.assist.applyConfirm            ← 合并的二次确认文案
+prompts.assist.rawOutputToggle         ← 折叠/展开 raw_output
+prompts.assist.errors.title            ← "Draft did not pass validation"
+prompts.assist.errors.more             ← "(+{{count}} more)"
+prompts.assist.error.unavailable       ← 503 toast
+prompts.assist.error.providerFailed    ← 502 toast
+prompts.assist.error.internal          ← 500 toast
+```
+
+可访问性：
+
+- 折叠面板用 `role="region"` + `aria-labelledby` 关联标题；可用 ESC 关闭（监听 keydown）。
+- Assist 按钮 `aria-expanded={assistOpen}`、`aria-controls="assist-panel"`。
+- 草稿预览区父容器 `aria-live="polite"`，生成完成时屏幕阅读器会读出 meta。
+
+YamlEditor readonly 兼容性：
+
+- 若现有 `YamlEditor` 组件不支持 `readOnly`，在 Task 4 实施时增补一个 `readOnly?: boolean` prop，仅影响新增的草稿预览区，不修改既有调用方。该改动需要小补一个 YamlEditor 测试。
 
 Steps:
 
 1. Write test
    - 在 `Prompts.test.tsx` mock `assistEntityTypePrompt`。
    - 覆盖状态 helper 或静态渲染：
-     - 生成后 `draftContent` 存在但 `state.content` 未变。
-     - apply 后 `state.content` 变成草稿。
-     - API request 带当前编辑器内容，但 **不带 `use_json` 字段**。
-     - 校验失败响应：UI 必须能展示 `raw_output`（默认折叠，可展开），且 `Apply draft` 按钮可点击但需二次确认。
-     - 502/503/500 错误：toast 报错且草稿区不被污染。
+     - 折叠面板默认隐藏；点击 Assist 按钮后展开（`aria-expanded` 切换）。
+     - 生成中 Generate 按钮禁用并替换为 `prompts.assist.generating` 文案。
+     - 生成后 `assistDraft` 存在但 `state.content` 未变；草稿区显示 meta（model + lines）。
+     - API request 仅包含 `requirements` / `current_content` / `language`，**不带 `use_json` 字段**。
+     - Apply 后 `state.content` 变成草稿且面板关闭；`assistRequirements`/`assistDraft` 仍保留在内存。
+     - `hasUnsavedChanges=true` 或 `validation.valid=false` 时，Apply 触发一次 `window.confirm`；confirm=false 时不覆盖。
+     - 校验失败响应：UI 在面板内联展示 errors（最多前 3 条 + more 计数）+ 折叠区可展开 `raw_output`；**不弹 AlertDialog**。
+     - 502/503/500 错误：`toast.error` 文案对应 `prompts.assist.error.*`；草稿区与 requirements 不被污染。
+   - 若 `YamlEditor` 无 readonly 支持，先补一个 `YamlEditor.test.tsx` 用例覆盖 readonly 行为再实现。
 2. Verify RED
    - Run:
      ```bash
      cd lightrag_webui && bun test src/pages/Prompts.test.tsx
      ```
 3. Minimal code
-   - 导入 `assistEntityTypePrompt`。
-   - 增加 React state：`assistRequirements`、`assistDraft`、`assistRawOutput`、`assistLoading`、`assistValidation`。
-   - 增加 handlers：`handleGenerateAssistDraft()`、`handleApplyAssistDraft()`。
+   - 在 `Prompts.tsx` 导入 `assistEntityTypePrompt`、`SparklesIcon`/`WandIcon`、`XIcon`。
+   - 增加 React state：`assistOpen`、`assistRequirements`、`assistDraft`、`assistRawOutput`、`assistModel`、`assistLoading`、`assistValidation`。
+   - 增加 handlers：`handleToggleAssist()`、`handleGenerateAssistDraft()`、`handleApplyAssistDraft()`、`handleCloseAssist()`（ESC 监听）。
+   - 必要时给 `@/components/ui/YamlEditor` 增补 `readOnly?: boolean` prop（最小改动，不影响既有调用方）。
    - 新增 i18n key（覆盖 11 个 locale）；非中英日语种可直接落英文兜底字符串，但 key 必须存在。
 4. Verify GREEN
    - Run:
