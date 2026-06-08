@@ -149,6 +149,7 @@ export default function RetrievalTesting() {
   const [queryDataStatus, setQueryDataStatus] = useState<QueryDataStatus>('idle')
   const [queryDataError, setQueryDataError] = useState('')
   const [queryDataExpanded, setQueryDataExpanded] = useState(false)
+  const [hasQueryDataRequest, setHasQueryDataRequest] = useState(false)
   const [dataTab, setDataTab] = useState<RetrievalDataTab>('entities')
   const [queryDataVisibleCounts, setQueryDataVisibleCounts] = useState<
     Record<RetrievalDataTab, number>
@@ -191,6 +192,15 @@ export default function RetrievalTesting() {
   const abortControllerRef = useRef<AbortController | null>(null)
   const queryDataAbortControllerRef = useRef<AbortController | null>(null)
   const latestArtifactsRequestRef = useRef<RetrievalArtifactsRequest | null>(null)
+  const shouldFollowScrollRef = useRef(true)
+  const thinkingStartTime = useRef<number | null>(null)
+  const thinkingProcessed = useRef(false)
+  const retrievalArtifactsRequestIdRef = useRef(0)
+  const isFormInteractionRef = useRef(false)
+  const programmaticScrollRef = useRef(false)
+  const isReceivingResponseRef = useRef(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
 
   // Smart switching logic: use Input for single line, Textarea for multi-line
   const hasMultipleLines = inputValue.includes('\n')
@@ -276,6 +286,7 @@ export default function RetrievalTesting() {
       setQueryDataError('')
       setDataTab('entities')
       setQueryDataExpanded(false)
+      setHasQueryDataRequest(false)
       setQueryDataVisibleCounts(createInitialVisibleCounts())
       queryDataAbortControllerRef.current?.abort()
       latestArtifactsRequestRef.current = null
@@ -444,6 +455,7 @@ export default function RetrievalTesting() {
           requestId,
           queryParams
         }
+        setHasQueryDataRequest(true)
 
         // Run query
         if (state.querySettings.stream) {
@@ -625,20 +637,6 @@ export default function RetrievalTesting() {
     }
   }, [hasMultipleLines, inputValue, adjustTextareaHeight])
 
-  // Reference to track if we should follow scroll during streaming (using ref for synchronous updates)
-  const shouldFollowScrollRef = useRef(true)
-  const thinkingStartTime = useRef<number | null>(null)
-  const thinkingProcessed = useRef(false)
-  const retrievalArtifactsRequestIdRef = useRef(0)
-  // Reference to track if user interaction is from the form area
-  const isFormInteractionRef = useRef(false)
-  // Reference to track if scroll was triggered programmatically
-  const programmaticScrollRef = useRef(false)
-  // Reference to track if we're currently receiving a streaming response
-  const isReceivingResponseRef = useRef(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const messagesContainerRef = useRef<HTMLDivElement>(null)
-
   // Add cleanup effect for memory leak prevention
   useEffect(() => {
     // Component cleanup - reset timer state to prevent memory leaks
@@ -769,6 +767,7 @@ export default function RetrievalTesting() {
     abortControllerRef.current?.abort()
     queryDataAbortControllerRef.current?.abort()
     latestArtifactsRequestRef.current = null
+    setHasQueryDataRequest(false)
     setMessages([])
     useSettingsStore.getState().setRetrievalHistory([])
     // Clear retrieval data and references
@@ -963,7 +962,7 @@ export default function RetrievalTesting() {
                   )}
                 </div>
               )}
-              {latestArtifactsRequestRef.current && (
+              {hasQueryDataRequest && (
                 <div className="mt-2 border-t pt-2">
                   <button
                     type="button"

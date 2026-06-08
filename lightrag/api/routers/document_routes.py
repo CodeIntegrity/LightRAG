@@ -3,6 +3,8 @@ This module contains all document-related routes for the LightRAG API.
 """
 
 import asyncio
+import re
+import shutil
 import time
 from uuid import uuid4
 from functools import lru_cache
@@ -32,6 +34,7 @@ from lightrag.utils import (
 )
 from lightrag.api.utils_api import get_combined_auth_dependency
 from lightrag.api.workspace_runtime import get_current_runtime
+from lightrag.constants import PARSED_DIR_NAME
 from ..config import global_args
 
 
@@ -103,6 +106,13 @@ def _map_custom_chunks_import_error(exc: Exception) -> HTTPException | None:
 temp_prefix = "__tmp__"
 UNKNOWN_FILE_SOURCE = "unknown_source"
 LEGACY_EMPTY_FILE_PATH_SENTINELS = {"", "no-file-path"}
+PARSER_HINT_FILE_RE = re.compile(
+    r"^(?P<stem>.+)\.\[(?:legacy|native|mineru|docling)\](?:_\d{3})?(?P<suffix>\.[^.]+)$"
+)
+NUMERIC_ARCHIVE_FILE_RE = re.compile(r"^(?P<stem>.+)_\d{3}(?P<suffix>\.[^.]+)$")
+PARSED_ARTIFACT_DIR_RE = re.compile(
+    r"^(?P<file_path>.+)\.(?:parsed|mineru_raw)(?:_\d{3})?$"
+)
 
 
 def normalize_file_path(file_path: str | None) -> str:
@@ -115,6 +125,89 @@ def normalize_file_path(file_path: str | None) -> str:
         return UNKNOWN_FILE_SOURCE
 
     return normalized
+
+
+def _file_path_for_parsed_artifact_dir(dirname: str) -> str | None:
+    """Return canonical source file name for parsed artifact directories."""
+
+    match = PARSED_ARTIFACT_DIR_RE.match(dirname)
+    if match is None:
+        return None
+    return match.group("file_path")
+
+
+def _file_variant_canonical_name(filename: str, *, allow_numeric_suffix: bool) -> str:
+    hint_match = PARSER_HINT_FILE_RE.match(filename)
+    if hint_match is not None:
+        return f"{hint_match.group('stem')}{hint_match.group('suffix')}"
+
+    if allow_numeric_suffix:
+        numeric_match = NUMERIC_ARCHIVE_FILE_RE.match(filename)
+        if numeric_match is not None:
+            return f"{numeric_match.group('stem')}{numeric_match.group('suffix')}"
+
+    return filename
+
+
+def _delete_path(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def delete_file_variants_by_file_path(
+    input_dir: Path, file_path: str
+) -> tuple[list[str], list[str]]:
+    """Delete source, parsed archive, and parser artifact variants for a document."""
+
+    safe_file_path = validate_file_path_security(file_path, input_dir)
+    if safe_file_path is None:
+        return [], [f"Unsafe file path: {file_path}"]
+
+    target_name = safe_file_path.name
+    candidates: list[Path] = []
+    parsed_root = input_dir / PARSED_DIR_NAME
+
+    if safe_file_path.exists():
+        candidates.append(safe_file_path)
+
+    if input_dir.exists():
+        for child in input_dir.iterdir():
+            if child == safe_file_path or not child.is_file():
+                continue
+            if _file_variant_canonical_name(
+                child.name, allow_numeric_suffix=False
+            ) == target_name:
+                candidates.append(child)
+
+    if parsed_root.exists():
+        for child in parsed_root.iterdir():
+            artifact_source = _file_path_for_parsed_artifact_dir(child.name)
+            if artifact_source == target_name:
+                candidates.append(child)
+                continue
+
+            if _file_variant_canonical_name(
+                child.name, allow_numeric_suffix=True
+            ) == target_name:
+                candidates.append(child)
+
+    deleted_files: list[str] = []
+    errors: list[str] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+
+        try:
+            _delete_path(candidate)
+            deleted_files.append(str(candidate.relative_to(input_dir)))
+        except Exception as exc:
+            errors.append(f"{candidate.relative_to(input_dir)}: {exc}")
+
+    return deleted_files, errors
 
 
 def sanitize_filename(filename: str, input_dir: Path) -> str:
@@ -2317,85 +2410,32 @@ async def background_delete_documents(
                         and result.file_path != "unknown_source"
                     ):
                         try:
-                            deleted_files = []
-                            # SECURITY FIX: Use secure path validation to prevent arbitrary file deletion
-                            safe_file_path = validate_file_path_security(
-                                result.file_path, doc_manager.input_dir
+                            deleted_files, deletion_errors = (
+                                delete_file_variants_by_file_path(
+                                    doc_manager.input_dir, result.file_path
+                                )
                             )
-
-                            if safe_file_path is None:
-                                # Security violation detected - log and skip file deletion
-                                security_msg = f"Security violation: Unsafe file path detected for deletion - {result.file_path}"
-                                logger.warning(security_msg)
+                            for deleted_file in deleted_files:
+                                file_delete_msg = (
+                                    f"Successfully deleted input_dir file: {deleted_file}"
+                                )
+                                logger.info(file_delete_msg)
                                 async with pipeline_status_lock:
-                                    pipeline_status["latest_message"] = security_msg
+                                    pipeline_status["latest_message"] = file_delete_msg
                                     pipeline_status["history_messages"].append(
-                                        security_msg
+                                        file_delete_msg
                                     )
-                            else:
-                                # check and delete files from input_dir directory
-                                if safe_file_path.exists():
-                                    try:
-                                        safe_file_path.unlink()
-                                        deleted_files.append(safe_file_path.name)
-                                        file_delete_msg = f"Successfully deleted input_dir file: {result.file_path}"
-                                        logger.info(file_delete_msg)
-                                        async with pipeline_status_lock:
-                                            pipeline_status["latest_message"] = (
-                                                file_delete_msg
-                                            )
-                                            pipeline_status["history_messages"].append(
-                                                file_delete_msg
-                                            )
-                                    except Exception as file_error:
-                                        file_error_msg = f"Failed to delete input_dir file {result.file_path}: {str(file_error)}"
-                                        logger.debug(file_error_msg)
-                                        async with pipeline_status_lock:
-                                            pipeline_status["latest_message"] = (
-                                                file_error_msg
-                                            )
-                                            pipeline_status["history_messages"].append(
-                                                file_error_msg
-                                            )
 
-                                # Also check and delete files from __enqueued__ directory
-                                enqueued_dir = doc_manager.input_dir / "__enqueued__"
-                                if enqueued_dir.exists():
-                                    # SECURITY FIX: Validate that the file path is safe before processing
-                                    # Only proceed if the original path validation passed
-                                    base_name = Path(result.file_path).stem
-                                    extension = Path(result.file_path).suffix
-
-                                    # Search for exact match and files with numeric suffixes
-                                    for enqueued_file in enqueued_dir.glob(
-                                        f"{base_name}*{extension}"
-                                    ):
-                                        # Additional security check: ensure enqueued file is within enqueued directory
-                                        safe_enqueued_path = (
-                                            validate_file_path_security(
-                                                enqueued_file.name, enqueued_dir
-                                            )
-                                        )
-                                        if safe_enqueued_path is not None:
-                                            try:
-                                                enqueued_file.unlink()
-                                                deleted_files.append(enqueued_file.name)
-                                                logger.info(
-                                                    f"Successfully deleted enqueued file: {enqueued_file.name}"
-                                                )
-                                            except Exception as enqueued_error:
-                                                file_error_msg = f"Failed to delete enqueued file {enqueued_file.name}: {str(enqueued_error)}"
-                                                logger.debug(file_error_msg)
-                                                async with pipeline_status_lock:
-                                                    pipeline_status[
-                                                        "latest_message"
-                                                    ] = file_error_msg
-                                                    pipeline_status[
-                                                        "history_messages"
-                                                    ].append(file_error_msg)
-                                        else:
-                                            security_msg = f"Security violation: Unsafe enqueued file path detected - {enqueued_file.name}"
-                                            logger.warning(security_msg)
+                            for deletion_error in deletion_errors:
+                                file_error_msg = (
+                                    f"Failed to delete file variant {deletion_error}"
+                                )
+                                logger.warning(file_error_msg)
+                                async with pipeline_status_lock:
+                                    pipeline_status["latest_message"] = file_error_msg
+                                    pipeline_status["history_messages"].append(
+                                        file_error_msg
+                                    )
 
                             if deleted_files == []:
                                 file_error_msg = f"File deletion skipped, missing or unsafe file: {result.file_path}"

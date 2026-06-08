@@ -6,8 +6,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lightrag.prompt_version_store import PromptVersionStore
-
 pytestmark = pytest.mark.offline
 
 
@@ -33,7 +31,6 @@ class _DummyStorage:
 class _DummyRAG:
     def __init__(self, working_dir: str):
         self.workspace = "demo"
-        self.prompt_version_store = PromptVersionStore(working_dir, workspace="demo")
         self.text_chunks = _DummyStorage("text_chunks")
         self.full_docs = _DummyStorage("full_docs")
         self.full_entities = _DummyStorage("full_entities")
@@ -69,8 +66,7 @@ def test_rebuild_endpoint_preserves_source_files_and_starts_scan(
     archived_file.write_text("archived source", encoding="utf-8")
 
     rag = _DummyRAG(str(tmp_path))
-    seeded = rag.prompt_version_store.initialize(locale="en")
-    version_id = seeded["indexing"]["versions"][0]["version_id"]
+    version_id = "indexing-profile-1"
 
     pipeline_status = {"busy": False, "history_messages": [], "latest_message": ""}
     scan_calls: list[tuple[str | None, list[str]]] = []
@@ -109,7 +105,6 @@ def test_rebuild_endpoint_preserves_source_files_and_starts_scan(
     body = response.json()
     assert body["status"] == "rebuild_started"
     assert body["track_id"] == "rebuild-123"
-    assert rag.prompt_version_store.list_versions("indexing")["active_version_id"] == version_id
     assert rag.llm_response_cache.drop_calls == 1
     assert rag.doc_status.drop_calls == 1
     assert scan_calls == [("rebuild-123", ["archived.txt", "root.txt"])]

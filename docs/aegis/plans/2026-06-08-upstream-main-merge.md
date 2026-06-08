@@ -597,3 +597,102 @@ pre-merge safety tag: aegis/2026-06-08-pre-upstream-merge
 
 Fresh baseline and post-merge verification results are recorded here during execution.
 
+### 2026-06-08 pre-merge baseline attempt 1
+
+Commands and results:
+
+```text
+git status --short --branch
+PASS: clean integration branch before baseline, after plan commit.
+
+git diff --check
+PASS.
+
+ruff check lightrag/ tests/
+FAIL: ruff not found in PATH.
+
+uv run ruff check lightrag/ tests/
+FAIL: fresh .venv did not include ruff.
+
+uv sync --extra api --extra test --extra offline-storage --extra offline-llm
+PASS: installed test/lint/backend dependency set.
+
+uv run ruff check lightrag/ tests/
+PASS.
+
+./scripts/test.sh tests --test-workers 4
+FAIL before fixes: collection stopped with 2 errors:
+- tests/test_delete_file_variants_mineru_raw.py imported missing
+  document_routes._file_path_for_parsed_artifact_dir
+- tests/test_document_rebuild_route.py imported retired
+  lightrag.prompt_version_store.PromptVersionStore
+
+cd lightrag_webui && bun install --frozen-lockfile && bun run build && bun run lint
+FAIL before fixes: install/build passed; lint failed with 4 errors in
+src/features/RetrievalTesting.tsx from react-hooks immutability/refs rules.
+```
+
+Fixes applied before attempting upstream merge:
+
+- Restored `delete_file_variants_by_file_path()` and
+  `_file_path_for_parsed_artifact_dir()` in `document_routes.py`, with shared
+  handling for source files, parser-hinted files, parsed archive files,
+  `.parsed*` sidecars, and `.mineru_raw*` raw bundles.
+- Updated `background_delete_documents()` to use the shared deletion helper
+  instead of one-off source/enqueued deletion logic.
+- Retired stale prompt-version-store assertions from
+  `tests/test_document_rebuild_route.py`; the current route contract starts a
+  rebuild and scan but does not reactivate old prompt versions.
+- Updated `RetrievalTesting.tsx` so render uses state
+  (`hasQueryDataRequest`) instead of reading `latestArtifactsRequestRef.current`,
+  and moved ref declarations before hook callbacks that mutate them.
+
+Targeted verification after fixes:
+
+```text
+uv run ruff check lightrag/api/routers/document_routes.py \
+  tests/test_delete_file_variants_mineru_raw.py tests/test_document_rebuild_route.py
+PASS.
+
+./scripts/test.sh tests/test_delete_file_variants_mineru_raw.py \
+  tests/test_document_rebuild_route.py -q
+PASS: 5 passed.
+
+git diff --check && uv run ruff check lightrag/ tests/
+PASS.
+
+cd lightrag_webui && bun run build && bun run lint
+PASS: build passed; lint exited 0 with existing warnings.
+```
+
+Full backend baseline after fixes:
+
+```text
+./scripts/test.sh tests --test-workers 4
+FAIL: 84 failed, 1754 passed, 32 skipped, 2 errors in 37.75s.
+```
+
+Remaining hard-stop failure groups before any upstream merge:
+
+- `tests/test_batch_graph_operations.py`: custom KG / lazy initialization /
+  graph metadata failures.
+- `tests/test_bedrock_llm.py`: server role-LLM / health runtime expectations.
+- `tests/test_document_routes_docx_archive.py`: parser routing, scan/upload
+  pipeline reservation, destructive busy, and document archive behavior.
+- `tests/test_document_additional_routes.py`: custom chunks import/rebuild.
+- `tests/test_document_file_path_normalization.py` and
+  `tests/test_document_routes_paginated.py`: document route normalization and
+  pagination contract drift.
+- `tests/test_env_examples_completeness.py`: env example variable drift.
+- `tests/test_query_raw_route.py`: retired prompt override parameter still
+  present in test expectations.
+- `tests/test_startup_migration_timeout.py`: startup migration fake RAG missing
+  newer role-LLM builder contract.
+- `tests/test_workspace_runtime_app_integration.py`: app integration fake RAG /
+  fake provider surface missing current role-LLM runtime methods.
+
+Decision:
+
+- Do not start `git merge --no-commit --no-ff upstream/main` yet.
+- Next required slice is a pre-merge baseline repair pass or explicit user
+  decision to proceed with a documented red baseline.
