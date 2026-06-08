@@ -696,3 +696,64 @@ Decision:
 - Do not start `git merge --no-commit --no-ff upstream/main` yet.
 - Next required slice is a pre-merge baseline repair pass or explicit user
   decision to proceed with a documented red baseline.
+
+### 2026-06-08 pre-merge baseline repair pass 2
+
+Repair summary:
+
+- Preserved upstream pipeline reservation/scan/destructive-busy behavior in
+  `document_routes.py` while restoring local route contracts for upload,
+  scan, custom chunks import/rebuild, and paginated multi-status filtering.
+- Restored local custom KG/custom chunk durability in `lightrag.py`: lazy
+  storage initialization, full-doc/doc-status visibility, graph metadata
+  indexes, chunkless custom KG deletion cleanup, custom properties, directed
+  relation dedup, and empty extraction handling.
+- Restored chunk-tracking migration probe timeout in
+  `storage_migrations.py` with `LIGHTRAG_MIGRATION_PROBE_TIMEOUT_SECONDS`.
+- Retired stale prompt override / prompt-version-store expectations from
+  tests and the Dify OpenAPI schema.
+- Updated test fakes for current role-LLM runtime, workspace runtime,
+  route config, document pagination, and parser/archive contracts.
+- Synchronized `env.example` and `env.zh.example` variable coverage for
+  runtime/provider envs.
+
+Targeted verification:
+
+```text
+./scripts/test.sh tests/test_batch_graph_operations.py \
+  tests/test_document_routes_docx_archive.py \
+  tests/test_document_additional_routes.py \
+  tests/test_bedrock_llm.py \
+  tests/test_document_file_path_normalization.py \
+  tests/test_document_routes_paginated.py \
+  tests/test_env_examples_completeness.py \
+  tests/test_query_raw_route.py \
+  tests/test_startup_migration_timeout.py \
+  tests/test_workspace_runtime_app_integration.py -q
+PASS: 154 passed.
+```
+
+Full baseline verification after repair pass 2:
+
+```text
+uv run python -m json.tool docs/integrations/dify-query-tool.openapi.json
+PASS.
+
+git diff --check
+PASS.
+
+uv run ruff check lightrag/ tests/
+PASS.
+
+./scripts/test.sh tests --test-workers 4
+PASS: 1840 passed, 32 skipped in 37.58s.
+
+cd lightrag_webui && bun run build && bun run lint
+PASS: build passed; lint exited 0 with existing warnings.
+```
+
+Decision:
+
+- Pre-merge backend and WebUI baseline gates are now green.
+- Next safe action is to commit this baseline repair pass, then start
+  `git merge --no-commit --no-ff upstream/main` in the integration worktree.

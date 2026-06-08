@@ -1211,7 +1211,24 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
 
     async def initialize_storages(self):
         """Storage initialization must be called one by one to prevent deadlock"""
-        if self._storages_status == StoragesStatus.CREATED:
+        storages = (
+            getattr(self, "full_docs", None),
+            getattr(self, "text_chunks", None),
+            getattr(self, "full_entities", None),
+            getattr(self, "full_relations", None),
+            getattr(self, "entity_chunks", None),
+            getattr(self, "relation_chunks", None),
+            getattr(self, "entities_vdb", None),
+            getattr(self, "relationships_vdb", None),
+            getattr(self, "chunks_vdb", None),
+            getattr(self, "chunk_entity_relation_graph", None),
+            getattr(self, "llm_response_cache", None),
+            getattr(self, "doc_status", None),
+        )
+        storage_status = getattr(
+            self, "_storages_status", StoragesStatus.INITIALIZED
+        )
+        if storage_status == StoragesStatus.CREATED:
             # Set the first initialized workspace will set the default workspace
             # Allows namespace operation without specifying workspace for backward compatibility
             default_workspace = get_default_workspace()
@@ -1228,26 +1245,22 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
 
             await initialize_pipeline_status(workspace=self.workspace)
 
-            for storage in (
-                self.full_docs,
-                self.text_chunks,
-                self.full_entities,
-                self.full_relations,
-                self.entity_chunks,
-                self.relation_chunks,
-                self.entities_vdb,
-                self.relationships_vdb,
-                self.chunks_vdb,
-                self.chunk_entity_relation_graph,
-                self.llm_response_cache,
-                self.doc_status,
-            ):
+            for storage in storages:
                 if storage:
                     # logger.debug(f"Initializing storage: {storage}")
                     await storage.initialize()
 
             self._storages_status = StoragesStatus.INITIALIZED
             logger.debug("All storage types initialized")
+        elif storage_status == StoragesStatus.INITIALIZED:
+            for storage in storages:
+                if not storage:
+                    continue
+                if getattr(storage, "_initialized", True) is False or (
+                    hasattr(storage, "_storage_lock")
+                    and getattr(storage, "_storage_lock", None) is None
+                ):
+                    await storage.initialize()
 
     async def finalize_storages(self):
         """Asynchronously finalize the storages with improved error handling"""
@@ -1298,6 +1311,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             self._storages_status = StoragesStatus.FINALIZED
 
     async def get_graph_labels(self):
+        await self.initialize_storages()
         text = await self.chunk_entity_relation_graph.get_all_labels()
         return text
 
@@ -1476,7 +1490,11 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             # Clean input texts
             full_text = sanitize_text_for_encoding(full_text)
             text_chunks = [sanitize_text_for_encoding(chunk) for chunk in text_chunks]
-            file_path = file_path.strip() if isinstance(file_path, str) else ""
+            file_path = (
+                file_path.strip()
+                if isinstance(file_path, str) and file_path.strip()
+                else "unknown_source"
+            )
             track_id = generate_track_id("insert")
             created_at_iso = datetime.now(timezone.utc).isoformat()
 
@@ -1531,8 +1549,9 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                     "source": "custom_chunks",
                 },
             }
-            await self.doc_status.upsert({doc_key: doc_status_payload})
-            doc_status_initialized = True
+            if hasattr(self, "doc_status"):
+                await self.doc_status.upsert({doc_key: doc_status_payload})
+                doc_status_initialized = True
 
             self._validate_custom_chunks_against_embedding_limit(inserting_chunks)
 
@@ -1542,40 +1561,42 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                 self.text_chunks.upsert(inserting_chunks),
             )
             chunk_results = await self._process_extract_entities(inserting_chunks)
-            merge_pipeline_status = {
-                "latest_message": "",
-                "history_messages": [],
-                "cancellation_requested": False,
-            }
-            merge_pipeline_status_lock = asyncio.Lock()
-            await merge_nodes_and_edges(
-                chunk_results=chunk_results,
-                knowledge_graph_inst=self.chunk_entity_relation_graph,
-                entity_vdb=self.entities_vdb,
-                relationships_vdb=self.relationships_vdb,
-                global_config=self._build_global_config(),
-                full_entities_storage=self.full_entities,
-                full_relations_storage=self.full_relations,
-                doc_id=doc_key,
-                pipeline_status=merge_pipeline_status,
-                pipeline_status_lock=merge_pipeline_status_lock,
-                llm_response_cache=self.llm_response_cache,
-                entity_chunks_storage=self.entity_chunks,
-                relation_chunks_storage=self.relation_chunks,
-                current_file_number=1,
-                total_files=1,
-                file_path=file_path or "unknown_source",
-            )
-
-            await self.doc_status.upsert(
-                {
-                    doc_key: {
-                        **doc_status_payload,
-                        "status": DocStatus.PROCESSED,
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                    }
+            if chunk_results:
+                merge_pipeline_status = {
+                    "latest_message": "",
+                    "history_messages": [],
+                    "cancellation_requested": False,
                 }
-            )
+                merge_pipeline_status_lock = asyncio.Lock()
+                await merge_nodes_and_edges(
+                    chunk_results=chunk_results,
+                    knowledge_graph_inst=self.chunk_entity_relation_graph,
+                    entity_vdb=self.entities_vdb,
+                    relationships_vdb=self.relationships_vdb,
+                    global_config=self._build_global_config(),
+                    full_entities_storage=self.full_entities,
+                    full_relations_storage=self.full_relations,
+                    doc_id=doc_key,
+                    pipeline_status=merge_pipeline_status,
+                    pipeline_status_lock=merge_pipeline_status_lock,
+                    llm_response_cache=self.llm_response_cache,
+                    entity_chunks_storage=self.entity_chunks,
+                    relation_chunks_storage=self.relation_chunks,
+                    current_file_number=1,
+                    total_files=1,
+                    file_path=file_path or "unknown_source",
+                )
+
+            if hasattr(self, "doc_status"):
+                await self.doc_status.upsert(
+                    {
+                        doc_key: {
+                            **doc_status_payload,
+                            "status": DocStatus.PROCESSED,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    }
+                )
 
             return doc_key
 
@@ -1939,16 +1960,119 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         custom_kg: dict[str, Any],
         full_doc_id: str = None,
         directed_relation_dedup: bool = False,
-    ) -> None:
+    ) -> dict[str, Any]:
+        await self.initialize_storages()
+        chunks = custom_kg.get("chunks", [])
+        entities = custom_kg.get("entities", [])
+        relationships = custom_kg.get("relationships", [])
+        if not chunks and not entities and not relationships:
+            raise ValueError("custom_kg must contain chunks, entities, or relationships")
+
+        def _require_text(data: dict[str, Any], field: str, owner: str) -> str:
+            value = str(data.get(field, "")).strip()
+            if not value:
+                raise ValueError(f"{owner} missing required field: {field}")
+            return value
+
+        for chunk_data in chunks:
+            _require_text(chunk_data, "content", "chunk")
+            _require_text(chunk_data, "source_id", "chunk")
+        for entity_data in entities:
+            _require_text(entity_data, "entity_name", "entity")
+        for relationship_data in relationships:
+            _require_text(relationship_data, "src_id", "relationship")
+            _require_text(relationship_data, "tgt_id", "relationship")
+
+        track_id = generate_track_id("custom_kg")
+        source_texts = [
+            str(chunk_data.get("content", ""))
+            for chunk_data in chunks
+            if str(chunk_data.get("content", "")).strip()
+        ]
+        if not source_texts:
+            source_texts = [
+                str(item.get("description") or item.get("entity_name") or "")
+                for item in [*entities, *relationships]
+                if str(item.get("description") or item.get("entity_name") or "").strip()
+            ]
+        full_doc_id = full_doc_id or compute_mdhash_id(
+            f"{track_id}:{'|'.join(source_texts) or 'custom_kg'}",
+            prefix="doc-",
+        )
+
+        def _first_file_path() -> str:
+            for item in [*chunks, *entities, *relationships]:
+                if item.get("file_path"):
+                    return normalize_document_file_path(item.get("file_path"))
+            return "custom_kg"
+
+        file_path = _first_file_path()
+        content = "\n".join(source_texts).strip() or "Custom KG import"
+        now_iso = datetime.now(timezone.utc).isoformat()
         update_storage = False
+        chunk_ids: list[str] = []
+        entity_index_names: list[str] = []
+        relation_index_pairs: list[list[str]] = []
+
+        def _append_unique(target: list[str], value: str) -> None:
+            if value not in target:
+                target.append(value)
+
+        def _collect_custom_properties(
+            data: dict[str, Any], known_fields: set[str]
+        ) -> dict[str, Any]:
+            custom = {}
+            if isinstance(data.get("custom_properties"), dict):
+                custom.update(data["custom_properties"])
+            for key, value in data.items():
+                if key not in known_fields and key != "custom_properties":
+                    custom[key] = value
+            return custom
+
+        def _source_ids_for(source_key: str) -> list[str]:
+            return chunk_to_source_map.get(source_key, ["UNKNOWN"])
+
+        def _join_sources(source_ids: list[str]) -> str:
+            if not source_ids:
+                return "UNKNOWN"
+            return GRAPH_FIELD_SEP.join(dict.fromkeys(source_ids))
+
+        await self.full_docs.upsert(
+            {
+                full_doc_id: {
+                    "content": content,
+                    "file_path": file_path,
+                    "created_at": now_iso,
+                    "updated_at": now_iso,
+                }
+            }
+        )
+        await self.doc_status.upsert(
+            {
+                full_doc_id: {
+                    "status": DocStatus.PENDING,
+                    "content_summary": get_content_summary(content),
+                    "content_length": len(content),
+                    "chunks_count": 0,
+                    "chunks_list": [],
+                    "file_path": file_path,
+                    "track_id": track_id,
+                    "created_at": now_iso,
+                    "updated_at": now_iso,
+                    "metadata": {"source": "custom_kg"},
+                    "error_msg": "",
+                }
+            }
+        )
+        update_storage = True
         try:
             # Insert chunks into vector storage
             all_chunks_data: dict[str, dict[str, str]] = {}
-            chunk_to_source_map: dict[str, str] = {}
-            for chunk_data in custom_kg.get("chunks", []):
+            chunk_to_source_map: dict[str, list[str]] = {}
+            for chunk_data in chunks:
                 chunk_content = sanitize_text_for_encoding(chunk_data["content"])
                 source_id = chunk_data["source_id"]
-                file_path = normalize_document_file_path(
+                chunk_file_path = normalize_document_file_path(
                     chunk_data.get("file_path", "custom_kg")
                 )
                 tokens = len(self.tokenizer.encode(chunk_content))
@@ -1964,14 +2088,13 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                     "source_id": source_id,
                     "tokens": tokens,
                     "chunk_order_index": chunk_order_index,
-                    "full_doc_id": full_doc_id
-                    if full_doc_id is not None
-                    else source_id,
-                    "file_path": file_path,
+                    "full_doc_id": full_doc_id,
+                    "file_path": chunk_file_path,
                     "status": DocStatus.PROCESSED,
                 }
                 all_chunks_data[chunk_id] = chunk_entry
-                chunk_to_source_map[source_id] = chunk_id
+                chunk_ids.append(chunk_id)
+                chunk_to_source_map.setdefault(source_id, []).append(chunk_id)
                 update_storage = True
 
             if all_chunks_data:
@@ -1983,7 +2106,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             # Keep the last declaration for each entity_name so batch backends
             # preserve the old serial upsert semantics deterministically.
             deduped_entities: dict[str, dict[str, Any]] = {}
-            for entity_data in custom_kg.get("entities", []):
+            for entity_data in entities:
                 entity_name = entity_data["entity_name"]
                 deduped_entities.pop(entity_name, None)
                 deduped_entities[entity_name] = entity_data
@@ -1996,8 +2119,9 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                 entity_type = entity_data.get("entity_type", "UNKNOWN")
                 description = entity_data.get("description", "No description provided")
                 source_chunk_id = entity_data.get("source_id", "UNKNOWN")
-                source_id = chunk_to_source_map.get(source_chunk_id, "UNKNOWN")
-                file_path = normalize_document_file_path(
+                source_ids = _source_ids_for(source_chunk_id)
+                source_id = _join_sources(source_ids)
+                entity_file_path = normalize_document_file_path(
                     entity_data.get("file_path", "custom_kg")
                 )
 
@@ -2011,13 +2135,29 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                     "entity_type": entity_type,
                     "description": description,
                     "source_id": source_id,
-                    "file_path": file_path,
+                    "file_path": entity_file_path,
                     "created_at": int(time.time()),
                 }
+                if entity_data.get("name"):
+                    node_data["name"] = entity_data["name"]
+                custom_properties = _collect_custom_properties(
+                    entity_data,
+                    {
+                        "entity_name",
+                        "name",
+                        "entity_type",
+                        "description",
+                        "source_id",
+                        "file_path",
+                    },
+                )
+                if custom_properties:
+                    node_data["custom_properties"] = custom_properties
                 entity_nodes.append((entity_name, node_data))
                 node_data_copy = dict(node_data)
                 node_data_copy["entity_name"] = entity_name
                 all_entities_data.append(node_data_copy)
+                _append_unique(entity_index_names, entity_name)
                 update_storage = True
 
             # Batch insert entities (reduces N serial awaits to 1)
@@ -2028,7 +2168,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             # Custom KG callers can opt into preserving endpoint order during
             # import deduplication without changing global graph storage rules.
             deduped_relationships: dict[tuple[str, str], dict[str, Any]] = {}
-            for relationship_data in custom_kg.get("relationships", []):
+            for relationship_data in relationships:
                 src_id = relationship_data["src_id"]
                 tgt_id = relationship_data["tgt_id"]
                 relation_key = _custom_kg_relation_key(
@@ -2047,18 +2187,24 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                 needed_node_ids.add(relationship_data["src_id"])
                 needed_node_ids.add(relationship_data["tgt_id"])
 
-            existing_nodes = await self.chunk_entity_relation_graph.has_nodes_batch(
+            existing_nodes_result = await self.chunk_entity_relation_graph.has_nodes_batch(
                 list(needed_node_ids)
+            )
+            existing_nodes = (
+                set(existing_nodes_result.keys())
+                if isinstance(existing_nodes_result, dict)
+                else set(existing_nodes_result or [])
             )
 
             # Create missing nodes in batch
-            missing_nodes: list[tuple[str, dict[str, str]]] = []
+            missing_nodes_by_id: dict[str, dict[str, Any]] = {}
             for relationship_data in deduped_relationships.values():
                 src_id = relationship_data["src_id"]
                 tgt_id = relationship_data["tgt_id"]
                 source_chunk_id = relationship_data.get("source_id", "UNKNOWN")
-                source_id = chunk_to_source_map.get(source_chunk_id, "UNKNOWN")
-                file_path = normalize_document_file_path(
+                source_ids = _source_ids_for(source_chunk_id)
+                source_id = _join_sources(source_ids)
+                relation_file_path = normalize_document_file_path(
                     relationship_data.get("file_path", "custom_kg")
                 )
 
@@ -2069,20 +2215,19 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
 
                 for need_insert_id in [src_id, tgt_id]:
                     if need_insert_id not in existing_nodes:
-                        missing_nodes.append(
-                            (
-                                need_insert_id,
-                                {
-                                    "entity_id": need_insert_id,
-                                    "source_id": source_id,
-                                    "description": "UNKNOWN",
-                                    "entity_type": "UNKNOWN",
-                                    "file_path": file_path,
-                                    "created_at": int(time.time()),
-                                },
-                            )
+                        if need_insert_id not in missing_nodes_by_id:
+                            missing_nodes_by_id[need_insert_id] = {
+                                "entity_id": need_insert_id,
+                                "source_ids": [],
+                                "description": "UNKNOWN",
+                                "entity_type": "UNKNOWN",
+                                "file_path": relation_file_path,
+                                "created_at": int(time.time()),
+                            }
+                        missing_nodes_by_id[need_insert_id]["source_ids"].extend(
+                            source_ids
                         )
-                        existing_nodes.add(need_insert_id)
+                        _append_unique(entity_index_names, need_insert_id)
 
                 relation_src_id, relation_tgt_id = _custom_kg_relation_key(
                     src_id, tgt_id, directed_relation_dedup
@@ -2093,9 +2238,23 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                     "description": relationship_data["description"],
                     "keywords": relationship_data["keywords"],
                     "source_id": source_id,
-                    "file_path": file_path,
+                    "file_path": relation_file_path,
                     "created_at": int(time.time()),
                 }
+                rel_custom_properties = _collect_custom_properties(
+                    relationship_data,
+                    {
+                        "src_id",
+                        "tgt_id",
+                        "description",
+                        "keywords",
+                        "weight",
+                        "source_id",
+                        "file_path",
+                    },
+                )
+                if rel_custom_properties:
+                    edge_data["custom_properties"] = rel_custom_properties
                 edge_list.append((src_id, tgt_id, edge_data))
 
                 all_relationships_data.append(
@@ -2106,13 +2265,21 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                         "keywords": relationship_data["keywords"],
                         "source_id": source_id,
                         "weight": relationship_data.get("weight", 1.0),
-                        "file_path": file_path,
+                        "file_path": relation_file_path,
                         "created_at": int(time.time()),
                     }
                 )
+                relation_pair = [relation_src_id, relation_tgt_id]
+                if relation_pair not in relation_index_pairs:
+                    relation_index_pairs.append(relation_pair)
                 update_storage = True
 
             # Batch insert missing placeholder nodes
+            missing_nodes: list[tuple[str, dict[str, Any]]] = []
+            for node_id, node_data in missing_nodes_by_id.items():
+                source_ids = node_data.pop("source_ids", [])
+                node_data["source_id"] = _join_sources(source_ids)
+                missing_nodes.append((node_id, node_data))
             if missing_nodes:
                 await self.chunk_entity_relation_graph.upsert_nodes_batch(missing_nodes)
 
@@ -2172,12 +2339,117 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             if legacy_rel_ids_to_delete:
                 await self.relationships_vdb.delete(legacy_rel_ids_to_delete)
 
+            if self.entity_chunks:
+                entity_chunk_payload = {
+                    entity_name: {
+                        "chunk_ids": [
+                            chunk_id
+                            for chunk_id in dict.fromkeys(
+                                dict(entity_nodes + missing_nodes)
+                                .get(entity_name, {})
+                                .get("source_id", "")
+                                .split(GRAPH_FIELD_SEP)
+                            )
+                            if chunk_id and chunk_id != "UNKNOWN"
+                        ],
+                        "count": 0,
+                        "updated_at": int(time.time()),
+                    }
+                    for entity_name in entity_index_names
+                }
+                entity_chunk_payload = {
+                    name: {**payload, "count": len(payload["chunk_ids"])}
+                    for name, payload in entity_chunk_payload.items()
+                    if payload["chunk_ids"]
+                }
+                if entity_chunk_payload:
+                    await self.entity_chunks.upsert(entity_chunk_payload)
+
+            if self.relation_chunks:
+                relation_chunk_payload = {}
+                for rel in all_relationships_data:
+                    relation_chunks = [
+                        chunk_id
+                        for chunk_id in rel["source_id"].split(GRAPH_FIELD_SEP)
+                        if chunk_id and chunk_id != "UNKNOWN"
+                    ]
+                    if not relation_chunks:
+                        continue
+                    storage_key = make_relation_chunk_key(rel["src_id"], rel["tgt_id"])
+                    relation_chunk_payload[storage_key] = {
+                        "chunk_ids": relation_chunks,
+                        "count": len(relation_chunks),
+                        "updated_at": int(time.time()),
+                    }
+                if relation_chunk_payload:
+                    await self.relation_chunks.upsert(relation_chunk_payload)
+
+            await self.full_entities.upsert(
+                {
+                    full_doc_id: {
+                        "entity_names": entity_index_names,
+                        "count": len(entity_index_names),
+                        "updated_at": now_iso,
+                    }
+                }
+            )
+            await self.full_relations.upsert(
+                {
+                    full_doc_id: {
+                        "relation_pairs": relation_index_pairs,
+                        "count": len(relation_index_pairs),
+                        "updated_at": now_iso,
+                    }
+                }
+            )
+            await self.doc_status.upsert(
+                {
+                    full_doc_id: {
+                        "status": DocStatus.PROCESSED,
+                        "content_summary": get_content_summary(content),
+                        "content_length": len(content),
+                        "chunks_count": len(chunk_ids),
+                        "chunks_list": chunk_ids,
+                        "file_path": file_path,
+                        "track_id": track_id,
+                        "created_at": now_iso,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                        "metadata": {"source": "custom_kg"},
+                        "error_msg": "",
+                    }
+                }
+            )
+
         except Exception as e:
+            await self.doc_status.upsert(
+                {
+                    full_doc_id: {
+                        "status": DocStatus.FAILED,
+                        "content_summary": get_content_summary(content),
+                        "content_length": len(content),
+                        "chunks_count": len(chunk_ids),
+                        "chunks_list": chunk_ids,
+                        "file_path": file_path,
+                        "track_id": track_id,
+                        "created_at": now_iso,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                        "metadata": {"source": "custom_kg"},
+                        "error_msg": str(e),
+                    }
+                }
+            )
             logger.error(f"Error in ainsert_custom_kg: {e}")
             raise
         finally:
             if update_storage:
                 await self._insert_done()
+        return {
+            "full_doc_id": full_doc_id,
+            "track_id": track_id,
+            "chunk_count": len(chunks),
+            "entity_count": len(entity_index_names),
+            "relationship_count": len(relation_index_pairs),
+        }
 
     def query(
         self,
@@ -2772,6 +3044,8 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         if not id_list:
             logger.debug("aget_docs_by_ids called with an empty list of IDs.")
             return {}
+
+        await self.initialize_storages()
 
         # Create tasks to fetch document statuses concurrently using the doc_status storage
         tasks = [self.doc_status.get_by_id(doc_id) for doc_id in id_list]
@@ -3428,6 +3702,58 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                         ) from cache_err
 
                 try:
+                    should_delete_chunkless_graph = (
+                        metadata.get("source") == "custom_kg"
+                    )
+                    if should_delete_chunkless_graph:
+                        doc_entities_data = await self.full_entities.get_by_id(doc_id)
+                        doc_relations_data = await self.full_relations.get_by_id(
+                            doc_id
+                        )
+                        relation_pairs = (
+                            doc_relations_data.get("relation_pairs", [])
+                            if isinstance(doc_relations_data, dict)
+                            else []
+                        )
+                        entity_names = (
+                            doc_entities_data.get("entity_names", [])
+                            if isinstance(doc_entities_data, dict)
+                            else []
+                        )
+                        if relation_pairs:
+                            relation_tuples = [
+                                (pair[0], pair[1])
+                                for pair in relation_pairs
+                                if isinstance(pair, list | tuple) and len(pair) >= 2
+                            ]
+                            rel_ids_to_delete = []
+                            for src, tgt in relation_tuples:
+                                rel_ids_to_delete.extend(make_relation_vdb_ids(src, tgt))
+                            if rel_ids_to_delete:
+                                await self.relationships_vdb.delete(rel_ids_to_delete)
+                            await self.chunk_entity_relation_graph.remove_edges(
+                                relation_tuples
+                            )
+                            if self.relation_chunks:
+                                await self.relation_chunks.delete(
+                                    [
+                                        make_relation_chunk_key(src, tgt)
+                                        for src, tgt in relation_tuples
+                                    ]
+                                )
+                        if entity_names:
+                            await self.chunk_entity_relation_graph.remove_nodes(
+                                entity_names
+                            )
+                            await self.entities_vdb.delete(
+                                [
+                                    compute_mdhash_id(entity, prefix="ent-")
+                                    for entity in entity_names
+                                ]
+                            )
+                            if self.entity_chunks:
+                                await self.entity_chunks.delete(entity_names)
+
                     # Still need to delete the doc status and full doc.
                     # Delete doc_status first: if full_docs.delete fails on retry, the
                     # doc_status record is already gone so the retry finds no record and
@@ -3435,6 +3761,9 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                     deletion_stage = "delete_doc_entries"
                     await self.doc_status.delete([doc_id])
                     await self.full_docs.delete([doc_id])
+                    if should_delete_chunkless_graph:
+                        await self.full_entities.delete([doc_id])
+                        await self.full_relations.delete([doc_id])
                 except Exception as e:
                     logger.error(
                         f"Failed to delete document {doc_id} with no chunks: {e}"

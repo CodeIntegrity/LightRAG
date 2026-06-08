@@ -45,7 +45,6 @@ def _build_query_client(monkeypatch):
         query_routes.create_query_routes(
             rag,
             api_key=None,
-            allow_prompt_overrides_via_api=True,
         )
     )
     return TestClient(app), rag

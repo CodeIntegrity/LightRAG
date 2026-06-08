@@ -29,7 +29,9 @@ class _UnexpectedGraphStorage:
 
 @pytest.mark.asyncio
 async def test_chunk_tracking_migration_skips_when_probe_times_out(monkeypatch):
-    monkeypatch.setattr("lightrag.lightrag._MIGRATION_PROBE_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(
+        "lightrag.storage_migrations._MIGRATION_PROBE_TIMEOUT_SECONDS", 0.01
+    )
 
     entity_chunks = _HangingChunkStorage()
     relation_chunks = _HangingChunkStorage()

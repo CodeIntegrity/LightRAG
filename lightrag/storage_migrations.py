@@ -12,10 +12,30 @@ Mixed into LightRAG and runs once at startup (``initialize_storages`` →
 
 from __future__ import annotations
 
+import asyncio
+import os
+
 from lightrag.base import DocStatus
 from lightrag.constants import GRAPH_FIELD_SEP
 from lightrag.kg.shared_storage import get_data_init_lock
 from lightrag.utils import logger, make_relation_chunk_key
+
+_MIGRATION_PROBE_TIMEOUT_SECONDS = float(
+    os.getenv("LIGHTRAG_MIGRATION_PROBE_TIMEOUT_SECONDS", "30")
+)
+
+
+async def _is_empty_with_timeout(storage, storage_name: str) -> bool | None:
+    try:
+        return await asyncio.wait_for(
+            storage.is_empty(), timeout=_MIGRATION_PROBE_TIMEOUT_SECONDS
+        )
+    except TimeoutError:
+        logger.warning(
+            f"Skipping chunk_tracking migration: {storage_name} probe timed out "
+            f"after {_MIGRATION_PROBE_TIMEOUT_SECONDS}s"
+        )
+        return None
 
 
 class _StorageMigrationMixin:
@@ -204,16 +224,24 @@ class _StorageMigrationMixin:
         need_relation_migration = False
 
         try:
-            need_entity_migration = await self.entity_chunks.is_empty()
+            need_entity_migration = await _is_empty_with_timeout(
+                self.entity_chunks, "entity_chunks"
+            )
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.error(f"Failed to check entity chunks storage: {exc}")
             raise exc
+        if need_entity_migration is None:
+            return
 
         try:
-            need_relation_migration = await self.relation_chunks.is_empty()
+            need_relation_migration = await _is_empty_with_timeout(
+                self.relation_chunks, "relation_chunks"
+            )
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.error(f"Failed to check relation chunks storage: {exc}")
             raise exc
+        if need_relation_migration is None:
+            return
 
         if not need_entity_migration and not need_relation_migration:
             return

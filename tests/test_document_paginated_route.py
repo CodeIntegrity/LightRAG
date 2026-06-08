@@ -17,12 +17,14 @@ class _DummyDocStatus:
         self,
         *,
         status_filter=None,
+        status_filters=None,
         page: int,
         page_size: int,
         sort_field: str,
         sort_direction: str,
     ):
         assert status_filter is None
+        assert status_filters is None
         assert page == 1
         assert page_size == 20
         assert sort_field == "updated_at"

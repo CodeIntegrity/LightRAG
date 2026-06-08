@@ -68,7 +68,7 @@ _fake_doc_status = _FakeDocStatusStorage()
 _app = FastAPI()
 _app.include_router(
     create_document_routes(
-        SimpleNamespace(doc_status=_fake_doc_status),
+        SimpleNamespace(doc_status=_fake_doc_status, workspace="test"),
         SimpleNamespace(),
         api_key="test-key",
     )

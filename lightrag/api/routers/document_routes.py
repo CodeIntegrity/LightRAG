@@ -31,10 +31,21 @@ from lightrag.utils import (
     generate_track_id,
     compute_mdhash_id,
     sanitize_text_for_encoding,
+    move_file_to_parsed_dir,
 )
 from lightrag.api.utils_api import get_combined_auth_dependency
 from lightrag.api.workspace_runtime import get_current_runtime
-from lightrag.constants import PARSED_DIR_NAME
+from lightrag.constants import (
+    FULL_DOCS_FORMAT_PENDING_PARSE,
+    PARSED_DIR_NAME,
+    PARSER_ENGINE_LEGACY,
+    PROCESS_OPTION_CHUNK_FIXED,
+)
+from lightrag.parser_routing import (
+    FilenameParserHintError,
+    resolve_file_parser_directives,
+)
+from lightrag.utils_pipeline import normalize_document_file_path
 from ..config import global_args
 
 
@@ -264,7 +275,7 @@ class ScanResponse(BaseModel):
         track_id: Tracking ID for monitoring scanning progress
     """
 
-    status: Literal["scanning_started"] = Field(
+    status: Literal["scanning_started", "scanning_skipped_pipeline_busy"] = Field(
         description="Status of the scanning operation"
     )
     message: Optional[str] = Field(
@@ -813,6 +824,10 @@ class DocumentsRequest(BaseModel):
     status_filter: Optional[DocStatus] = Field(
         default=None, description="Filter by document status, None for all statuses"
     )
+    status_filters: Optional[list[DocStatus]] = Field(
+        default=None,
+        description="Filter by multiple document statuses. Takes precedence over status_filter.",
+    )
     page: int = Field(default=1, ge=1, description="Page number (1-based)")
     page_size: int = Field(
         default=50, ge=10, le=200, description="Number of documents per page (10-200)"
@@ -828,6 +843,7 @@ class DocumentsRequest(BaseModel):
         json_schema_extra={
             "example": {
                 "status_filter": "PROCESSED",
+                "status_filters": ["PARSING", "ANALYZING"],
                 "page": 1,
                 "page_size": 50,
                 "sort_field": "updated_at",
@@ -1663,8 +1679,93 @@ def _extract_xlsx(file_bytes: bytes) -> str:
     return "\n".join(content_parts)
 
 
+async def _reserve_enqueue_slot(rag: LightRAG) -> bool:
+    """Reserve an upload/insert slot before handing work to a background task."""
+    from lightrag.kg.shared_storage import (
+        get_namespace_data,
+        get_namespace_lock,
+        initialize_pipeline_status,
+    )
+
+    await initialize_pipeline_status(workspace=rag.workspace)
+    pipeline_status = await get_namespace_data(
+        "pipeline_status", workspace=rag.workspace
+    )
+    pipeline_status_lock = get_namespace_lock(
+        "pipeline_status", workspace=rag.workspace
+    )
+
+    async with pipeline_status_lock:
+        if pipeline_status.get("scanning_exclusive"):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Cannot enqueue while scan is classifying files; "
+                    "wait for classification to finish before retrying."
+                ),
+            )
+        if pipeline_status.get("destructive_busy"):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Cannot enqueue while pipeline is clearing or deleting "
+                    "documents; wait for the running job to finish."
+                ),
+            )
+        pipeline_status["pending_enqueues"] = (
+            int(pipeline_status.get("pending_enqueues", 0) or 0) + 1
+        )
+    return True
+
+
+async def _release_enqueue_slot(rag: LightRAG) -> None:
+    from lightrag.kg.shared_storage import get_namespace_data, get_namespace_lock
+
+    pipeline_status = await get_namespace_data(
+        "pipeline_status", workspace=rag.workspace
+    )
+    pipeline_status_lock = get_namespace_lock(
+        "pipeline_status", workspace=rag.workspace
+    )
+
+    async with pipeline_status_lock:
+        pending = int(pipeline_status.get("pending_enqueues", 0) or 0)
+        pipeline_status["pending_enqueues"] = max(0, pending - 1)
+
+
+async def _run_pipeline_index_file_with_slot(
+    rag: LightRAG, file_path: Path, track_id: str
+) -> None:
+    try:
+        await pipeline_index_file(rag, file_path, track_id)
+    finally:
+        await _release_enqueue_slot(rag)
+
+
+async def _run_pipeline_index_texts_with_slot(
+    rag: LightRAG,
+    texts: List[str],
+    *,
+    file_sources: List[str] | None,
+    track_id: str,
+) -> None:
+    try:
+        await pipeline_index_texts(
+            rag,
+            texts,
+            file_sources=file_sources,
+            track_id=track_id,
+        )
+    finally:
+        await _release_enqueue_slot(rag)
+
+
 async def pipeline_enqueue_file(
-    rag: LightRAG, file_path: Path, track_id: str = None
+    rag: LightRAG,
+    file_path: Path,
+    track_id: str = None,
+    *,
+    from_scan: bool = False,
 ) -> tuple[bool, str]:
     """Add a file to the queue for processing
 
@@ -1691,6 +1792,43 @@ async def pipeline_enqueue_file(
             file_size = stat.st_size
         except Exception:
             file_size = 0
+
+        try:
+            parse_engine, process_options = resolve_file_parser_directives(
+                file_path,
+            )
+        except ValueError as e:
+            error_description = "[File Extraction]Invalid parser routing"
+            if isinstance(e, FilenameParserHintError):
+                error_description = "[File Extraction]Filename hint error"
+            error_files = [
+                {
+                    "file_path": str(file_path.name),
+                    "error_description": error_description,
+                    "original_error": str(e),
+                    "file_size": file_size,
+                }
+            ]
+            await rag.apipeline_enqueue_error_documents(error_files, track_id)
+            logger.error(
+                f"[File Extraction]Invalid parser routing for {file_path.name}: {e}"
+            )
+            return False, track_id
+
+        if parse_engine != PARSER_ENGINE_LEGACY:
+            await rag.apipeline_enqueue_documents(
+                "",
+                file_paths=str(file_path),
+                track_id=track_id,
+                docs_format=FULL_DOCS_FORMAT_PENDING_PARSE,
+                parse_engine=parse_engine,
+                process_options=process_options or PROCESS_OPTION_CHUNK_FIXED,
+                from_scan=from_scan,
+            )
+            logger.info(
+                f"Successfully enqueued parser-routed file: {file_path.name}"
+            )
+            return True, track_id
 
         file = None
         try:
@@ -2036,38 +2174,30 @@ async def pipeline_enqueue_file(
                 return False, track_id
 
             try:
-                await rag.apipeline_enqueue_documents(
-                    content, file_paths=file_path.name, track_id=track_id
+                enqueue_result = await rag.apipeline_enqueue_documents(
+                    content,
+                    file_paths=file_path.name,
+                    track_id=track_id,
+                    parse_engine=parse_engine,
+                    process_options=process_options or PROCESS_OPTION_CHUNK_FIXED,
+                    from_scan=from_scan,
                 )
 
                 logger.info(
                     f"Successfully extracted and enqueued file: {file_path.name}"
                 )
 
-                # Move file to __enqueued__ directory after enqueuing
+                # Archive legacy-extracted source after enqueueing.
                 try:
-                    enqueued_dir = file_path.parent / "__enqueued__"
-                    await asyncio.to_thread(enqueued_dir.mkdir, exist_ok=True)
-
-                    # Generate unique filename to avoid conflicts
-                    unique_filename = get_unique_filename_in_enqueued(
-                        enqueued_dir, file_path.name
-                    )
-                    target_path = enqueued_dir / unique_filename
-
-                    # Move the file
-                    await asyncio.to_thread(file_path.rename, target_path)
-                    logger.debug(
-                        f"Moved file to enqueued directory: {file_path.name} -> {unique_filename}"
-                    )
+                    await move_file_to_parsed_dir(file_path)
 
                 except Exception as move_error:
                     logger.error(
-                        f"Failed to move file {file_path.name} to __enqueued__ directory: {move_error}"
+                        f"Failed to archive file {file_path.name} to {PARSED_DIR_NAME}: {move_error}"
                     )
                     # Don't affect the main function's success status
 
-                return True, track_id
+                return enqueue_result is not None, track_id
 
             except Exception as e:
                 error_files = [
@@ -2121,7 +2251,13 @@ async def pipeline_enqueue_file(
                 logger.error(f"Error deleting file {file_path}: {str(e)}")
 
 
-async def pipeline_index_file(rag: LightRAG, file_path: Path, track_id: str = None):
+async def pipeline_index_file(
+    rag: LightRAG,
+    file_path: Path,
+    track_id: str = None,
+    *,
+    from_scan: bool = False,
+):
     """Index a file with track_id
 
     Args:
@@ -2131,7 +2267,7 @@ async def pipeline_index_file(rag: LightRAG, file_path: Path, track_id: str = No
     """
     try:
         success, returned_track_id = await pipeline_enqueue_file(
-            rag, file_path, track_id
+            rag, file_path, track_id, from_scan=from_scan
         )
         if success:
             await rag.apipeline_process_enqueue_documents()
@@ -2142,7 +2278,11 @@ async def pipeline_index_file(rag: LightRAG, file_path: Path, track_id: str = No
 
 
 async def pipeline_index_files(
-    rag: LightRAG, file_paths: List[Path], track_id: str = None
+    rag: LightRAG,
+    file_paths: List[Path],
+    track_id: str = None,
+    *,
+    from_scan: bool = False,
 ):
     """Index multiple files sequentially to avoid high CPU load
 
@@ -2163,7 +2303,9 @@ async def pipeline_index_files(
 
         # Process files sequentially with track_id
         for file_path in sorted_file_paths:
-            success, _ = await pipeline_enqueue_file(rag, file_path, track_id)
+            success, _ = await pipeline_enqueue_file(
+                rag, file_path, track_id, from_scan=from_scan
+            )
             if success:
                 enqueued = True
 
@@ -2195,8 +2337,10 @@ async def pipeline_index_texts(
     normalized_file_sources: list[str] | None = None
     if file_sources:
         normalized_file_sources = [
-            normalize_file_path(source) for source in file_sources
+            normalize_document_file_path(source) for source in file_sources
         ]
+        if any(source == UNKNOWN_FILE_SOURCE for source in normalized_file_sources):
+            raise ValueError("Each text must provide a valid file source")
         if len(normalized_file_sources) > len(texts):
             raise ValueError("Number of file sources must not exceed number of texts")
         if len(normalized_file_sources) < len(texts):
@@ -2205,7 +2349,10 @@ async def pipeline_index_texts(
             )
 
     await rag.apipeline_enqueue_documents(
-        input=texts, file_paths=normalized_file_sources, track_id=track_id
+        input=texts,
+        file_paths=normalized_file_sources,
+        track_id=track_id,
+        process_options=PROCESS_OPTION_CHUNK_FIXED,
     )
     await rag.apipeline_process_enqueue_documents()
 
@@ -2223,8 +2370,10 @@ async def run_scanning_process(
     from lightrag.kg.shared_storage import (
         get_namespace_data,
         get_namespace_lock,
+        initialize_pipeline_status,
     )
 
+    await initialize_pipeline_status(workspace=rag.workspace)
     pipeline_status = await get_namespace_data(
         "pipeline_status", workspace=rag.workspace
     )
@@ -2232,84 +2381,117 @@ async def run_scanning_process(
         "pipeline_status", workspace=rag.workspace
     )
 
+    async def _find_existing_doc(file_path: Path):
+        candidates = [
+            str(file_path),
+            file_path.name,
+            normalize_document_file_path(file_path.name),
+        ]
+        seen_candidates: set[str] = set()
+        for candidate in candidates:
+            if candidate in seen_candidates:
+                continue
+            seen_candidates.add(candidate)
+            existing = await rag.doc_status.get_doc_by_file_path(candidate)
+            if existing:
+                return candidate, existing
+
+        if hasattr(rag.doc_status, "get_doc_by_file_basename"):
+            match = await rag.doc_status.get_doc_by_file_basename(
+                normalize_document_file_path(file_path.name)
+            )
+            if match:
+                return match
+        return None
+
+    def _status_value(doc: dict[str, Any]) -> str:
+        status = doc.get("status", "")
+        if hasattr(status, "value"):
+            status = status.value
+        return str(status).lower()
+
     try:
+        async with pipeline_status_lock:
+            pipeline_status["scanning"] = True
+            pipeline_status["scanning_exclusive"] = True
+            pipeline_status["scan_is_scanning"] = True
+            pipeline_status["scan_indexed_count"] = 0
+            pipeline_status["scan_current_file"] = ""
+
         new_files = doc_manager.scan_directory_for_new_files()
         total_files = len(new_files)
         logger.info(f"Found {total_files} files to index.")
 
-        if new_files:
-            # Check for files with PROCESSED status and filter them out
-            valid_files = []
-            processed_files = []
+        valid_files: list[Path] = []
+        resume_needed = False
+        files_by_canonical: dict[str, list[Path]] = {}
 
-            for file_path in new_files:
-                filename = file_path.name
-                existing_doc_data = await rag.doc_status.get_doc_by_file_path(filename)
+        for file_path in new_files:
+            files_by_canonical.setdefault(
+                normalize_document_file_path(file_path.name), []
+            ).append(file_path)
 
-                if existing_doc_data and existing_doc_data.get("status") == "processed":
-                    # File is already PROCESSED, skip it with warning
-                    processed_files.append(filename)
-                    logger.warning(f"Skipping already processed file: {filename}")
-                else:
-                    # File is new or in non-PROCESSED status, add to processing list
-                    valid_files.append(file_path)
-
-            # Set scan state for progress tracking
-            async with pipeline_status_lock:
-                pipeline_status["scan_is_scanning"] = True
-                pipeline_status["scan_total_files"] = len(valid_files)
-                pipeline_status["scan_indexed_count"] = 0
-                pipeline_status["scan_current_file"] = ""
-
-            # Process valid files (new files + non-PROCESSED status files)
-            if valid_files:
-                enqueued = False
-                from lightrag.utils import get_pinyin_sort_key
-
-                sorted_file_paths = sorted(
-                    valid_files, key=lambda p: get_pinyin_sort_key(str(p))
+        for canonical_name, file_group in files_by_canonical.items():
+            selected = file_group[0]
+            if len(file_group) > 1:
+                selected = next(
+                    (
+                        path
+                        for path in file_group
+                        if normalize_document_file_path(path.name) != path.name
+                    ),
+                    file_group[0],
                 )
+                for duplicate in file_group:
+                    if duplicate != selected:
+                        await move_file_to_parsed_dir(duplicate)
 
-                for file_path in sorted_file_paths:
-                    filename = str(file_path.name)
-                    async with pipeline_status_lock:
-                        pipeline_status["scan_current_file"] = filename
-                    success, _ = await pipeline_enqueue_file(
-                        rag, file_path, track_id
-                    )
-                    if success:
-                        enqueued = True
-                    async with pipeline_status_lock:
-                        pipeline_status["scan_indexed_count"] = (
-                            pipeline_status.get("scan_indexed_count", 0) + 1
-                        )
+            existing_match = await _find_existing_doc(selected)
+            if existing_match:
+                doc_id, existing_doc_data = existing_match
+                status = _status_value(existing_doc_data)
+                if status == DocStatus.PROCESSED.value:
+                    await move_file_to_parsed_dir(selected)
+                    logger.warning(f"Skipping already processed file: {selected.name}")
+                    continue
+                if status == DocStatus.FAILED.value:
+                    full_doc = None
+                    if hasattr(rag, "full_docs"):
+                        full_doc = await rag.full_docs.get_by_id(doc_id)
+                    if full_doc is None:
+                        await rag.doc_status.delete([doc_id])
+                        valid_files.append(selected)
+                        continue
+                resume_needed = True
+                continue
 
-                if enqueued:
-                    await rag.apipeline_process_enqueue_documents()
-                if processed_files:
-                    logger.info(
-                        f"Scanning process completed: {len(valid_files)} files Processed {len(processed_files)} skipped."
-                    )
-                else:
-                    logger.info(
-                        f"Scanning process completed: {len(valid_files)} files Processed."
-                    )
-            else:
-                logger.info(
-                    "No files to process after filtering already processed files."
-                )
-        else:
-            # No new files to index, check if there are any documents in the queue
-            logger.info(
-                "No upload file found, check if there are any documents in the queue..."
+            # Canonical duplicate found through another name in the same scan.
+            if canonical_name != normalize_document_file_path(selected.name):
+                await move_file_to_parsed_dir(selected)
+                continue
+            valid_files.append(selected)
+
+        async with pipeline_status_lock:
+            pipeline_status["scan_total_files"] = len(valid_files)
+            pipeline_status["scanning_exclusive"] = False
+
+        if valid_files:
+            await pipeline_index_files(
+                rag, valid_files, track_id, from_scan=True
             )
+
+        if resume_needed or not new_files:
             await rag.apipeline_process_enqueue_documents()
+
+        logger.info(f"Scanning process completed: {len(valid_files)} files queued.")
 
     except Exception as e:
         logger.error(f"Error during scanning process: {str(e)}")
         logger.error(traceback.format_exc())
     finally:
         async with pipeline_status_lock:
+            pipeline_status["scanning"] = False
+            pipeline_status["scanning_exclusive"] = False
             pipeline_status["scan_is_scanning"] = False
             pipeline_status["scan_current_file"] = ""
 
@@ -2340,7 +2522,9 @@ async def background_delete_documents(
 
     # Double-check pipeline status before proceeding
     async with pipeline_status_lock:
-        if pipeline_status.get("busy", False):
+        if pipeline_status.get("busy", False) and not pipeline_status.get(
+            "destructive_busy", False
+        ):
             logger.warning("Error: Unexpected pipeline busy state, aborting deletion.")
             return  # Abort deletion operation
 
@@ -2355,6 +2539,7 @@ async def background_delete_documents(
                 "batchs": total_docs,
                 "cur_batch": 0,
                 "latest_message": "Starting document deletion process",
+                "destructive_busy": True,
             }
         )
         # Use slice assignment to clear the list in place
@@ -2489,6 +2674,7 @@ async def background_delete_documents(
         # Final summary and check for pending requests
         async with pipeline_status_lock:
             pipeline_status["busy"] = False
+            pipeline_status["destructive_busy"] = False
             pipeline_status["pending_requests"] = False  # Reset pending requests flag
             pipeline_status["cancellation_requested"] = (
                 False  # Always reset cancellation flag
@@ -2595,6 +2781,27 @@ def create_document_routes(
         # Generate track_id with "scan" prefix for scanning operation
         track_id = generate_track_id("scan")
         current_rag, current_doc_manager = _current_runtime_objects()
+        from lightrag.kg.shared_storage import get_namespace_data, get_namespace_lock
+
+        pipeline_status = await get_namespace_data(
+            "pipeline_status", workspace=current_rag.workspace
+        )
+        pipeline_status_lock = get_namespace_lock(
+            "pipeline_status", workspace=current_rag.workspace
+        )
+
+        async with pipeline_status_lock:
+            if (
+                pipeline_status.get("busy")
+                or pipeline_status.get("scanning")
+                or int(pipeline_status.get("pending_enqueues", 0) or 0) > 0
+            ):
+                return ScanResponse(
+                    status="scanning_skipped_pipeline_busy",
+                    message="Scanning skipped because pipeline is busy",
+                    track_id=track_id,
+                )
+            pipeline_status["scanning"] = True
 
         # Start the scanning process in the background with track_id
         background_tasks.add_task(
@@ -2663,10 +2870,13 @@ def create_document_routes(
         Raises:
             HTTPException: If the file type is not supported (400), file too large (413), or other errors occur (500).
         """
+        reserved_enqueue = False
+        current_rag = None
         try:
             current_rag, current_doc_manager = _current_runtime_objects()
             # Sanitize filename to prevent Path Traversal attacks
             safe_filename = sanitize_filename(file.filename, current_doc_manager.input_dir)
+            canonical_filename = normalize_document_file_path(safe_filename)
 
             if not current_doc_manager.is_supported_file(safe_filename):
                 raise HTTPException(
@@ -2699,25 +2909,34 @@ def create_document_routes(
             existing_doc_data = await current_rag.doc_status.get_doc_by_file_path(
                 safe_filename
             )
+            if not existing_doc_data and canonical_filename != safe_filename:
+                existing_doc_data = await current_rag.doc_status.get_doc_by_file_path(
+                    canonical_filename
+                )
             if existing_doc_data:
                 # Get document status and track_id from existing document
                 status = existing_doc_data.get("status", "unknown")
-                # Use `or ""` to handle both missing key and None value (e.g., legacy rows without track_id)
-                existing_track_id = existing_doc_data.get("track_id") or ""
-                return InsertResponse(
-                    status="duplicated",
-                    message=f"File '{safe_filename}' already exists in document storage (Status: {status}).",
-                    track_id=existing_track_id,
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"File '{canonical_filename}' already exists in document "
+                        f"storage (Status: {status})."
+                    ),
                 )
 
             file_path = current_doc_manager.input_dir / safe_filename
+            canonical_file_path = current_doc_manager.input_dir / canonical_filename
             # Check if file already exists in file system
-            if file_path.exists():
-                return InsertResponse(
-                    status="duplicated",
-                    message=f"File '{safe_filename}' already exists in the input directory.",
-                    track_id="",
+            if file_path.exists() or (
+                canonical_file_path != file_path and canonical_file_path.exists()
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"File '{canonical_filename}' already exists in the input directory.",
                 )
+
+            await _reserve_enqueue_slot(current_rag)
+            reserved_enqueue = True
 
             # Async streaming write with size check
             bytes_written = 0
@@ -2762,8 +2981,12 @@ def create_document_routes(
 
             # Add to background tasks and get track_id
             background_tasks.add_task(
-                pipeline_index_file, current_rag, file_path, track_id
+                _run_pipeline_index_file_with_slot,
+                current_rag,
+                file_path,
+                track_id,
             )
+            reserved_enqueue = False
 
             return InsertResponse(
                 status="success",
@@ -2772,9 +2995,13 @@ def create_document_routes(
             )
 
         except HTTPException:
+            if reserved_enqueue and current_rag is not None:
+                await _release_enqueue_slot(current_rag)
             # Re-raise HTTP exceptions (400, 413, etc.)
             raise
         except Exception as e:
+            if reserved_enqueue and current_rag is not None:
+                await _release_enqueue_slot(current_rag)
             logger.error(f"Error /documents/upload: {file.filename}: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
@@ -2974,7 +3201,6 @@ def create_document_routes(
                         status="busy",
                         message="Cannot rebuild custom chunk graphs while pipeline is busy.",
                     )
-                pipeline_status["busy"] = True
 
             background_tasks.add_task(
                 current_rag.arebuild_all_custom_chunks_graphs,
@@ -3006,7 +3232,7 @@ def create_document_routes(
             return CustomChunksImportResponse(
                 status="success",
                 message="Custom chunks imported successfully.",
-                doc_id=doc_id,
+                doc_id=doc_id or request.doc_id,
                 requested_chunk_count=len(request.text_chunks),
             )
         except Exception as e:
@@ -3155,7 +3381,11 @@ def create_document_routes(
 
         # Check and set status with lock
         async with pipeline_status_lock:
-            if pipeline_status.get("busy", False):
+            if (
+                pipeline_status.get("busy", False)
+                or pipeline_status.get("scanning", False)
+                or int(pipeline_status.get("pending_enqueues", 0) or 0) > 0
+            ):
                 return ClearDocumentsResponse(
                     status="busy",
                     message="Cannot clear documents while pipeline is busy",
@@ -3171,6 +3401,7 @@ def create_document_routes(
                     "cur_batch": 0,
                     "request_pending": False,  # Clear any previous request
                     "latest_message": "Starting document clearing process",
+                    "destructive_busy": True,
                 }
             )
             # Cleaning history_messages without breaking it as a shared list object
@@ -3305,6 +3536,7 @@ def create_document_routes(
             # Reset busy status after completion
             async with pipeline_status_lock:
                 pipeline_status["busy"] = False
+                pipeline_status["destructive_busy"] = False
                 completion_msg = "Document clearing process completed"
                 pipeline_status["latest_message"] = completion_msg
                 if "history_messages" in pipeline_status:
@@ -3473,12 +3705,33 @@ def create_document_routes(
 
             # Check if pipeline is busy with proper lock
             async with pipeline_status_lock:
-                if pipeline_status.get("busy", False):
+                if (
+                    pipeline_status.get("busy", False)
+                    or pipeline_status.get("scanning", False)
+                    or int(pipeline_status.get("pending_enqueues", 0) or 0) > 0
+                ):
                     return DeleteDocByIdResponse(
                         status="busy",
                         message="Cannot delete documents while pipeline is busy",
                         doc_id=", ".join(doc_ids),
                     )
+                pipeline_status.update(
+                    {
+                        "busy": True,
+                        "destructive_busy": True,
+                        "job_name": f"Deleting {len(doc_ids)} Documents",
+                        "job_start": datetime.now().isoformat(),
+                        "docs": len(doc_ids),
+                        "batchs": len(doc_ids),
+                        "cur_batch": 0,
+                        "request_pending": False,
+                        "latest_message": "Starting document deletion process",
+                    }
+                )
+                if "history_messages" in pipeline_status:
+                    pipeline_status["history_messages"][:] = [
+                        "Starting document deletion process"
+                    ]
 
             # Add deletion task to background tasks
             background_tasks.add_task(
@@ -3715,12 +3968,18 @@ def create_document_routes(
         status_filter_value = (
             request.status_filter.value if request.status_filter is not None else None
         )
+        status_filters_value = (
+            [status.value for status in request.status_filters]
+            if request.status_filters
+            else None
+        )
 
         performance_timing_log(
-            "[documents/paginated][%s] Request start workspace=%s status_filter=%s page=%s page_size=%s sort_field=%s sort_direction=%s",
+            "[documents/paginated][%s] Request start workspace=%s status_filter=%s status_filters=%s page=%s page_size=%s sort_field=%s sort_direction=%s",
             trace_id,
-            rag.workspace,
+            getattr(rag, "workspace", ""),
             status_filter_value,
+            status_filters_value,
             request.page,
             request.page_size,
             request.sort_field,
@@ -3763,6 +4022,7 @@ def create_document_routes(
                     "get_docs_paginated",
                     rag.doc_status.get_docs_paginated(
                         status_filter=request.status_filter,
+                        status_filters=request.status_filters,
                         page=request.page,
                         page_size=request.page_size,
                         sort_field=request.sort_field,

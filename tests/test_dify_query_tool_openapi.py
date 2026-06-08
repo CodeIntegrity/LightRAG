@@ -40,18 +40,7 @@ def test_dify_query_tool_openapi_is_valid_and_aligned_with_query_request():
     assert tool_request["required"] == query_request_schema["required"] == ["query"]
     assert tool_request["properties"]["mode"]["default"] == "mix"
     assert set(tool_request["properties"]) == set(query_request_schema["properties"])
-
-    query_request_defs = query_request_schema["$defs"]
-    prompt_override_components = schema["components"]["schemas"]
-    assert set(prompt_override_components["QueryPromptOverridesPayload"]["properties"]) == set(
-        query_request_defs["QueryPromptOverridesPayload"]["properties"]
-    )
-    assert set(prompt_override_components["QueryPromptQueryOverrides"]["properties"]) == set(
-        query_request_defs["QueryPromptQueryOverrides"]["properties"]
-    )
-    assert set(prompt_override_components["QueryPromptKeywordsOverrides"]["properties"]) == set(
-        query_request_defs["QueryPromptKeywordsOverrides"]["properties"]
-    )
+    assert "prompt_overrides" not in tool_request["properties"]
 
     security_scheme = schema["components"]["securitySchemes"]["ApiKeyAuth"]
     assert security_scheme == {

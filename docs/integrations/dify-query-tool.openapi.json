@@ -167,60 +167,6 @@
           }
         }
       },
-      "QueryPromptQueryOverrides": {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "覆盖 query 相关提示词模板。",
-        "properties": {
-          "rag_response": {
-            "type": "string",
-            "description": "覆盖常规 RAG 回答模板。"
-          },
-          "naive_rag_response": {
-            "type": "string",
-            "description": "覆盖 naive 模式的回答模板。"
-          },
-          "kg_query_context": {
-            "type": "string",
-            "description": "覆盖知识图谱检索上下文模板。"
-          },
-          "naive_query_context": {
-            "type": "string",
-            "description": "覆盖 naive 检索上下文模板。"
-          }
-        }
-      },
-      "QueryPromptKeywordsOverrides": {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "覆盖关键词提取相关提示词模板。",
-        "properties": {
-          "keywords_extraction": {
-            "type": "string",
-            "description": "覆盖关键词提取模板。"
-          },
-          "keywords_extraction_examples": {
-            "type": "array",
-            "description": "覆盖关键词提取示例列表。",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "QueryPromptOverridesPayload": {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "按请求覆盖提示词模板。只有服务端显式允许时才会生效。",
-        "properties": {
-          "query": {
-            "$ref": "#/components/schemas/QueryPromptQueryOverrides"
-          },
-          "keywords": {
-            "$ref": "#/components/schemas/QueryPromptKeywordsOverrides"
-          }
-        }
-      },
       "QueryToolRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -304,9 +250,6 @@
           "user_prompt": {
             "type": "string",
             "description": "用户额外补充的提示词，会覆盖默认模板中的对应变量。"
-          },
-          "prompt_overrides": {
-            "$ref": "#/components/schemas/QueryPromptOverridesPayload"
           },
           "enable_rerank": {
             "type": "boolean",

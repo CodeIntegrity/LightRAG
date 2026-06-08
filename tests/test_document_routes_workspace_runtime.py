@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -57,6 +58,7 @@ def _build_runtime_document_client(tmp_path: Path, monkeypatch, workspace: str):
     monkeypatch.setattr(
         document_routes, "generate_track_id", lambda prefix: f"{prefix}-123"
     )
+    monkeypatch.setattr(document_routes, "global_args", SimpleNamespace(max_upload_size=None))
 
     async def _fake_pipeline_index_file(rag, file_path: Path, track_id: str):
         scheduled_tasks.append((rag, file_path, track_id))

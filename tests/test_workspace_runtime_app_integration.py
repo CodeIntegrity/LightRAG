@@ -42,6 +42,10 @@ class _DummyRAG:
         self.ollama_server_infos = kwargs.get("ollama_server_infos")
         self.working_dir = kwargs["working_dir"]
         self.workspace = kwargs.get("workspace", "")
+        self.role_config_snapshot = {}
+        self.queue_status_snapshot = {}
+        self.embedding_queue_status_snapshot = {}
+        self.rerank_queue_status_snapshot = {}
         self.prompt_version_store = _DummyPromptVersionStore(
             kwargs["working_dir"], workspace=self.workspace
         )
@@ -77,6 +81,24 @@ class _DummyRAG:
             "data": {"references": []},
         }
 
+    def register_role_llm_builder(self, _builder) -> None:
+        return None
+
+    def set_role_llm_metadata(self, _role: str, **_metadata) -> None:
+        return None
+
+    def get_llm_role_config(self):
+        return self.role_config_snapshot
+
+    async def get_llm_queue_status(self, include_base=True):
+        return self.queue_status_snapshot
+
+    async def get_embedding_queue_status(self):
+        return self.embedding_queue_status_snapshot
+
+    async def get_rerank_queue_status(self):
+        return self.rerank_queue_status_snapshot
+
 
 class _FailingStartupRAG(_DummyRAG):
     async def initialize_storages(self):
@@ -86,6 +108,21 @@ class _FailingStartupRAG(_DummyRAG):
 class _DummyOllamaAPI:
     def __init__(self, rag, top_k=60, api_key=None):
         self.router = APIRouter()
+
+
+def _install_fake_ollama_module(monkeypatch):
+    fake_ollama_module = types.ModuleType("lightrag.llm.ollama")
+
+    async def _fake_ollama_model_complete(*args, **kwargs):
+        return "ok"
+
+    async def _fake_ollama_embed(*args, **kwargs):
+        return []
+
+    fake_ollama_module.ollama_model_complete = _fake_ollama_model_complete
+    fake_ollama_module._ollama_model_if_cache = _fake_ollama_model_complete
+    fake_ollama_module.ollama_embed = _fake_ollama_embed
+    monkeypatch.setitem(sys.modules, "lightrag.llm.ollama", fake_ollama_module)
 
 
 def _build_token(username: str, role: str) -> str:
@@ -171,17 +208,7 @@ def _build_runtime_test_app(
     monkeypatch.setattr(
         lightrag_server, "get_default_workspace", lambda: default_workspace
     )
-    fake_ollama_module = types.ModuleType("lightrag.llm.ollama")
-
-    async def _fake_ollama_model_complete(*args, **kwargs):
-        return "ok"
-
-    async def _fake_ollama_embed(*args, **kwargs):
-        return []
-
-    fake_ollama_module.ollama_model_complete = _fake_ollama_model_complete
-    fake_ollama_module.ollama_embed = _fake_ollama_embed
-    monkeypatch.setitem(sys.modules, "lightrag.llm.ollama", fake_ollama_module)
+    _install_fake_ollama_module(monkeypatch)
 
     async def _fake_get_namespace_data(*args, **kwargs):
         return {"busy": False}
@@ -468,17 +495,7 @@ def test_create_app_does_not_require_bound_runtime_for_ollama_startup(
     monkeypatch.setattr(lightrag_server, "cleanup_keyed_lock", lambda: {})
     monkeypatch.setattr(lightrag_server, "get_default_workspace", lambda: "")
 
-    fake_ollama_module = types.ModuleType("lightrag.llm.ollama")
-
-    async def _fake_ollama_model_complete(*args, **kwargs):
-      return "ok"
-
-    async def _fake_ollama_embed(*args, **kwargs):
-      return []
-
-    fake_ollama_module.ollama_model_complete = _fake_ollama_model_complete
-    fake_ollama_module.ollama_embed = _fake_ollama_embed
-    monkeypatch.setitem(sys.modules, "lightrag.llm.ollama", fake_ollama_module)
+    _install_fake_ollama_module(monkeypatch)
 
     async def _fake_get_namespace_data(*args, **kwargs):
       return {"busy": False}
@@ -529,17 +546,7 @@ def test_create_app_preserves_startup_error_without_prune_task_unbound(
     )
     monkeypatch.setattr(lightrag_server, "cleanup_keyed_lock", lambda: {})
     monkeypatch.setattr(lightrag_server, "get_default_workspace", lambda: "")
-    fake_ollama_module = types.ModuleType("lightrag.llm.ollama")
-
-    async def _fake_ollama_model_complete(*args, **kwargs):
-        return "ok"
-
-    async def _fake_ollama_embed(*args, **kwargs):
-        return []
-
-    fake_ollama_module.ollama_model_complete = _fake_ollama_model_complete
-    fake_ollama_module.ollama_embed = _fake_ollama_embed
-    monkeypatch.setitem(sys.modules, "lightrag.llm.ollama", fake_ollama_module)
+    _install_fake_ollama_module(monkeypatch)
 
     async def _fake_get_namespace_data(*args, **kwargs):
         return {"busy": False}

@@ -338,6 +338,11 @@ async def test_pipeline_enqueue_docx_plain_text_extracts_before_enqueue(
 ):
     monkeypatch.setenv("LIGHTRAG_PARSER", "docx:legacy")
     monkeypatch.setattr(
+        _document_routes,
+        "global_args",
+        SimpleNamespace(document_loading_engine="DEFAULT"),
+    )
+    monkeypatch.setattr(
         _document_routes, "_extract_docx", lambda file_bytes: "plain docx content"
     )
     file_path = tmp_path / "plain.docx"
