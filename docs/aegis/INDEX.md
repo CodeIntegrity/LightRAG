@@ -12,6 +12,7 @@
 - `plans/2026-05-22-post-merge-custom-conflict-audit.md` - 上游大版本合并后二开冲突审计计划
 - `plans/2026-05-23-workspace-prompt-editor.md` - 工作区绑定的前端提示词编辑能力执行计划
 - `plans/2026-05-24-llm-assisted-prompt-authoring.md` - 前端提示词 LLM 辅助编写能力执行计划
+- `plans/2026-06-08-upstream-main-merge.md` - 合并 `upstream/main@3da423bf` 的隔离分支执行计划
 
 ## SOP
 
