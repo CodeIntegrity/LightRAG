@@ -5,6 +5,7 @@ import type {
   GraphWorkbenchQueryRequest
 } from '@/api/lightrag'
 import { createSelectors } from '@/lib/utils'
+import { useSettingsStore } from './settings'
 
 export type GraphMergeDraft = {
   sourceEntities: string[]
@@ -104,11 +105,29 @@ const cloneQuery = (query: GraphWorkbenchQueryRequest): GraphWorkbenchQueryReque
   }
 }
 
-export const getDefaultGraphWorkbenchFilterDraft = (): GraphWorkbenchQueryRequest => ({
+const getCurrentGraphMaxNodes = (): number => {
+  const settings = useSettingsStore.getState()
+  return settings.backendMaxGraphNodes ?? settings.graphMaxNodes
+}
+
+const queryWithMaxNodes = (
+  query: GraphWorkbenchQueryRequest,
+  maxNodes: number
+): GraphWorkbenchQueryRequest => ({
+  ...cloneQuery(query),
+  scope: {
+    ...query.scope,
+    max_nodes: maxNodes
+  }
+})
+
+export const getDefaultGraphWorkbenchFilterDraft = (
+  maxNodes = getCurrentGraphMaxNodes()
+): GraphWorkbenchQueryRequest => ({
   scope: {
     label: '*',
     max_depth: 3,
-    max_nodes: 10000,
+    max_nodes: maxNodes,
     direction: 'both',
     only_matched_neighborhood: false
   },
@@ -177,6 +196,7 @@ interface GraphWorkbenchState {
   setMutationError: (message: string | null, isConflict?: boolean) => void
   clearMutationError: () => void
   requestRefresh: () => void
+  syncDefaultMaxNodes: (maxNodes: number, previousMaxNodes: number) => void
   reset: () => void
 }
 
@@ -275,6 +295,25 @@ const useGraphWorkbenchStoreBase = create<GraphWorkbenchState>()((set, get) => (
     }),
   clearMutationError: () => set({ mutationError: null, conflictError: null }),
   requestRefresh: () => set((state) => ({ queryVersion: state.queryVersion + 1 })),
+  syncDefaultMaxNodes: (maxNodes, previousMaxNodes) =>
+    set((state) => {
+      const shouldUpdateDraft = state.filterDraft.scope.max_nodes === previousMaxNodes
+      const shouldUpdateApplied = state.appliedQuery?.scope.max_nodes === previousMaxNodes
+
+      if (!shouldUpdateDraft && !shouldUpdateApplied) {
+        return {}
+      }
+
+      return {
+        filterDraft: shouldUpdateDraft
+          ? queryWithMaxNodes(state.filterDraft, maxNodes)
+          : state.filterDraft,
+        appliedQuery:
+          state.appliedQuery && shouldUpdateApplied
+            ? queryWithMaxNodes(state.appliedQuery, maxNodes)
+            : state.appliedQuery
+      }
+    }),
   reset: () =>
     set({
       filterDraft: getDefaultGraphWorkbenchFilterDraft(),

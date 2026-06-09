@@ -74,7 +74,9 @@ describe('Settings', () => {
       showNodeLabel: true,
       showEdgeLabel: true,
       showDirectionalArrows: true,
-      graphLabelFontSize: 12
+      graphLabelFontSize: 12,
+      graphMaxNodes: 1000,
+      backendMaxGraphNodes: null
     })
   })
 
@@ -88,11 +90,12 @@ describe('Settings', () => {
     expect(source).not.toContain('md:grid-cols-[minmax(0,1fr)_auto]')
   })
 
-  test('defaults graph max nodes to 1000 while keeping a 10000 upper bound', async () => {
+  test('does not keep a local graph max nodes upper bound', async () => {
     const { useSettingsStore } = await import('@/stores/settings')
     const source = readFileSync(resolve('src/components/graph/Settings.tsx'), 'utf8')
 
     expect(useSettingsStore.getState().graphMaxNodes).toBe(1000)
-    expect(source).toContain('10000')
+    expect(source).not.toContain('10000')
+    expect(source).toContain('backendMaxGraphNodes ?? undefined')
   })
 })

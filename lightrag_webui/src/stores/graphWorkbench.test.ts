@@ -4,9 +4,14 @@ import {
   getDefaultGraphWorkbenchFilterDraft,
   useGraphWorkbenchStore
 } from './graphWorkbench'
+import { useSettingsStore } from './settings'
 
 describe('graphWorkbench store', () => {
   beforeEach(() => {
+    useSettingsStore.setState({
+      graphMaxNodes: 1000,
+      backendMaxGraphNodes: null
+    })
     useGraphWorkbenchStore.getState().reset()
   })
 
@@ -72,6 +77,22 @@ describe('graphWorkbench store', () => {
     expect(state.filterDraft.scope.label).toBe('OpenAI')
     expect(state.appliedQuery?.scope.label).toBe('OpenAI')
     expect(state.queryVersion).toBe(beforeVersion + 1)
+  })
+
+  test('同步后端最大节点数时只更新默认 scope', () => {
+    const store = useGraphWorkbenchStore.getState()
+
+    expect(useGraphWorkbenchStore.getState().filterDraft.scope.max_nodes).toBe(1000)
+
+    store.syncDefaultMaxNodes(2048, 1000)
+    expect(useGraphWorkbenchStore.getState().filterDraft.scope.max_nodes).toBe(2048)
+
+    const customDraft = getDefaultGraphWorkbenchFilterDraft()
+    customDraft.scope.max_nodes = 300
+    store.setFilterDraft(customDraft)
+
+    store.syncDefaultMaxNodes(4096, 2048)
+    expect(useGraphWorkbenchStore.getState().filterDraft.scope.max_nodes).toBe(300)
   })
 
   test('维护 mutationError 与 conflictError 状态', () => {

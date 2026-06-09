@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createLightragApiMock } from '@/test/apiMock'
 
 Object.defineProperty(globalThis, 'localStorage', {
@@ -51,6 +51,17 @@ describe('backend workspace create capability', () => {
     pipeline_busy: true,
   }
 
+  beforeEach(async () => {
+    const { useSettingsStore } = await import('./settings')
+    const { useGraphWorkbenchStore } = await import('./graphWorkbench')
+
+    useSettingsStore.setState({
+      graphMaxNodes: 1000,
+      backendMaxGraphNodes: null
+    })
+    useGraphWorkbenchStore.getState().reset()
+  })
+
   afterEach(async () => {
     const { useBackendState } = await import('./state')
     useBackendState.setState({
@@ -62,6 +73,13 @@ describe('backend workspace create capability', () => {
       activePromptVersions: null,
       pipelineBusy: false,
     } as never)
+    const { useSettingsStore } = await import('./settings')
+    const { useGraphWorkbenchStore } = await import('./graphWorkbench')
+    useSettingsStore.setState({
+      graphMaxNodes: 1000,
+      backendMaxGraphNodes: null
+    })
+    useGraphWorkbenchStore.getState().reset()
     vi.clearAllMocks()
   })
 
@@ -77,7 +95,48 @@ describe('backend workspace create capability', () => {
     expect(ok).toBe(true)
     expect(useBackendState.getState().workspaceCreateAllowed).toBe(true)
     expect(useSettingsStore.getState().backendMaxGraphNodes).toBe(10000)
+    expect(useSettingsStore.getState().graphMaxNodes).toBe(10000)
     expect(useBackendState.getState().guestVisibleTabs).toEqual(['documents', 'retrieval'])
+  })
+
+  test('syncs graph max nodes from backend configuration into workbench defaults', async () => {
+    const api = await import('@/api/lightrag')
+    const checkHealthMock = api.checkHealth as unknown as ReturnType<typeof vi.fn>
+    const { useBackendState } = await import('./state')
+    const { useGraphWorkbenchStore } = await import('./graphWorkbench')
+
+    checkHealthMock.mockResolvedValue(healthyStatus)
+
+    await useBackendState.getState().check()
+
+    expect(useGraphWorkbenchStore.getState().filterDraft.scope.max_nodes).toBe(10000)
+  })
+
+  test('preserves a smaller graph setting while syncing workbench default on backend limit change', async () => {
+    const api = await import('@/api/lightrag')
+    const checkHealthMock = api.checkHealth as unknown as ReturnType<typeof vi.fn>
+    const { useBackendState } = await import('./state')
+    const { useSettingsStore } = await import('./settings')
+    const { useGraphWorkbenchStore } = await import('./graphWorkbench')
+
+    useSettingsStore.setState({
+      graphMaxNodes: 500,
+      backendMaxGraphNodes: 10000
+    })
+    useGraphWorkbenchStore.getState().reset()
+    checkHealthMock.mockResolvedValue({
+      ...healthyStatus,
+      configuration: {
+        ...healthyStatus.configuration,
+        max_graph_nodes: '2000'
+      }
+    })
+
+    await useBackendState.getState().check()
+
+    expect(useSettingsStore.getState().graphMaxNodes).toBe(500)
+    expect(useSettingsStore.getState().backendMaxGraphNodes).toBe(2000)
+    expect(useGraphWorkbenchStore.getState().filterDraft.scope.max_nodes).toBe(2000)
   })
 
   test('clear resets workspace create capability and status together', async () => {

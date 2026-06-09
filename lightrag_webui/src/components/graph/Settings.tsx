@@ -156,6 +156,7 @@ const LabeledNumberInput = ({
  */
 export default function Settings() {
   const [opened, setOpened] = useState<boolean>(false)
+  const { t } = useTranslation();
 
   const showPropertyPanel = useSettingsStore.use.showPropertyPanel()
   const showNodeSearchBar = useSettingsStore.use.showNodeSearchBar()
@@ -172,6 +173,10 @@ export default function Settings() {
   const graphQueryMaxDepth = useSettingsStore.use.graphQueryMaxDepth()
   const graphMaxNodes = useSettingsStore.use.graphMaxNodes()
   const backendMaxGraphNodes = useSettingsStore.use.backendMaxGraphNodes()
+  const graphMaxNodesLimit = backendMaxGraphNodes ?? undefined
+  const graphMaxNodesLabel = backendMaxGraphNodes
+    ? `${t('graphPanel.sideBar.settings.maxNodes')} (<= ${backendMaxGraphNodes})`
+    : t('graphPanel.sideBar.settings.maxNodes')
   const graphLayoutMaxIterations = useSettingsStore.use.graphLayoutMaxIterations()
   const graphLayoutRepulsion = useSettingsStore.use.graphLayoutRepulsion()
   const graphLayoutGravity = useSettingsStore.use.graphLayoutGravity()
@@ -259,10 +264,9 @@ export default function Settings() {
   }, [])
 
   const setGraphMaxNodes = useCallback((nodes: number) => {
-    const maxLimit = backendMaxGraphNodes || 10000
-    if (nodes < 1 || nodes > maxLimit) return
+    if (nodes < 1 || (graphMaxNodesLimit !== undefined && nodes > graphMaxNodesLimit)) return
     useSettingsStore.getState().setGraphMaxNodes(nodes, true)
-  }, [backendMaxGraphNodes])
+  }, [graphMaxNodesLimit])
 
   const setGraphLayoutMaxIterations = useCallback((iterations: number) => {
     if (iterations < 1) return
@@ -323,8 +327,6 @@ export default function Settings() {
     if (speed <= 0) return
     useSettingsStore.setState({ graphLayoutSpeed: speed })
   }, [])
-
-  const { t } = useTranslation();
 
   const saveSettings = () => {
     const state = useSettingsStore.getState()
@@ -497,11 +499,11 @@ export default function Settings() {
                 onEditFinished={setGraphQueryMaxDepth}
               />
               <LabeledNumberInput
-                label={`${t('graphPanel.sideBar.settings.maxNodes')} (≤ ${backendMaxGraphNodes || 10000})`}
+                label={graphMaxNodesLabel}
                 min={1}
-                max={backendMaxGraphNodes || 10000}
+                max={graphMaxNodesLimit}
                 value={graphMaxNodes}
-                defaultValue={backendMaxGraphNodes || 10000}
+                defaultValue={backendMaxGraphNodes ?? undefined}
                 onEditFinished={setGraphMaxNodes}
               />
               <LabeledNumberInput

@@ -356,7 +356,7 @@ const useSettingsStoreBase = create<SettingsState>()(
     {
       name: 'settings-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 30,
+      version: 31,
       migrate: (state: any, version: number) => {
         if (version < 2) {
           state.showEdgeLabel = false
@@ -499,6 +499,14 @@ const useSettingsStoreBase = create<SettingsState>()(
         }
         if (version < 30) {
           state.showDirectionalArrows = false
+        }
+        if (version < 31) {
+          const backendMaxNodes = Number(state.backendMaxGraphNodes)
+          if (Number.isFinite(backendMaxNodes) && backendMaxNodes > 0) {
+            if (state.graphMaxNodes === 1000 || state.graphMaxNodes > backendMaxNodes) {
+              state.graphMaxNodes = backendMaxNodes
+            }
+          }
         }
         return state
       }

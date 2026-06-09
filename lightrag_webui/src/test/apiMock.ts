@@ -7,6 +7,8 @@ export const createLightragApiMock = (overrides: Record<string, unknown> = {}) =
   createWorkspace: vi.fn(),
   deactivateEntityTypePrompt: vi.fn(),
   getAuthStatus: vi.fn(),
+  getGraphEntityTypes: vi.fn(async () => []),
+  getPopularLabels: vi.fn(async () => []),
   getWorkspaceOperation: vi.fn(),
   getWorkspaceStats: vi.fn(),
   hardDeleteWorkspace: vi.fn(),

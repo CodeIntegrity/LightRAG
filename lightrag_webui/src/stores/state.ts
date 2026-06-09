@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { createSelectors } from '@/lib/utils'
 import { checkHealth, LightragStatus } from '@/api/lightrag'
 import { useSettingsStore } from './settings'
+import { useGraphWorkbenchStore } from './graphWorkbench'
 import { healthCheckInterval } from '@/lib/constants'
 import { GuestVisibleTab, allGuestVisibleTabs, normalizeGuestVisibleTabs } from '@/lib/guestFeatures'
 
@@ -84,18 +85,24 @@ const useBackendStateStoreBase = create<BackendState>()((set, get) => ({
       if (health.configuration?.max_graph_nodes) {
         const maxNodes = parseInt(health.configuration.max_graph_nodes, 10)
         if (!isNaN(maxNodes) && maxNodes > 0) {
-          const currentBackendMaxNodes = useSettingsStore.getState().backendMaxGraphNodes
+          const settingsStore = useSettingsStore.getState()
+          const currentBackendMaxNodes = settingsStore.backendMaxGraphNodes
+          const currentMaxNodes = settingsStore.graphMaxNodes
+          const previousDefaultMaxNodes = currentBackendMaxNodes ?? currentMaxNodes
 
-          // Only update if the backend limit has actually changed
           if (currentBackendMaxNodes !== maxNodes) {
-            useSettingsStore.getState().setBackendMaxGraphNodes(maxNodes)
-
-            // Auto-adjust current graphMaxNodes if it exceeds the new backend limit
-            const currentMaxNodes = useSettingsStore.getState().graphMaxNodes
-            if (currentMaxNodes > maxNodes) {
-              useSettingsStore.getState().setGraphMaxNodes(maxNodes, true)
-            }
+            settingsStore.setBackendMaxGraphNodes(maxNodes)
           }
+
+          if (
+            currentBackendMaxNodes === null ||
+            currentMaxNodes === currentBackendMaxNodes ||
+            currentMaxNodes > maxNodes
+          ) {
+            settingsStore.setGraphMaxNodes(maxNodes, true)
+          }
+
+          useGraphWorkbenchStore.getState().syncDefaultMaxNodes(maxNodes, previousDefaultMaxNodes)
         }
       }
 
