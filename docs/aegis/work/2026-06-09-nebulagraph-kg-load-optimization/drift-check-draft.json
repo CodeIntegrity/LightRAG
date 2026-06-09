@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-06-09-nebulagraph-kg-load-optimization",
+  "taskIntentRef": "docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/task-intent-draft.json",
+  "baselineRefs": [
+    "docs/aegis/plans/2026-06-09-nebulagraph-kg-load-optimization.md"
+  ],
+  "scopeStatus": "All changes stayed inside default plan wave: NebulaGraphStorage, tests, README docs, Aegis work record.",
+  "compatStatus": "Public graph APIs, property-based MATCH reads, and deferred FETCH/GO non-goals remain intact.",
+  "retirementStatus": "Serial independent graph reads, duplicate BFS adjacency pass, repeated popular-label scans, and serial Nebula batch fallback are reduced or retired.",
+  "newRiskSignals": [
+    "Aegis workspace check still reports pre-existing historical governance/index issues; no live Nebula service was available for smoke testing."
+  ],
+  "decision": "continue"
+}

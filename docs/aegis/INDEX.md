@@ -17,3 +17,25 @@
 ## SOP
 
 - `sop/upstream-merge-sop.md` - 上游合并反复使用的流程骨架（lint / pytest / bun build 自证闭环）
+
+## Work
+
+| Date | Kind | Path | Description |
+|---|---|---|---|
+| 2026-06-09 | work | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/10-intent.md | NebulaGraph KG load optimization intent |
+| 2026-06-09 | work | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/20-checkpoint.md | NebulaGraph KG load optimization checkpoint |
+| 2026-06-09 | work | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/90-evidence.md | NebulaGraph KG load optimization evidence |
+| 2026-06-09 | work | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/99-reflection.md | NebulaGraph KG load optimization reflection |
+| 2026-06-09 | artifact | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/task-intent-draft.json | NebulaGraph KG load optimization task intent draft |
+| 2026-06-09 | artifact | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/baseline-read-set-hint.json | NebulaGraph KG load optimization baseline read-set hint |
+| 2026-06-09 | artifact | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/impact-statement-draft.json | NebulaGraph KG load optimization impact statement draft |
+| 2026-06-09 | artifact | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/todo-checkpoint-draft.json | NebulaGraph KG load optimization todo checkpoint draft |
+| 2026-06-09 | artifact | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/drift-check-draft.json | NebulaGraph KG load optimization drift check draft |
+| 2026-06-09 | artifact | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/evidence-bundle-draft-baseline-nebula-tests.json | 2026-06-09-nebulagraph-kg-load-optimization evidence baseline-nebula-tests |
+| 2026-06-09 | artifact | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/resume-state-hint.json | 2026-06-09-nebulagraph-kg-load-optimization resume state hint |
+| 2026-06-09 | artifact | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/evidence-bundle-draft-read-path-nebula-tests.json | 2026-06-09-nebulagraph-kg-load-optimization evidence read-path-nebula-tests |
+| 2026-06-09 | artifact | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/evidence-bundle-draft-popular-cache-nebula-tests.json | 2026-06-09-nebulagraph-kg-load-optimization evidence popular-cache-nebula-tests |
+| 2026-06-09 | artifact | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/evidence-bundle-draft-batch-write-nebula-tests.json | 2026-06-09-nebulagraph-kg-load-optimization evidence batch-write-nebula-tests |
+| 2026-06-09 | artifact | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/proof-bundle.md | 2026-06-09-nebulagraph-kg-load-optimization proof bundle |
+| 2026-06-09 | artifact | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/gate-input-pack.json | 2026-06-09-nebulagraph-kg-load-optimization gate input pack |
+| 2026-06-09 | artifact | docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/evidence-bundle-draft-final-verification.json | 2026-06-09-nebulagraph-kg-load-optimization evidence final-verification |

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "batch-write-nebula-tests",
+  "type": "test",
+  "source": "./scripts/test.sh tests/test_nebula_graph_storage.py",
+  "summary": "Nebula batch node and edge write overrides plus SQL-shape tests pass with full target file: 107 passed.",
+  "verifier": "PYTHON=/root/project/LightRAG/.venv/bin/python ./scripts/test.sh tests/test_nebula_graph_storage.py"
+}

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-06-09-nebulagraph-kg-load-optimization",
+  "lastCheckpointRef": "docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/todo-checkpoint-draft.json",
+  "resumeInstruction": "Resume in worktree branch aegis/nebulagraph-kg-load-optimization; final verification evidence is recorded but Aegis workspace check has pre-existing historical failures.",
+  "knownPartialWork": [
+    "Tasks 1-5 and 8 complete: regression tests, read-path optimization, popular-label cache, batch writes, docs, and final verification."
+  ],
+  "mustReadBeforeContinuing": [
+    "docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/10-intent.md",
+    "docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/20-checkpoint.md",
+    "docs/aegis/work/2026-06-09-nebulagraph-kg-load-optimization/todo-checkpoint-draft.json"
+  ],
+  "unsafeToAssume": [
+    "No live Nebula smoke test was run; shared graph storage file skipped in current non-integration config."
+  ]
+}

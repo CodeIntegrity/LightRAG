@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "baseline-nebula-tests",
+  "type": "test",
+  "source": "./scripts/test.sh tests/test_nebula_graph_storage.py",
+  "summary": "After fixing a missing env precondition in an existing initialize test, Nebula storage unit baseline passes: 97 passed.",
+  "verifier": "PYTHON=/root/project/LightRAG/.venv/bin/python ./scripts/test.sh tests/test_nebula_graph_storage.py"
+}

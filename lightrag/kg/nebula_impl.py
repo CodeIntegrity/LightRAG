@@ -26,6 +26,7 @@ _DEFAULT_SCHEMA_RETRY_DELAY_MS = 200
 # Nebula rejects very long OR chains once expression depth grows beyond 512.
 # Keep a healthy safety margin because some predicates add nested ORs.
 _MAX_BATCH_FILTER_ITEMS = 200
+_DEFAULT_BATCH_WRITE_ITEMS = 100
 _INDEX_STATUS_DONE_TOKENS = ("FINISHED", "SUCCEEDED", "SUCCESS", "DONE", "COMPLETED")
 _INDEX_STATUS_PENDING_TOKENS = (
     "RUNNING",
@@ -489,6 +490,9 @@ class NebulaGraphStorage(BaseGraphStorage):
         self._fulltext_init_error: str | None = None
         self._initialize_lock = asyncio.Lock()
         self._initialized = False
+        self._popular_labels_cache: list[str] | None = None
+        self._popular_labels_cache_limit = 0
+        self._batch_write_chunk_size = _DEFAULT_BATCH_WRITE_ITEMS
 
     async def initialize(self):
         async with self._initialize_lock:
@@ -918,7 +922,12 @@ class NebulaGraphStorage(BaseGraphStorage):
             token in message for token in fulltext_tokens
         )
 
+    def _invalidate_popular_labels_cache(self) -> None:
+        self._popular_labels_cache = None
+        self._popular_labels_cache_limit = 0
+
     async def index_done_callback(self) -> None:
+        self._invalidate_popular_labels_cache()
         if not self._initialized:
             return None
         await self._create_indexes_if_needed(rebuild=True)
@@ -941,6 +950,7 @@ class NebulaGraphStorage(BaseGraphStorage):
             )
             return {"status": "error", "message": str(exc)}
         finally:
+            self._invalidate_popular_labels_cache()
             self._fulltext_init_error = None
             self._initialized = False
             await self._close_connection_pool()
@@ -1243,12 +1253,14 @@ class NebulaGraphStorage(BaseGraphStorage):
         if not selected_ids:
             return result
 
-        node_payloads = await self.get_nodes_batch(selected_ids)
+        node_payloads, adjacency = await asyncio.gather(
+            self.get_nodes_batch(selected_ids),
+            self.get_nodes_edges_batch(selected_ids, direction=direction),
+        )
         for node_id in selected_ids:
             node_data = node_payloads.get(node_id, {"entity_id": node_id})
             result.nodes.append(self._to_knowledge_graph_node(node_id, node_data))
 
-        adjacency = await self.get_nodes_edges_batch(selected_ids, direction=direction)
         edge_pairs: list[dict[str, str]] = []
         seen_pairs: set[tuple[str, str]] = set()
         for node_id in selected_ids:
@@ -1294,9 +1306,18 @@ class NebulaGraphStorage(BaseGraphStorage):
 
         visited: set[str] = set()
         bfs_order: list[str] = []
+        bfs_adjacency: dict[str, list[tuple[str, str]]] = {}
         frontier: deque[tuple[str, int]] = deque([(node_label, 0)])
         hit_node_limit = False
         hit_depth_limit = False
+
+        async def load_bfs_adjacency(
+            node_ids: list[str],
+        ) -> dict[str, list[tuple[str, str]]]:
+            adjacency = await self.get_nodes_edges_batch(node_ids, direction=direction)
+            for node_id in node_ids:
+                bfs_adjacency[node_id] = list(adjacency.get(node_id, []))
+            return adjacency
 
         while frontier and len(bfs_order) < max_nodes:
             current_layer: list[str] = []
@@ -1314,9 +1335,7 @@ class NebulaGraphStorage(BaseGraphStorage):
             if len(bfs_order) >= max_nodes:
                 hit_node_limit = bool(frontier)
                 if not hit_node_limit:
-                    adjacency = await self.get_nodes_edges_batch(
-                        current_layer, direction=direction
-                    )
+                    adjacency = await load_bfs_adjacency(current_layer)
                     for node_id in current_layer:
                         for edge in adjacency.get(node_id, []):
                             neighbor = self._extract_neighbor(node_id, edge)
@@ -1328,9 +1347,7 @@ class NebulaGraphStorage(BaseGraphStorage):
                 break
 
             if current_depth >= max_depth:
-                adjacency = await self.get_nodes_edges_batch(
-                    current_layer, direction=direction
-                )
+                adjacency = await load_bfs_adjacency(current_layer)
                 for node_id in current_layer:
                     for edge in adjacency.get(node_id, []):
                         neighbor = self._extract_neighbor(node_id, edge)
@@ -1341,9 +1358,7 @@ class NebulaGraphStorage(BaseGraphStorage):
                         break
                 continue
 
-            adjacency = await self.get_nodes_edges_batch(
-                current_layer, direction=direction
-            )
+            adjacency = await load_bfs_adjacency(current_layer)
             next_candidates: list[str] = []
             seen_next: set[str] = set()
             for node_id in current_layer:
@@ -1364,17 +1379,22 @@ class NebulaGraphStorage(BaseGraphStorage):
             return result
 
         node_payloads = await self.get_nodes_batch(selected_ids)
+        missing_adjacency_ids = [
+            node_id for node_id in selected_ids if node_id not in bfs_adjacency
+        ]
+        if missing_adjacency_ids:
+            await load_bfs_adjacency(missing_adjacency_ids)
+
         for node_id in selected_ids:
             node_data = node_payloads.get(node_id)
             if node_data is None:
                 node_data = {"entity_id": node_id}
             result.nodes.append(self._to_knowledge_graph_node(node_id, node_data))
 
-        adjacency = await self.get_nodes_edges_batch(selected_ids, direction=direction)
         edge_pairs: list[dict[str, str]] = []
         seen_pairs: set[tuple[str, str]] = set()
         for node_id in selected_ids:
-            for edge in adjacency.get(node_id, []):
+            for edge in bfs_adjacency.get(node_id, []):
                 src, tgt = edge
                 source = str(src)
                 target = str(tgt)
@@ -1633,15 +1653,10 @@ class NebulaGraphStorage(BaseGraphStorage):
                     output[tgt_id].append(edge)
         return output
 
-    async def upsert_node(self, node_id: str, node_data: dict[str, str]) -> None:
+    def _node_write_record(
+        self, node_id: str, node_data: dict[str, Any]
+    ) -> tuple[str, tuple[Any, ...]]:
         entity_id = str(node_data.get("entity_id", node_id))
-        vertex_vid = _nebula_vid(entity_id)
-        name = str(node_data.get("name", ""))
-        entity_type = str(node_data.get("entity_type", ""))
-        description = str(node_data.get("description", ""))
-        keywords = str(node_data.get("keywords", ""))
-        source_id = str(node_data.get("source_id", ""))
-        file_path = str(node_data.get("file_path", ""))
         created_at = node_data.get("created_at")
         if isinstance(created_at, str):
             stripped_created_at = created_at.strip()
@@ -1650,70 +1665,143 @@ class NebulaGraphStorage(BaseGraphStorage):
                     created_at = int(stripped_created_at)
                 except ValueError:
                     pass
-        truncate = str(node_data.get("truncate", ""))
+
         custom_properties_json = json.dumps(
             node_data.get("custom_properties", {}),
             ensure_ascii=True,
             sort_keys=True,
         )
-
-        await self._execute_in_space(
-            "INSERT VERTEX entity(entity_id, name, entity_type, description, keywords, source_id, file_path, created_at, truncate, custom_properties_json) "
-            f"VALUES {_ngql_quote(vertex_vid)}:"
-            "("
-            f"{_ngql_literal(entity_id)}, "
-            f"{_ngql_literal(name)}, "
-            f"{_ngql_literal(entity_type)}, "
-            f"{_ngql_literal(description)}, "
-            f"{_ngql_literal(keywords)}, "
-            f"{_ngql_literal(source_id)}, "
-            f"{_ngql_literal(file_path)}, "
-            f"{_ngql_literal(created_at)}, "
-            f"{_ngql_literal(truncate)}, "
-            f"{_ngql_literal(custom_properties_json)}"
-            ");"
+        return _nebula_vid(entity_id), (
+            entity_id,
+            str(node_data.get("name", "")),
+            str(node_data.get("entity_type", "")),
+            str(node_data.get("description", "")),
+            str(node_data.get("keywords", "")),
+            str(node_data.get("source_id", "")),
+            str(node_data.get("file_path", "")),
+            created_at,
+            str(node_data.get("truncate", "")),
+            custom_properties_json,
         )
 
-    async def upsert_edge(
-        self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
-    ) -> None:
+    def _edge_write_record(
+        self,
+        source_node_id: str,
+        target_node_id: str,
+        edge_data: dict[str, Any],
+    ) -> tuple[str, str, tuple[Any, ...]]:
         src_id = str(source_node_id)
         tgt_id = str(target_node_id)
         src_vid, tgt_vid = _nebula_edge_vids(src_id, tgt_id)
-        source_id = str(edge_data.get("source_id", ""))
-        target_id = str(edge_data.get("target_id", ""))
-        relationship = str(edge_data.get("relationship", ""))
-        description = str(edge_data.get("description", ""))
-        keywords = str(edge_data.get("keywords", ""))
-        weight = _coerce_edge_weight(edge_data.get("weight"))
-        file_path = str(edge_data.get("file_path", ""))
         custom_properties_json = json.dumps(
             edge_data.get("custom_properties", {}),
             ensure_ascii=True,
             sort_keys=True,
         )
-
-        await self._execute_in_space(
-            "INSERT EDGE relation(source_id, target_id, relationship, description, keywords, weight, file_path, custom_properties_json) "
-            f"VALUES {_ngql_quote(src_vid)}->{_ngql_quote(tgt_vid)}:"
-            "("
-            f"{_ngql_literal(source_id)}, "
-            f"{_ngql_literal(target_id)}, "
-            f"{_ngql_literal(relationship)}, "
-            f"{_ngql_literal(description)}, "
-            f"{_ngql_literal(keywords)}, "
-            f"{_ngql_literal(weight)}, "
-            f"{_ngql_literal(file_path)}, "
-            f"{_ngql_literal(custom_properties_json)}"
-            ");"
+        return src_vid, tgt_vid, (
+            str(edge_data.get("source_id", "")),
+            str(edge_data.get("target_id", "")),
+            str(edge_data.get("relationship", "")),
+            str(edge_data.get("description", "")),
+            str(edge_data.get("keywords", "")),
+            _coerce_edge_weight(edge_data.get("weight")),
+            str(edge_data.get("file_path", "")),
+            custom_properties_json,
         )
 
+    @staticmethod
+    def _ngql_values_tuple(values: tuple[Any, ...]) -> str:
+        return "(" + ", ".join(_ngql_literal(value) for value in values) + ")"
+
+    def _write_chunk_size(self) -> int:
+        try:
+            return max(1, int(self._batch_write_chunk_size))
+        except (TypeError, ValueError):
+            return _DEFAULT_BATCH_WRITE_ITEMS
+
+    async def upsert_node(self, node_id: str, node_data: dict[str, str]) -> None:
+        self._invalidate_popular_labels_cache()
+        vertex_vid, values = self._node_write_record(node_id, node_data)
+
+        await self._execute_in_space(
+            f"INSERT VERTEX entity({', '.join(_NODE_FIELDS)}) "
+            f"VALUES {_ngql_quote(vertex_vid)}:"
+            f"{self._ngql_values_tuple(values)};"
+        )
+
+    async def upsert_nodes_batch(
+        self, nodes: list[tuple[str, dict[str, str]]]
+    ) -> None:
+        if not nodes:
+            return
+
+        self._invalidate_popular_labels_cache()
+        records_by_vid: dict[str, tuple[str, tuple[Any, ...]]] = {}
+        for node_id, node_data in nodes:
+            vertex_vid, values = self._node_write_record(node_id, node_data)
+            records_by_vid[vertex_vid] = (vertex_vid, values)
+
+        for chunk in _chunk_items(
+            list(records_by_vid.values()), self._write_chunk_size()
+        ):
+            values_sql = ", ".join(
+                f"{_ngql_quote(vertex_vid)}:{self._ngql_values_tuple(values)}"
+                for vertex_vid, values in chunk
+            )
+            await self._execute_in_space(
+                f"INSERT VERTEX entity({', '.join(_NODE_FIELDS)}) "
+                f"VALUES {values_sql};"
+            )
+
+    async def upsert_edge(
+        self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
+    ) -> None:
+        self._invalidate_popular_labels_cache()
+        src_vid, tgt_vid, values = self._edge_write_record(
+            source_node_id, target_node_id, edge_data
+        )
+
+        await self._execute_in_space(
+            f"INSERT EDGE relation({', '.join(_EDGE_FIELDS)}) "
+            f"VALUES {_ngql_quote(src_vid)}->{_ngql_quote(tgt_vid)}:"
+            f"{self._ngql_values_tuple(values)};"
+        )
+
+    async def upsert_edges_batch(
+        self, edges: list[tuple[str, str, dict[str, str]]]
+    ) -> None:
+        if not edges:
+            return
+
+        self._invalidate_popular_labels_cache()
+        records_by_vids: dict[tuple[str, str], tuple[str, str, tuple[Any, ...]]] = {}
+        for source_node_id, target_node_id, edge_data in edges:
+            src_vid, tgt_vid, values = self._edge_write_record(
+                source_node_id, target_node_id, edge_data
+            )
+            records_by_vids[(src_vid, tgt_vid)] = (src_vid, tgt_vid, values)
+
+        for chunk in _chunk_items(
+            list(records_by_vids.values()), self._write_chunk_size()
+        ):
+            values_sql = ", ".join(
+                f"{_ngql_quote(src_vid)}->{_ngql_quote(tgt_vid)}:"
+                f"{self._ngql_values_tuple(values)}"
+                for src_vid, tgt_vid, values in chunk
+            )
+            await self._execute_in_space(
+                f"INSERT EDGE relation({', '.join(_EDGE_FIELDS)}) "
+                f"VALUES {values_sql};"
+            )
+
     async def delete_node(self, node_id: str) -> None:
+        self._invalidate_popular_labels_cache()
         await self._execute_in_space(
             f"DELETE VERTEX {_ngql_quote(_nebula_vid(node_id))} WITH EDGE;"
         )
 
     async def remove_nodes(self, nodes: list[str]):
+        self._invalidate_popular_labels_cache()
         unique_nodes = self._unique_preserve_order(
             [str(node_id) for node_id in nodes if str(node_id)]
         )
@@ -1723,6 +1811,7 @@ class NebulaGraphStorage(BaseGraphStorage):
             )
 
     async def remove_edges(self, edges: list[tuple[str, str]]):
+        self._invalidate_popular_labels_cache()
         unique_pairs: set[tuple[str, str]] = set()
         for src, tgt in edges:
             unique_pairs.add(_canonical_edge_pair(src, tgt))
@@ -1843,6 +1932,11 @@ class NebulaGraphStorage(BaseGraphStorage):
     async def get_popular_labels(self, limit: int = 300) -> list[str]:
         if limit <= 0:
             return []
+        if (
+            self._popular_labels_cache is not None
+            and self._popular_labels_cache_limit >= limit
+        ):
+            return list(self._popular_labels_cache[:limit])
         result = await self._execute_in_space(
             "MATCH (a:entity)-[e:relation]->(b:entity) "
             "WITH [a.entity.entity_id, b.entity.entity_id] AS endpoints "
@@ -1858,6 +1952,8 @@ class NebulaGraphStorage(BaseGraphStorage):
             if label is None:
                 continue
             labels.append(str(label))
+        self._popular_labels_cache = list(labels)
+        self._popular_labels_cache_limit = int(limit)
         return labels
 
     async def _search_labels_fulltext(self, query: str, limit: int = 50) -> list[str]:

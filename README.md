@@ -525,6 +525,10 @@ NebulaGraph can be used as the `GRAPH_STORAGE` backend through `NebulaGraphStora
 * **Input file**: prepare a text file before running the demo script (for example, `./book.txt`).
 * **Workspace mapping**: each LightRAG `workspace` maps to a dedicated NebulaGraph `SPACE` (space-per-workspace isolation).
 * **Full-text note**: high-quality `search_labels` depends on NebulaGraph full-text search backed by **Elasticsearch + Listener**. If Elasticsearch/Listener is unavailable, LightRAG falls back to a degraded contains-based path.
+* **Graph visualization**: WebUI graph loads that use `label=*` can trigger broad graph reads. NebulaGraphStorage optimizes this path by reusing bounded BFS adjacency, loading independent node and edge data concurrently, and caching only ranked popular-label results in memory.
+* **Popular-label cache**: the cache is scoped to one `NebulaGraphStorage` instance, is rebuilt from NebulaGraph on miss, and is invalidated by graph writes, destructive operations, and index rebuild callbacks. `get_all_labels()` remains a direct NebulaGraph read.
+* **Custom KG import**: NebulaGraphStorage implements grouped batch node and edge writes through the existing `upsert_nodes_batch()` and `upsert_edges_batch()` graph storage interface, so custom KG import and graph construction avoid serial per-row write fallback.
+* **Experimental read paths**: VID-native `FETCH` and `GO` traversal are not enabled by default. Validate long Unicode IDs, escaping, missing-node behavior, direction handling, depth semantics, NebulaGraph version, dataset size, query count, and p50/p95 latency before adopting those paths in production.
 * **Listener automation**: `NEBULA_LISTENER_HOSTS` is the preferred explicit path for auto-registering listeners in new workspaces (for example, `172.28.0.10:9789`).
 * **Listener discovery fallback**: cross-space listener discovery is disabled by default to avoid hidden startup scans. Set `NEBULA_LISTENER_DISCOVERY=true` only if you explicitly want LightRAG to reuse listener endpoints discovered from another Nebula space.
 * **TLS toggle**: set `NEBULA_SSL=true` to pass Nebula's SSL client config into `nebula3-python`.

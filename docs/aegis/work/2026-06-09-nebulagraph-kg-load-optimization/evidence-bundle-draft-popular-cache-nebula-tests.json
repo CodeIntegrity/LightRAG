@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "popular-cache-nebula-tests",
+  "type": "test",
+  "source": "./scripts/test.sh tests/test_nebula_graph_storage.py",
+  "summary": "Popular-label cache hit, refresh, invalidation, and direct get_all_labels behavior pass with full Nebula target file: 103 passed.",
+  "verifier": "PYTHON=/root/project/LightRAG/.venv/bin/python ./scripts/test.sh tests/test_nebula_graph_storage.py"
+}

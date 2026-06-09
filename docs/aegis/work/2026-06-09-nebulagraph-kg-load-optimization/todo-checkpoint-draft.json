@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-06-09-nebulagraph-kg-load-optimization",
+  "currentTodo": "All default implementation-wave tasks complete; wait for branch handling choice.",
+  "completedTodos": [
+    "Tasks 1-5 and 8 complete: regression tests, read-path optimization, popular-label cache, batch writes, docs, and final verification."
+  ],
+  "activeSlice": "Completion candidate.",
+  "evidenceRefs": [
+    "final-verification"
+  ],
+  "blockedOn": null,
+  "nextStep": "Present branch handling options; keep worktree unless user chooses merge/push/discard.",
+  "updatedAt": "2026-06-09"
+}

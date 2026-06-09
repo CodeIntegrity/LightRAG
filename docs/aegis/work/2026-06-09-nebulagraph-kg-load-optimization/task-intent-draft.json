@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "requestedOutcome": "Improve NebulaGraph-backed knowledge graph load and custom KG import performance without changing public graph semantics.",
+  "goal": "Improve NebulaGraph-backed knowledge graph load and custom KG import performance without changing public graph semantics.",
+  "successEvidence": [
+    "Nebula unit tests cover graph-load query counts, adjacency reuse, popular-label cache invalidation, and batch write SQL; targeted and shared graph storage tests pass or blockers are documented."
+  ],
+  "stopCondition": "Done when default implementation wave is coded, documented, and verified; blocked on missing dependency or repeated verification failure; scope-exceeded if FETCH/GO semantic replacement is required.",
+  "nonGoals": [
+    "Implement default VID-native FETCH or GO traversal replacement."
+  ],
+  "scope": "NebulaGraphStorage read/write optimization, tests/test_nebula_graph_storage.py, and Nebula docs guidance.",
+  "changeKinds": [
+    "performance"
+  ],
+  "riskHints": [
+    "Backend-specific graph semantics and Nebula SQL shape regressions."
+  ]
+}

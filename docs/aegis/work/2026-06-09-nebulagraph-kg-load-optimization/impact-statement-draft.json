@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "affectedLayers": [
+    "Nebula graph storage backend"
+  ],
+  "owners": [
+    "NebulaGraphStorage"
+  ],
+  "invariants": [
+    "Public graph APIs and retrieval semantics remain compatible."
+  ],
+  "compatBoundary": "No default FETCH/GO semantic replacement; no persisted cache; no serial success fallback for failed batch writes.",
+  "nonGoals": [
+    "Implement default VID-native FETCH or GO traversal replacement."
+  ]
+}

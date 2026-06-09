@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "final-verification",
+  "type": "verification",
+  "source": "targeted tests, ruff check, docs rg, shared graph test invocation, Aegis bundle/check",
+  "summary": "Final verification: Nebula target tests 107 passed; ruff check passed; docs rg found Nebula optimization guidance; shared graph storage test invocation skipped 8 tests under current non-integration config; proof bundle generated; workspace check still fails only on pre-existing baseline governance and historical unindexed docs.",
+  "verifier": "PYTHON=/root/project/LightRAG/.venv/bin/python ./scripts/test.sh tests/test_nebula_graph_storage.py; /root/project/LightRAG/.venv/bin/python -m ruff check lightrag/kg/nebula_impl.py tests/test_nebula_graph_storage.py; PYTHON=/root/project/LightRAG/.venv/bin/python ./scripts/test.sh tests/kg/test_graph_storage.py; python /root/.codex/aegis/scripts/aegis-workspace.py bundle/check"
+}

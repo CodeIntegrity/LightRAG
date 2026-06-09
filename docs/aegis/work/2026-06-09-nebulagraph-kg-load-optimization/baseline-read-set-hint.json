@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "candidateDocs": [
+    "docs/aegis/plans/2026-06-09-nebulagraph-kg-load-optimization.md",
+    "lightrag/kg/nebula_impl.py",
+    "tests/test_nebula_graph_storage.py"
+  ],
+  "whyRelevant": "Plan defines phase boundaries; storage and tests are the implementation and verification surface.",
+  "missingAuthority": []
+}

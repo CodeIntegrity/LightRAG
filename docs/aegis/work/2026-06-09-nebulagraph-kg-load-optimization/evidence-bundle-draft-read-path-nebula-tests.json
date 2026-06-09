@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "read-path-nebula-tests",
+  "type": "test",
+  "source": "./scripts/test.sh tests/test_nebula_graph_storage.py",
+  "summary": "After adding graph-load regression tests and read-path optimization, Nebula tests pass: 99 passed.",
+  "verifier": "PYTHON=/root/project/LightRAG/.venv/bin/python ./scripts/test.sh tests/test_nebula_graph_storage.py"
+}
