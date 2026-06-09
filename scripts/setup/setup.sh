@@ -1120,9 +1120,9 @@ select_storage_backends() {
 
   while true; do
     kv_storage="$(prompt_choice "KV storage" "$kv_default" "${KV_STORAGE_OPTIONS[@]}")"
+    doc_storage="$(prompt_choice "Doc status storage" "$doc_default" "${DOC_STATUS_STORAGE_OPTIONS[@]}")"
     vector_storage="$(prompt_choice "Vector storage" "$vector_default" "${VECTOR_STORAGE_OPTIONS[@]}")"
     graph_storage="$(prompt_choice "Graph storage" "$graph_default" "${GRAPH_STORAGE_OPTIONS[@]}")"
-    doc_storage="$(prompt_choice "Doc status storage" "$doc_default" "${DOC_STATUS_STORAGE_OPTIONS[@]}")"
 
     if check_storage_compatibility "$kv_storage" "$vector_storage" "$graph_storage" "$doc_storage"; then
       break
@@ -1347,21 +1347,15 @@ collect_postgres_config() {
     set_compose_override "POSTGRES_PORT" ""
   fi
 
+  # The bundled postgres image creates its user/password/database from the
+  # POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB env vars on first start, so docker
+  # and host deployments share the same prompts and defaults (rag/rag/lightrag).
   existing_user="${ORIGINAL_ENV_VALUES[POSTGRES_USER]-${ENV_VALUES[POSTGRES_USER]:-}}"
   existing_password="${ORIGINAL_ENV_VALUES[POSTGRES_PASSWORD]-${ENV_VALUES[POSTGRES_PASSWORD]:-}}"
   existing_database="${ORIGINAL_ENV_VALUES[POSTGRES_DATABASE]-${ENV_VALUES[POSTGRES_DATABASE]:-}}"
-  if [[ "$use_docker" == "yes" && -z "$existing_user" && -z "$existing_password" ]]; then
-    user="rag"
-    password="rag"
-  else
-    user="$(prompt_with_default "PostgreSQL user" "${existing_user:-rag}")"
-    password="$(prompt_secret_with_default "PostgreSQL password: " "${existing_password:-rag}")"
-  fi
-  if [[ "$use_docker" == "yes" && -z "$existing_database" ]]; then
-    database="rag"
-  else
-    database="$(prompt_with_default "PostgreSQL database" "${existing_database:-lightrag}")"
-  fi
+  user="$(prompt_with_default "PostgreSQL user" "${existing_user:-rag}")"
+  password="$(prompt_secret_with_default "PostgreSQL password: " "${existing_password:-rag}")"
+  database="$(prompt_with_default "PostgreSQL database" "${existing_database:-lightrag}")"
 
   ENV_VALUES["POSTGRES_HOST"]="$host"
   ENV_VALUES["POSTGRES_PORT"]="$port"
@@ -1785,17 +1779,6 @@ clear_bedrock_credentials() {
   unset 'ENV_VALUES[AWS_REGION]'
 }
 
-bedrock_binding_in_use() {
-  [[ "${ENV_VALUES[LLM_BINDING]:-}" == "bedrock" ||
-    "${ENV_VALUES[EMBEDDING_BINDING]:-}" == "bedrock" ]]
-}
-
-clear_bedrock_credentials_if_unused() {
-  if ! bedrock_binding_in_use; then
-    clear_bedrock_credentials
-  fi
-}
-
 collect_bedrock_credentials() {
   local access_key secret_key session_token region
 
@@ -1979,7 +1962,15 @@ collect_llm_config() {
   ENV_VALUES["LLM_MODEL"]="$model"
   ENV_VALUES["LLM_BINDING_HOST"]="$host"
   store_optional_env_value "LLM_BINDING_API_KEY" "$api_key"
-  clear_bedrock_credentials_if_unused
+
+  # Role-specific LLM models — default to the base LLM_MODEL when unset in .env.
+  local keyword_default query_default keyword_model query_model
+  keyword_default="${ENV_VALUES[KEYWORD_LLM_MODEL]:-$model}"
+  query_default="${ENV_VALUES[QUERY_LLM_MODEL]:-$model}"
+  keyword_model="$(prompt_with_default "Keyword LLM model" "$keyword_default")"
+  query_model="$(prompt_with_default "Query LLM model" "$query_default")"
+  ENV_VALUES["KEYWORD_LLM_MODEL"]="$keyword_model"
+  ENV_VALUES["QUERY_LLM_MODEL"]="$query_model"
 }
 
 collect_embedding_config() {
@@ -2049,7 +2040,6 @@ collect_embedding_config() {
   ENV_VALUES["EMBEDDING_DIM"]="$dim"
   ENV_VALUES["EMBEDDING_BINDING_HOST"]="$host"
   store_optional_env_value "EMBEDDING_BINDING_API_KEY" "$api_key"
-  clear_bedrock_credentials_if_unused
   # User chose a remote provider — clear the Docker deployment marker.
   unset 'ENV_VALUES[LIGHTRAG_SETUP_EMBEDDING_PROVIDER]'
 }

@@ -140,9 +140,9 @@
       "filters": {
         "all": "Alle",
         "completed": "Abgeschlossen",
-        "analyzing": "Wird analysiert",
-        "processing": "Verarbeitung",
-        "pending": "Ausstehend",
+        "parse": "Extraktion",
+        "analyze": "Analyse",
+        "process": "Verarbeitung",
         "failed": "Fehlgeschlagen"
       },
       "status": {
@@ -305,10 +305,11 @@
     "statusCard": {
       "unavailable": "Statusinformationen nicht verfügbar",
       "serverInfo": "Server-Informationen",
-      "workingDirectory": "Arbeitsverzeichnis",
       "inputDirectory": "Eingabeverzeichnis",
+      "parser": "Parser",
+      "mineru": "MinerU",
+      "docling": "Docling",
       "otherSettings": "Weitere Einstellungen",
-      "summarySettings": "Zusammenfassungseinstellungen",
       "llmConfig": "Modellkonfiguration",
       "llmBinding": "LLM-Bindung",
       "llmBindingHost": "LLM-Endpunkt",
@@ -326,11 +327,11 @@
       "rerankerConfig": "Reranker-Konfiguration",
       "rerankerBindingHost": "Reranker-Endpunkt",
       "rerankerModel": "Reranker-Modell",
-      "lockStatus": "Sperrstatus",
-      "threshold": "Schwellenwert"
+      "lockStatus": "Sperrstatus"
     },
     "propertiesView": {
       "editProperty": "{{property}} bearbeiten",
+      "editLockedByPipeline": "Pipeline ist ausgelastet; Bearbeitung deaktiviert",
       "editPropertyDescription": "Bearbeiten Sie den Eigenschaftswert im Textbereich unten.",
       "errors": {
         "duplicateName": "Knotenname existiert bereits",

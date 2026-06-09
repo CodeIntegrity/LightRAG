@@ -140,9 +140,9 @@
       "filters": {
         "all": "Tất cả",
         "completed": "Hoàn tất",
-        "analyzing": "Đang phân tích",
-        "processing": "Đang xử lý",
-        "pending": "Đang chờ",
+        "parse": "Trích xuất",
+        "analyze": "Phân tích",
+        "process": "Xử lý",
         "failed": "Thất bại"
       },
       "status": {
@@ -305,10 +305,11 @@
     "statusCard": {
       "unavailable": "Thông tin trạng thái không khả dụng",
       "serverInfo": "Thông Tin Máy Chủ",
-      "workingDirectory": "Thư Mục Làm Việc",
       "inputDirectory": "Thư Mục Đầu Vào",
+      "parser": "Bộ Phân Tích",
+      "mineru": "MinerU",
+      "docling": "Docling",
       "otherSettings": "Cài Đặt Khác",
-      "summarySettings": "Cài Đặt Tóm Tắt",
       "llmConfig": "Cấu Hình Mô Hình",
       "llmBinding": "LLM Binding",
       "llmBindingHost": "Điểm Cuối LLM",
@@ -326,11 +327,11 @@
       "rerankerConfig": "Cấu Hình Reranker",
       "rerankerBindingHost": "Điểm Cuối Reranker",
       "rerankerModel": "Mô Hình Reranker",
-      "lockStatus": "Trạng Thái Khóa",
-      "threshold": "Ngưỡng"
+      "lockStatus": "Trạng Thái Khóa"
     },
     "propertiesView": {
       "editProperty": "Chỉnh Sửa {{property}}",
+      "editLockedByPipeline": "Pipeline đang bận; chỉnh sửa đã bị tắt",
       "editPropertyDescription": "Chỉnh sửa giá trị thuộc tính trong vùng văn bản bên dưới.",
       "errors": {
         "duplicateName": "Tên nút đã tồn tại",

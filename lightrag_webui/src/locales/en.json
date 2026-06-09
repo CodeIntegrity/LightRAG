@@ -149,10 +149,10 @@
       "filters": {
         "all": "All",
         "completed": "Completed",
-        "analyzing": "Analyzing",
-        "processing": "Processing",
-        "pending": "Pending",
-        "failed": "Failed"
+        "parse": "Parse",
+        "analyze": "Analyze",
+        "process": "Process",
+        "failed": "Fail"
       },
       "status": {
         "all": "All",
@@ -360,10 +360,11 @@
     "statusCard": {
       "unavailable": "Status information unavailable",
       "serverInfo": "Server Info",
-      "workingDirectory": "Working Directory",
       "inputDirectory": "Input Directory",
+      "parser": "Parser",
+      "mineru": "MinerU",
+      "docling": "Docling",
       "otherSettings": "Other Settings",
-      "summarySettings": "Summary Settings",
       "llmConfig": "Model Configuration",
       "llmBinding": "LLM Binding",
       "llmBindingHost": "LLM Endpoint",
@@ -388,6 +389,7 @@
     },
     "propertiesView": {
       "editProperty": "Edit {{property}}",
+      "editLockedByPipeline": "Pipeline is busy; editing disabled",
       "editPropertyDescription": "Edit the property value in the text area below.",
       "errors": {
         "duplicateName": "Node name already exists",

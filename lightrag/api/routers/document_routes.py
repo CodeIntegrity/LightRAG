@@ -23,10 +23,10 @@ from fastapi import (
     HTTPException,
     UploadFile,
 )
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from lightrag import LightRAG
-from lightrag.base import DeletionResult, DocProcessingStatus, DocStatus
+from lightrag.base import DocProcessingStatus, DocStatus
 from lightrag.utils import (
     generate_track_id,
     compute_mdhash_id,
@@ -40,12 +40,21 @@ from lightrag.constants import (
     PARSED_DIR_NAME,
     PARSER_ENGINE_LEGACY,
     PROCESS_OPTION_CHUNK_FIXED,
+    PROCESS_OPTION_CHUNK_PARAGRAH,
+    PROCESS_OPTION_CHUNK_RECURSIVE,
+    PROCESS_OPTION_CHUNK_VECTOR,
 )
-from lightrag.parser_routing import (
+from lightrag.parser.routing import (
     FilenameParserHintError,
+    chunk_strategy_key,
+    resolve_chunk_options,
     resolve_file_parser_directives,
 )
-from lightrag.utils_pipeline import normalize_document_file_path
+from lightrag.utils_pipeline import (
+    doc_status_field,
+    get_existing_doc_by_file_basename,
+    normalize_document_file_path,
+)
 from ..config import global_args
 
 
@@ -124,6 +133,44 @@ NUMERIC_ARCHIVE_FILE_RE = re.compile(r"^(?P<stem>.+)_\d{3}(?P<suffix>\.[^.]+)$")
 PARSED_ARTIFACT_DIR_RE = re.compile(
     r"^(?P<file_path>.+)\.(?:parsed|mineru_raw)(?:_\d{3})?$"
 )
+
+
+def _unwrap_doc_status_match(match: Any) -> tuple[str | None, Any | None]:
+    if not match:
+        return None, None
+    if isinstance(match, tuple) and len(match) == 2:
+        return match[0], match[1]
+    return None, match
+
+
+async def _get_existing_doc_by_file_source(
+    doc_status: Any, file_source: str | None
+) -> Any | None:
+    if (
+        not file_source
+        or not file_source.strip()
+        or file_source == UNKNOWN_FILE_SOURCE
+    ):
+        return None
+
+    if hasattr(doc_status, "get_doc_by_file_basename"):
+        _, existing_doc = _unwrap_doc_status_match(
+            await get_existing_doc_by_file_basename(doc_status, file_source)
+        )
+        if existing_doc:
+            return existing_doc
+
+    get_doc_by_file_path = getattr(doc_status, "get_doc_by_file_path", None)
+    if get_doc_by_file_path is None:
+        return None
+    return await get_doc_by_file_path(file_source)
+
+
+async def _get_doc_status_by_id(doc_status: Any, doc_id: str) -> Any | None:
+    get_by_id = getattr(doc_status, "get_by_id", None)
+    if get_by_id is None:
+        return None
+    return await get_by_id(doc_id)
 
 
 def normalize_file_path(file_path: str | None) -> str:
@@ -345,7 +392,6 @@ class CancelPipelineResponse(BaseModel):
         }
     )
 
-
 class RebuildFromIndexingVersionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -427,12 +473,162 @@ class RebuildGraphsRequest(BaseModel):
         return validated_ids
 
 
+TextChunkingStrategy = Literal[
+    "fixed_token",
+    "recursive_character",
+    "semantic_vector",
+    "paragraph_semantic",
+]
+
+
+class _StrictChunkParams(BaseModel):
+    """Base for per-strategy chunking params.
+
+    ``strict=True`` rejects the Pydantic-v2 lax coercions that would
+    otherwise let malformed requests through and fail later in the
+    background chunker: bool-as-int (``true`` -> 1), numeric strings
+    (``"5"`` -> 5), float-as-int.  ``extra="forbid"`` turns unknown keys
+    into a 422 (replacing a hand-rolled allow-list).  ``chunk_token_size``
+    is shared by every strategy; ``None`` means "not supplied — fall back
+    to ``addon_params``/env default at process time".
+    """
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    chunk_token_size: Optional[int] = Field(default=None, ge=1)
+
+
+class _OverlapChunkParams(_StrictChunkParams):
+    chunk_overlap_token_size: Optional[int] = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _overlap_lt_size(self) -> "_OverlapChunkParams":
+        # Only enforceable when BOTH are explicit; when chunk_token_size
+        # is None the effective size is resolved from addon_params/env at
+        # process time and can't be compared against here.
+        if (
+            self.chunk_token_size is not None
+            and self.chunk_overlap_token_size is not None
+            and self.chunk_overlap_token_size >= self.chunk_token_size
+        ):
+            raise ValueError("chunk_overlap_token_size must be < chunk_token_size")
+        return self
+
+
+class FixedTokenChunkParams(_OverlapChunkParams):
+    split_by_character: Optional[str] = None
+    split_by_character_only: Optional[bool] = None
+
+
+class RecursiveCharacterChunkParams(_OverlapChunkParams):
+    separators: Optional[list[str]] = None
+
+
+class ParagraphSemanticChunkParams(_OverlapChunkParams):
+    pass
+
+
+class SemanticVectorChunkParams(_StrictChunkParams):
+    # Enum verified against the installed langchain_experimental
+    # (text_splitter.py ``BreakpointThresholdType``), not from memory.
+    breakpoint_threshold_type: Optional[
+        Literal["percentile", "standard_deviation", "interquartile", "gradient"]
+    ] = None
+    # A strict ``float`` field still accepts an ``int`` (e.g. JSON ``95``) and
+    # widens it losslessly to ``95.0`` — strict only rejects ``str`` / ``bool``
+    # here, which is exactly what we want. Do NOT relax strict (that would let
+    # numeric strings through) or switch to ``int | float`` (that would stop
+    # normalizing ints to float). Locked by tests in test_document_routes_chunking.
+    breakpoint_threshold_amount: Optional[float] = None
+    buffer_size: Optional[int] = Field(default=None, ge=1)
+    sentence_split_regex: Optional[str] = None
+
+    @field_validator("sentence_split_regex")
+    @classmethod
+    def _valid_sentence_split_regex(cls, v: Optional[str]) -> Optional[str]:
+        # The value is fed to LangChain's SemanticChunker and compiled during
+        # split_text. A malformed pattern (e.g. "(") would only blow up in the
+        # background, so compile it here to reject synchronously (HTTP 422).
+        if v is None:
+            return v
+        try:
+            re.compile(v)
+        except re.error as exc:
+            raise ValueError(
+                f"sentence_split_regex is not a valid regular expression: {exc}"
+            ) from exc
+        return v
+
+    @model_validator(mode="after")
+    def _amount_in_range(self) -> "SemanticVectorChunkParams":
+        amt = self.breakpoint_threshold_amount
+        if amt is None:
+            return self
+        # ``> 0`` is type-independent (every threshold type wants a positive
+        # magnitude), so it is safe to enforce at parse time.
+        if amt <= 0:
+            raise ValueError("breakpoint_threshold_amount must be > 0")
+        # The ``(0, 100]`` ceiling is percentile/gradient-specific (those feed
+        # np.percentile, which requires q in [0, 100]). It depends on the
+        # threshold TYPE, so only enforce it here when the type is supplied in
+        # the SAME request. When the type is omitted, the effective type is
+        # resolved from addon_params/env later — assuming "percentile" here
+        # would wrongly 422 a partial override that inherits
+        # standard_deviation/interquartile (which allow amounts > 100). The
+        # ceiling against the merged type is applied by
+        # ``_validate_effective_semantic_amount`` in ``_resolve_text_chunking``.
+        if self.breakpoint_threshold_type in ("percentile", "gradient") and amt > 100:
+            raise ValueError(
+                "breakpoint_threshold_amount must be within (0, 100] "
+                "for percentile/gradient"
+            )
+        return self
+
+
+_CHUNKING_PARAMS_MODEL: dict[str, type[_StrictChunkParams]] = {
+    "fixed_token": FixedTokenChunkParams,
+    "recursive_character": RecursiveCharacterChunkParams,
+    "semantic_vector": SemanticVectorChunkParams,
+    "paragraph_semantic": ParagraphSemanticChunkParams,
+}
+
+
+class TextChunkingConfig(BaseModel):
+    """Chunking strategy + strategy-specific params for a text insert.
+
+    Validation is delegated to the per-strategy typed model so unknown
+    keys, wrong types, and out-of-range values all raise synchronously
+    during request parsing (HTTP 422) — never later in the background
+    indexing task, where the HTTP response has already been sent.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: TextChunkingStrategy = "fixed_token"
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_params(self) -> "TextChunkingConfig":
+        typed = _CHUNKING_PARAMS_MODEL[self.strategy].model_validate(self.params)
+        # Normalize down to exactly the keys the caller supplied with a real
+        # value (validated + coerced) so the enqueue-time merge overrides only
+        # what was set. ``exclude_none`` additionally drops explicit nulls:
+        # every param field means "inherit the addon_params/env default" when
+        # None, so an explicit ``"chunk_token_size": null`` must NOT be merged
+        # over the resolved default — otherwise the route would 200 and the
+        # background chunker would do ``int(None)`` and fail the document.
+        self.params = typed.model_dump(exclude_unset=True, exclude_none=True)
+        return self
+
+
 class InsertTextRequest(BaseModel):
     """Request model for inserting a single text document
 
     Attributes:
         text: The text content to be inserted into the RAG system
         file_source: Source of the text (optional)
+        chunking: Optional chunking strategy + params; omit to keep the
+            default fixed-token behavior and addon_params defaults.
     """
 
     text: str = Field(
@@ -441,6 +637,10 @@ class InsertTextRequest(BaseModel):
     )
     file_source: Optional[str] = Field(
         default=None, min_length=0, description="File Source"
+    )
+    chunking: Optional[TextChunkingConfig] = Field(
+        default=None,
+        description="Chunking strategy and params; omit for default fixed-token chunking",
     )
 
     @field_validator("text", mode="after")
@@ -458,6 +658,15 @@ class InsertTextRequest(BaseModel):
             "example": {
                 "text": "This is a sample text to be inserted into the RAG system.",
                 "file_source": "Source of the text (optional)",
+                "chunking": {
+                    "strategy": "fixed_token",
+                    "params": {
+                        "chunk_token_size": 1200,
+                        "chunk_overlap_token_size": 100,
+                        "split_by_character": "\n\n",
+                        "split_by_character_only": True,
+                    },
+                },
             }
         }
     )
@@ -477,6 +686,10 @@ class InsertTextsRequest(BaseModel):
     )
     file_sources: Optional[list[str]] = Field(
         default=None, min_length=0, description="Sources of the texts"
+    )
+    chunking: Optional[TextChunkingConfig] = Field(
+        default=None,
+        description="Shared chunking strategy and params for all texts; omit for default fixed-token chunking",
     )
 
     @field_validator("texts", mode="after")
@@ -504,6 +717,10 @@ class InsertTextsRequest(BaseModel):
                 "file_sources": [
                     "First file source (optional)",
                 ],
+                "chunking": {
+                    "strategy": "recursive_character",
+                    "params": {"chunk_token_size": 1000},
+                },
             }
         }
     )
@@ -635,29 +852,6 @@ class DeleteDocRequest(BaseModel):
             raise ValueError("Document IDs must be unique")
 
         return validated_ids
-
-
-class DeleteEntityRequest(BaseModel):
-    entity_name: str = Field(..., description="The name of the entity to delete.")
-
-    @field_validator("entity_name", mode="after")
-    @classmethod
-    def validate_entity_name(cls, entity_name: str) -> str:
-        if not entity_name or not entity_name.strip():
-            raise ValueError("Entity name cannot be empty")
-        return entity_name.strip()
-
-
-class DeleteRelationRequest(BaseModel):
-    source_entity: str = Field(..., description="The name of the source entity.")
-    target_entity: str = Field(..., description="The name of the target entity.")
-
-    @field_validator("source_entity", "target_entity", mode="after")
-    @classmethod
-    def validate_entity_names(cls, entity_name: str) -> str:
-        if not entity_name or not entity_name.strip():
-            raise ValueError("Entity name cannot be empty")
-        return entity_name.strip()
 
 
 class DocStatusResponse(BaseModel):
@@ -1290,7 +1484,6 @@ def get_unique_filename_in_enqueued(target_dir: Path, original_name: str) -> str
     timestamp = int(time.time())
     return f"{base_name}_{timestamp}{extension}"
 
-
 def restore_enqueued_files_to_input_dir(doc_manager: DocumentManager) -> list[str]:
     """Move archived source files back to the scan directory before a rebuild."""
     restored_files: list[str] = []
@@ -1309,6 +1502,88 @@ def restore_enqueued_files_to_input_dir(doc_manager: DocumentManager) -> list[st
         restored_files.append(target_name)
 
     return restored_files
+
+
+async def check_pipeline_busy_or_raise(rag: LightRAG) -> None:
+    """Refuse the request with HTTP 409 when the document pipeline is busy.
+
+    Intended for short, fine-grained graph mutations (entity/relation
+    edit/create/delete/merge). Reads ``pipeline_status['busy']`` under
+    the namespace lock and raises immediately on contention -- it does
+    NOT set any flag, so it cannot block the pipeline itself.
+
+    ``busy`` is set by the processing loop and by destructive jobs
+    (``/documents/clear`` / per-doc delete). Both paths concurrently
+    write the same graph storages that these endpoints mutate, so a
+    409 here mirrors the existing UI guard and tells clients to wait.
+
+    A narrow race remains between this check and the underlying graph
+    write: if the pipeline transitions to busy in that window, the
+    per-edge/-node locks inside the storage layer are the last line of
+    defense. That trade-off is deliberate -- holding ``busy`` here
+    would serialise every UI edit against document ingestion, which is
+    a worse user-visible failure mode than tolerating the race.
+
+    No-op (returns silently) when ``pipeline_status`` was never
+    bootstrapped, matching the behaviour of ``_acquire_destructive_busy``
+    so test rigs without a real shared-storage Manager keep working.
+    """
+    from lightrag.exceptions import PipelineNotInitializedError
+    from lightrag.kg.shared_storage import get_namespace_data, get_namespace_lock
+
+    workspace = getattr(rag, "workspace", None)
+    if workspace is None:
+        return
+
+    try:
+        pipeline_status = await get_namespace_data("pipeline_status", workspace=workspace)
+    except PipelineNotInitializedError:
+        return
+    pipeline_status_lock = get_namespace_lock("pipeline_status", workspace=workspace)
+    async with pipeline_status_lock:
+        if pipeline_status.get("busy"):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Pipeline is busy with another operation. "
+                    "Wait for the running job to finish before editing "
+                    "the knowledge graph."
+                ),
+            )
+
+
+async def _acquire_destructive_busy(rag: LightRAG) -> tuple[bool, str | None]:
+    """Atomically reserve the destructive busy slot for ``/documents/clear``
+    or ``/documents/delete_document``.
+    """
+    from lightrag.exceptions import PipelineNotInitializedError
+    from lightrag.kg.shared_storage import get_namespace_data, get_namespace_lock
+
+    try:
+        pipeline_status = await get_namespace_data(
+            "pipeline_status", workspace=rag.workspace
+        )
+    except PipelineNotInitializedError:
+        return True, None
+    pipeline_status_lock = get_namespace_lock(
+        "pipeline_status", workspace=rag.workspace
+    )
+    async with pipeline_status_lock:
+        if pipeline_status.get("busy"):
+            return False, "Pipeline is busy with another operation."
+        if pipeline_status.get("scanning"):
+            return False, (
+                "Document scan is in progress. "
+                "Wait for the scan to complete before clearing or deleting."
+            )
+        if pipeline_status.get("pending_enqueues", 0) > 0:
+            return False, (
+                "Document upload/insert is being enqueued. "
+                "Wait for in-flight work to complete before clearing or deleting."
+            )
+        pipeline_status["busy"] = True
+        pipeline_status["destructive_busy"] = True
+    return True, None
 
 
 def get_rebuild_storages(rag: LightRAG) -> list[Any]:
@@ -2317,11 +2592,137 @@ async def pipeline_index_files(
         logger.error(traceback.format_exc())
 
 
+_STRATEGY_TO_PROCESS_OPTION: Dict[str, str] = {
+    "fixed_token": PROCESS_OPTION_CHUNK_FIXED,
+    "recursive_character": PROCESS_OPTION_CHUNK_RECURSIVE,
+    "semantic_vector": PROCESS_OPTION_CHUNK_VECTOR,
+    "paragraph_semantic": PROCESS_OPTION_CHUNK_PARAGRAH,
+}
+
+
+def _resolve_text_chunking(
+    chunking: Optional[TextChunkingConfig], rag: LightRAG
+) -> tuple[str, dict]:
+    """Freeze a ``chunking`` request into ``(process_options, chunk_options)``.
+
+    When ``chunking`` is ``None`` this reproduces today's behavior exactly:
+    fixed-token strategy with the snapshot built from
+    ``rag.addon_params['chunker']``.
+
+    Otherwise the validated, strategy-specific params are merged into the
+    selected strategy's sub-dict. ``chunk_token_size`` rides along inside
+    ``params`` like any other key — every strategy (F included, after the
+    ``process_single_document`` cleanup) reads its size from its own
+    sub-dict, with the top-level snapshot value as the shared fallback.
+
+    Raises:
+        ValueError: when the request lowers ``chunk_token_size`` below the
+            *effective* ``chunk_overlap_token_size``.  The overlap is often
+            inherited from ``addon_params``/env (the overlay fills
+            ``fixed_token``/``recursive_character``/``paragraph_semantic``
+            overlap with ``CHUNK_*_OVERLAP_SIZE`` / ``CHUNK_OVERLAP_SIZE``),
+            so this can only be checked here against the resolved snapshot,
+            not in the request model.  Callers on the request path invoke
+            this synchronously so the failure surfaces as HTTP 422 before any
+            background work is scheduled.
+    """
+    if chunking is None:
+        # No request-driven config: reproduce today's behavior verbatim,
+        # including not introducing new validation on the default path.
+        process_options = PROCESS_OPTION_CHUNK_FIXED
+        return process_options, resolve_chunk_options(
+            rag.addon_params, process_options=process_options
+        )
+
+    process_options = _STRATEGY_TO_PROCESS_OPTION[chunking.strategy]
+    chunk_options = resolve_chunk_options(
+        rag.addon_params, process_options=process_options
+    )
+    strategy_key = chunk_strategy_key(process_options)
+    chunk_options[strategy_key].update(chunking.params)
+    _validate_effective_chunk_overlap(chunk_options, strategy_key, chunking.strategy)
+    _validate_effective_semantic_amount(chunk_options, strategy_key)
+    return process_options, chunk_options
+
+
+def _validate_effective_chunk_overlap(
+    chunk_options: dict, strategy_key: str, strategy_name: str
+) -> None:
+    """Reject a resolved snapshot whose overlap is >= its chunk size.
+
+    Operates on the fully-resolved ``chunk_options`` so it catches the case
+    the request model cannot: ``chunk_token_size`` supplied in the request
+    while ``chunk_overlap_token_size`` is inherited from addon_params/env
+    (e.g. ``chunk_token_size=50`` with the default overlap ``100``).  The
+    effective size is the strategy sub-dict value, falling back to the
+    top-level snapshot size; the effective overlap is the sub-dict value
+    (``semantic_vector`` carries none, so it is skipped).
+    """
+    sub = chunk_options.get(strategy_key) or {}
+    # Fixed-token delimiter-only mode (split_by_character set AND
+    # split_by_character_only=True) never applies overlap:
+    # chunking_by_token_size only validates each delimiter segment against
+    # chunk_token_size and raises on an oversize segment — the overlap field
+    # is unused. Enforcing overlap < size there would wrongly 422 a valid
+    # request such as paragraph splitting with a small chunk_token_size.
+    # (split_by_character_only is itself a no-op when split_by_character is
+    # falsy, so both must be effective for overlap to be skipped.)
+    if (
+        strategy_key == "fixed_token"
+        and sub.get("split_by_character")
+        and sub.get("split_by_character_only")
+    ):
+        return
+    overlap = sub.get("chunk_overlap_token_size")
+    if overlap is None:
+        return
+    size = sub.get("chunk_token_size")
+    if size is None:
+        size = chunk_options.get("chunk_token_size")
+    if size is not None and overlap >= size:
+        raise ValueError(
+            f"chunking for strategy '{strategy_name}': effective "
+            f"chunk_overlap_token_size ({overlap}) must be < chunk_token_size "
+            f"({size}). The overlap is inherited from addon_params/env when "
+            f"not set in the request; raise chunk_token_size or lower "
+            f"chunk_overlap_token_size."
+        )
+
+
+def _validate_effective_semantic_amount(chunk_options: dict, strategy_key: str) -> None:
+    """Reject a resolved semantic_vector snapshot whose breakpoint amount
+    exceeds the percentile/gradient ceiling.
+
+    Uses the *effective* ``breakpoint_threshold_type`` from the merged
+    snapshot — the request model cannot, because the type may be inherited
+    from ``addon_params``/``CHUNK_V_BREAKPOINT_THRESHOLD_TYPE`` while the
+    request overrides only ``breakpoint_threshold_amount``. ``percentile`` /
+    ``gradient`` feed ``np.percentile`` (q must be in ``[0, 100]``);
+    ``standard_deviation`` / ``interquartile`` are multipliers with no upper
+    bound, so a request amount > 100 is valid for them.
+    """
+    if strategy_key != "semantic_vector":
+        return
+    sub = chunk_options.get(strategy_key) or {}
+    amt = sub.get("breakpoint_threshold_amount")
+    if amt is None:
+        return
+    kind = sub.get("breakpoint_threshold_type") or "percentile"
+    if kind in ("percentile", "gradient") and amt > 100:
+        raise ValueError(
+            f"chunking for strategy 'semantic_vector': "
+            f"breakpoint_threshold_amount ({amt}) must be within (0, 100] for "
+            f"breakpoint_threshold_type '{kind}'. The type is inherited from "
+            f"addon_params/env when not set in the request."
+        )
+
+
 async def pipeline_index_texts(
     rag: LightRAG,
     texts: List[str],
     file_sources: List[str] = None,
     track_id: str = None,
+    chunking: Optional[TextChunkingConfig] = None,
 ):
     """Index a list of texts with track_id
 
@@ -2330,6 +2731,8 @@ async def pipeline_index_texts(
         texts: The texts to index
         file_sources: Sources of the texts
         track_id: Optional tracking ID
+        chunking: Optional chunking strategy + params (already validated by
+            the request model); when None, default fixed-token chunking is used
     """
     if not texts:
         return
@@ -2348,11 +2751,13 @@ async def pipeline_index_texts(
                 [UNKNOWN_FILE_SOURCE] * (len(texts) - len(normalized_file_sources))
             )
 
+    process_options, chunk_options = _resolve_text_chunking(chunking, rag)
     await rag.apipeline_enqueue_documents(
         input=texts,
         file_paths=normalized_file_sources,
         track_id=track_id,
-        process_options=PROCESS_OPTION_CHUNK_FIXED,
+        process_options=process_options,
+        chunk_options=chunk_options,
     )
     await rag.apipeline_process_enqueue_documents()
 
@@ -3028,23 +3433,28 @@ def create_document_routes(
         Raises:
             HTTPException: If an error occurs during text processing (500).
         """
+        current_rag: LightRAG | None = None
+        slot_reserved = False
         try:
             current_rag, _ = _current_runtime_objects()
+            slot_reserved = await _reserve_enqueue_slot(current_rag)
 
             # Check if file_source already exists in doc_status storage
             if (
                 request.file_source
                 and request.file_source.strip()
-                and request.file_source != "unknown_source"
+                and request.file_source != UNKNOWN_FILE_SOURCE
             ):
-                existing_doc_data = await current_rag.doc_status.get_doc_by_file_path(
-                    request.file_source
+                existing_doc_data = await _get_existing_doc_by_file_source(
+                    current_rag.doc_status, request.file_source
                 )
                 if existing_doc_data:
                     # Get document status and track_id from existing document
-                    status = existing_doc_data.get("status", "unknown")
+                    status = doc_status_field(existing_doc_data, "status", "unknown")
                     # Use `or ""` to handle both missing key and None value (e.g., legacy rows without track_id)
-                    existing_track_id = existing_doc_data.get("track_id") or ""
+                    existing_track_id = (
+                        doc_status_field(existing_doc_data, "track_id", "") or ""
+                    )
                     return InsertResponse(
                         status="duplicated",
                         message=f"File source '{request.file_source}' already exists in document storage (Status: {status}).",
@@ -3054,37 +3464,61 @@ def create_document_routes(
             # Check if content already exists by computing content hash (doc_id)
             sanitized_text = sanitize_text_for_encoding(request.text)
             content_doc_id = compute_mdhash_id(sanitized_text, prefix="doc-")
-            existing_doc = await current_rag.doc_status.get_by_id(content_doc_id)
+            existing_doc = await _get_doc_status_by_id(
+                current_rag.doc_status, content_doc_id
+            )
             if existing_doc:
                 # Content already exists, return duplicated with existing track_id
-                status = existing_doc.get("status", "unknown")
-                existing_track_id = existing_doc.get("track_id") or ""
+                status = doc_status_field(existing_doc, "status", "unknown")
+                existing_track_id = doc_status_field(existing_doc, "track_id", "") or ""
                 return InsertResponse(
                     status="duplicated",
                     message=f"Identical content already exists in document storage (doc_id: {content_doc_id}, Status: {status}).",
                     track_id=existing_track_id,
                 )
 
+            # Resolve + validate chunking synchronously so an invalid
+            # effective config (e.g. chunk_token_size below the inherited
+            # overlap) fails with HTTP 422 here, before any background work is
+            # scheduled. pipeline_index_texts re-resolves from the same
+            # addon_params inside the task.
+            try:
+                _resolve_text_chunking(request.chunking, current_rag)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+
             # Generate track_id for text insertion
             track_id = generate_track_id("insert")
 
-            background_tasks.add_task(
-                pipeline_index_texts,
-                current_rag,
-                [request.text],
-                file_sources=[request.file_source],
-                track_id=track_id,
-            )
+            async def _indexing_task():
+                try:
+                    await pipeline_index_texts(
+                        current_rag,
+                        [request.text],
+                        file_sources=[request.file_source],
+                        track_id=track_id,
+                        chunking=request.chunking,
+                    )
+                finally:
+                    await _release_enqueue_slot(current_rag)
+
+            background_tasks.add_task(_indexing_task)
+            slot_reserved = False
 
             return InsertResponse(
                 status="success",
                 message="Text successfully received. Processing will continue in background.",
                 track_id=track_id,
             )
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error /documents/text: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
+        finally:
+            if slot_reserved and current_rag is not None:
+                await _release_enqueue_slot(current_rag)
 
     @router.post(
         "/texts",
@@ -3110,8 +3544,11 @@ def create_document_routes(
         Raises:
             HTTPException: If an error occurs during text processing (500).
         """
+        current_rag: LightRAG | None = None
+        slot_reserved = False
         try:
             current_rag, _ = _current_runtime_objects()
+            slot_reserved = await _reserve_enqueue_slot(current_rag)
 
             # Check if any file_sources already exist in doc_status storage
             if request.file_sources:
@@ -3119,16 +3556,21 @@ def create_document_routes(
                     if (
                         file_source
                         and file_source.strip()
-                        and file_source != "unknown_source"
+                        and file_source != UNKNOWN_FILE_SOURCE
                     ):
-                        existing_doc_data = await current_rag.doc_status.get_doc_by_file_path(
-                            file_source
+                        existing_doc_data = await _get_existing_doc_by_file_source(
+                            current_rag.doc_status, file_source
                         )
                         if existing_doc_data:
                             # Get document status and track_id from existing document
-                            status = existing_doc_data.get("status", "unknown")
+                            status = doc_status_field(
+                                existing_doc_data, "status", "unknown"
+                            )
                             # Use `or ""` to handle both missing key and None value (e.g., legacy rows without track_id)
-                            existing_track_id = existing_doc_data.get("track_id") or ""
+                            existing_track_id = (
+                                doc_status_field(existing_doc_data, "track_id", "")
+                                or ""
+                            )
                             return InsertResponse(
                                 status="duplicated",
                                 message=f"File source '{file_source}' already exists in document storage (Status: {status}).",
@@ -3139,37 +3581,63 @@ def create_document_routes(
             for text in request.texts:
                 sanitized_text = sanitize_text_for_encoding(text)
                 content_doc_id = compute_mdhash_id(sanitized_text, prefix="doc-")
-                existing_doc = await current_rag.doc_status.get_by_id(content_doc_id)
+                existing_doc = await _get_doc_status_by_id(
+                    current_rag.doc_status, content_doc_id
+                )
                 if existing_doc:
                     # Content already exists, return duplicated with existing track_id
-                    status = existing_doc.get("status", "unknown")
-                    existing_track_id = existing_doc.get("track_id") or ""
+                    status = doc_status_field(existing_doc, "status", "unknown")
+                    existing_track_id = (
+                        doc_status_field(existing_doc, "track_id", "") or ""
+                    )
                     return InsertResponse(
                         status="duplicated",
                         message=f"Identical content already exists in document storage (doc_id: {content_doc_id}, Status: {status}).",
                         track_id=existing_track_id,
                     )
 
+            # Resolve + validate the shared chunking synchronously so an
+            # invalid effective config (e.g. chunk_token_size below the
+            # inherited overlap) fails with HTTP 422 here, before any
+            # background work is scheduled. pipeline_index_texts re-resolves
+            # from the same addon_params inside the task.
+            try:
+                _resolve_text_chunking(request.chunking, current_rag)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+
             # Generate track_id for texts insertion
             track_id = generate_track_id("insert")
 
-            background_tasks.add_task(
-                pipeline_index_texts,
-                current_rag,
-                request.texts,
-                file_sources=request.file_sources,
-                track_id=track_id,
-            )
+            async def _indexing_task():
+                try:
+                    await pipeline_index_texts(
+                        current_rag,
+                        request.texts,
+                        file_sources=request.file_sources,
+                        track_id=track_id,
+                        chunking=request.chunking,
+                    )
+                finally:
+                    await _release_enqueue_slot(current_rag)
+
+            background_tasks.add_task(_indexing_task)
+            slot_reserved = False
 
             return InsertResponse(
                 status="success",
                 message="Texts successfully received. Processing will continue in background.",
                 track_id=track_id,
             )
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error /documents/texts: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
+        finally:
+            if slot_reserved and current_rag is not None:
+                await _release_enqueue_slot(current_rag)
 
     @router.post(
         "/rebuild_custom_chunks_graph",
@@ -3788,79 +4256,6 @@ def create_document_routes(
             logger.error(f"Error clearing cache: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
-
-    @router.delete(
-        "/delete_entity",
-        response_model=DeletionResult,
-        dependencies=[Depends(combined_auth)],
-    )
-    async def delete_entity(request: DeleteEntityRequest):
-        """
-        Delete an entity and all its relationships from the knowledge graph.
-
-        Args:
-            request (DeleteEntityRequest): The request body containing the entity name.
-
-        Returns:
-            DeletionResult: An object containing the outcome of the deletion process.
-
-        Raises:
-            HTTPException: If the entity is not found (404) or an error occurs (500).
-        """
-        try:
-            result = await rag.adelete_by_entity(entity_name=request.entity_name)
-            if result.status == "not_found":
-                raise HTTPException(status_code=404, detail=result.message)
-            if result.status == "fail":
-                raise HTTPException(status_code=500, detail=result.message)
-            # Set doc_id to empty string since this is an entity operation, not document
-            result.doc_id = ""
-            return result
-        except HTTPException:
-            raise
-        except Exception as e:
-            error_msg = f"Error deleting entity '{request.entity_name}': {str(e)}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
-            raise HTTPException(status_code=500, detail=error_msg)
-
-    @router.delete(
-        "/delete_relation",
-        response_model=DeletionResult,
-        dependencies=[Depends(combined_auth)],
-    )
-    async def delete_relation(request: DeleteRelationRequest):
-        """
-        Delete a relationship between two entities from the knowledge graph.
-
-        Args:
-            request (DeleteRelationRequest): The request body containing the source and target entity names.
-
-        Returns:
-            DeletionResult: An object containing the outcome of the deletion process.
-
-        Raises:
-            HTTPException: If the relation is not found (404) or an error occurs (500).
-        """
-        try:
-            result = await rag.adelete_by_relation(
-                source_entity=request.source_entity,
-                target_entity=request.target_entity,
-            )
-            if result.status == "not_found":
-                raise HTTPException(status_code=404, detail=result.message)
-            if result.status == "fail":
-                raise HTTPException(status_code=500, detail=result.message)
-            # Set doc_id to empty string since this is a relation operation, not document
-            result.doc_id = ""
-            return result
-        except HTTPException:
-            raise
-        except Exception as e:
-            error_msg = f"Error deleting relation from '{request.source_entity}' to '{request.target_entity}': {str(e)}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
-            raise HTTPException(status_code=500, detail=error_msg)
 
     @router.get(
         "/track_status/{track_id}",

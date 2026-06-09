@@ -140,9 +140,9 @@
       "filters": {
         "all": "전체",
         "completed": "완료",
-        "analyzing": "분석 중",
-        "processing": "처리 중",
-        "pending": "대기 중",
+        "parse": "추출",
+        "analyze": "분석",
+        "process": "처리",
         "failed": "실패"
       },
       "status": {
@@ -305,10 +305,11 @@
     "statusCard": {
       "unavailable": "상태 정보를 사용할 수 없음",
       "serverInfo": "서버 정보",
-      "workingDirectory": "작업 디렉토리",
       "inputDirectory": "입력 디렉토리",
+      "parser": "파서",
+      "mineru": "MinerU",
+      "docling": "Docling",
       "otherSettings": "기타 설정",
-      "summarySettings": "요약 설정",
       "llmConfig": "모델 구성",
       "llmBinding": "LLM 바인딩",
       "llmBindingHost": "LLM 엔드포인트",
@@ -326,11 +327,11 @@
       "rerankerConfig": "Reranker 구성",
       "rerankerBindingHost": "Reranker 엔드포인트",
       "rerankerModel": "Reranker 모델",
-      "lockStatus": "잠금 상태",
-      "threshold": "임계값"
+      "lockStatus": "잠금 상태"
     },
     "propertiesView": {
       "editProperty": "{{property}} 수정",
+      "editLockedByPipeline": "파이프라인 사용 중 - 편집이 비활성화되었습니다",
       "editPropertyDescription": "아래 텍스트 영역에서 속성 값을 수정하세요.",
       "errors": {
         "duplicateName": "노드 이름이 이미 존재합니다",

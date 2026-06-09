@@ -41,6 +41,7 @@ import { RefreshCwIcon, ActivityIcon, ArrowUpIcon, ArrowDownIcon, RotateCcwIcon,
 import PipelineStatusDialog from '@/components/documents/PipelineStatusDialog'
 import {
   getStatusBucket,
+  getStatusRequestFilters,
   matchesStatusFilter,
   type StatusBucket,
   type StatusFilter
@@ -52,7 +53,7 @@ type StatusDisplayConfig = {
   className: string
 }
 
-const STATUS_BUCKETS: StatusBucket[] = ['processed', 'analyzing', 'processing', 'pending', 'failed', 'parsing', 'preprocessed']
+const STATUS_BUCKETS: StatusBucket[] = ['completed', 'parse', 'analyze', 'process', 'failed']
 
 // Utility functions defined outside component for better performance and to avoid dependency issues
 const getCountValue = (counts: Record<string, number>, ...keys: string[]): number => {
@@ -80,7 +81,8 @@ const buildLegacyDocs = (documents: DocStatusResponse[]): DocsStatusesResponse =
   }, {} as Record<StatusBucket, DocStatusResponse[]>)
 
   documents.forEach((doc) => {
-    statuses[getStatusBucket(doc.status)].push(doc)
+    const bucket = getStatusBucket(doc.status)
+    if (bucket) statuses[bucket].push(doc)
   })
 
   return { statuses }
@@ -242,10 +244,10 @@ export default function DocumentManager() {
   // State to store page number for each status filter
   const [pageByStatus, setPageByStatus] = useState<Record<StatusFilter, number>>({
     all: 1,
-    processed: 1,
-    analyzing: 1,
-    processing: 1,
-    pending: 1,
+    completed: 1,
+    parse: 1,
+    analyze: 1,
+    process: 1,
     failed: 1,
     parsing: 1,
     preprocessed: 1,
@@ -323,10 +325,10 @@ export default function DocumentManager() {
     // Reset all status filters' page memory since sorting affects all
     setPageByStatus({
       all: 1,
-      processed: 1,
-      analyzing: 1,
-      processing: 1,
-      pending: 1,
+      completed: 1,
+      parse: 1,
+      analyze: 1,
+      process: 1,
       failed: 1,
       parsing: 1,
       preprocessed: 1,
@@ -506,26 +508,17 @@ export default function DocumentManager() {
     return counts;
   }, [docs]);
 
-  const processedCount = getCountValue(statusCounts, 'PROCESSED', 'processed') || documentCounts.processed || 0;
-  const analyzingCount =
-    getAggregateCount(statusCounts, 'PARSING', 'parsing', 'ANALYZING', 'analyzing', 'PREPROCESSED', 'preprocessed') ||
-    documentCounts.analyzing ||
-    0;
-  const processingCount =
-    getAggregateCount(statusCounts, 'PROCESSING', 'processing') ||
-    documentCounts.processing ||
-    0;
-  const pendingCount = getCountValue(statusCounts, 'PENDING', 'pending') || documentCounts.pending || 0;
+  const completedCount = getCountValue(statusCounts, 'PROCESSED', 'processed') || documentCounts.completed || 0;
+  const parseCount = getCountValue(statusCounts, 'PARSING', 'parsing') || documentCounts.parse || 0;
+  const analyzeCount = getCountValue(statusCounts, 'ANALYZING', 'analyzing') || documentCounts.analyze || 0;
+  const processCount = getCountValue(statusCounts, 'PROCESSING', 'processing') || documentCounts.process || 0;
   const failedCount = getCountValue(statusCounts, 'FAILED', 'failed') || documentCounts.failed || 0;
 
   // Store previous status counts
-  const prevStatusCounts = useRef({
-    processed: 0,
-    analyzing: 0,
-    processing: 0,
-    pending: 0,
-    failed: 0
-  })
+  // Fingerprint of per-bucket counts. Kept key-agnostic on purpose: `docs.statuses`
+  // may be keyed by raw DocStatus (backend) or by filter bucket (buildLegacyDocs),
+  // so we compare a stable digest of all buckets rather than fixed keys.
+  const prevStatusFingerprint = useRef('')
 
   // Add pulse style to document
   useEffect(() => {
@@ -554,7 +547,7 @@ export default function DocumentManager() {
     query: QuerySnapshot,
     page: number = query.page
   ): DocumentsRequest => ({
-    status_filter: query.statusFilter === 'all' ? null : query.statusFilter,
+    ...getStatusRequestFilters(query.statusFilter),
     page,
     page_size: query.pageSize,
     sort_field: query.sortField,
@@ -660,10 +653,10 @@ export default function DocumentManager() {
     // Reset all status filters to page 1 when page size changes
     setPageByStatus({
       all: 1,
-      processed: 1,
-      analyzing: 1,
-      processing: 1,
-      pending: 1,
+      completed: 1,
+      parse: 1,
+      analyze: 1,
+      process: 1,
       failed: 1,
       parsing: 1,
       preprocessed: 1,
@@ -1052,29 +1045,23 @@ export default function DocumentManager() {
   useEffect(() => {
     if (!docs) return;
 
-    // Get new status counts
-    const newStatusCounts = {
-      processed: docs?.statuses?.processed?.length || 0,
-      analyzing: docs?.statuses?.analyzing?.length || 0,
-      processing: docs?.statuses?.processing?.length || 0,
-      pending: docs?.statuses?.pending?.length || 0,
-      failed: docs?.statuses?.failed?.length || 0
-    }
+    // Build a key-agnostic digest of every status bucket's count. Sorting keeps
+    // it stable regardless of object iteration order or whether buckets are keyed
+    // by raw DocStatus or by filter bucket.
+    const fingerprint = Object.entries(docs.statuses)
+      .map(([key, list]) => `${key}:${list?.length || 0}`)
+      .sort()
+      .join('|')
 
-    // Check if any status count has changed
-    const hasStatusCountChange = (Object.keys(newStatusCounts) as Array<keyof typeof newStatusCounts>).some(
-      status => newStatusCounts[status] !== prevStatusCounts.current[status]
-    )
-
-    // Trigger health check if changes detected and component is still mounted.
-    // Skip when the activity probe is running — the probe already drives /health
-    // on its own schedule, and double-firing would burn cache and skew rate.
-    if (hasStatusCountChange && isMountedRef.current && !probeActiveRef.current) {
+    // Trigger health check if any bucket count changed and component is still
+    // mounted. Skip when the activity probe is running — the probe already drives
+    // /health on its own schedule, and double-firing would burn cache and skew rate.
+    if (fingerprint !== prevStatusFingerprint.current && isMountedRef.current && !probeActiveRef.current) {
       useBackendState.getState().check()
     }
 
     // Always update the snapshot so the first post-probe transition still fires.
-    prevStatusCounts.current = newStatusCounts
+    prevStatusFingerprint.current = fingerprint
   }, [docs]);
 
   // Handle page change - only update state
@@ -1310,51 +1297,51 @@ export default function DocumentManager() {
                   </Button>
                   <Button
                     size="sm"
-                    variant={statusFilter === 'processed' ? 'secondary' : 'outline'}
-                    onClick={() => handleStatusFilterChange('processed')}
+                    variant={statusFilter === 'completed' ? 'secondary' : 'outline'}
+                    onClick={() => handleStatusFilterChange('completed')}
                     disabled={isRefreshing}
                     className={cn(
-                      processedCount > 0 ? 'text-green-600' : 'text-gray-500',
-                      statusFilter === 'processed' && 'bg-green-100 dark:bg-green-900/30 font-medium border border-green-400 dark:border-green-600 shadow-sm'
+                      completedCount > 0 ? 'text-green-600' : 'text-gray-500',
+                      statusFilter === 'completed' && 'bg-green-100 dark:bg-green-900/30 font-medium border border-green-400 dark:border-green-600 shadow-sm'
                     )}
                   >
-                    {t('documentPanel.documentManager.filters.completed')} ({processedCount})
+                    {t('documentPanel.documentManager.filters.completed')} ({completedCount})
                   </Button>
                   <Button
                     size="sm"
-                    variant={statusFilter === 'analyzing' ? 'secondary' : 'outline'}
-                    onClick={() => handleStatusFilterChange('analyzing')}
+                    variant={statusFilter === 'parse' ? 'secondary' : 'outline'}
+                    onClick={() => handleStatusFilterChange('parse')}
                     disabled={isRefreshing}
                     className={cn(
-                      analyzingCount > 0 ? 'text-indigo-600' : 'text-gray-500',
-                      statusFilter === 'analyzing' && 'bg-indigo-100 dark:bg-indigo-900/30 font-medium border border-indigo-400 dark:border-indigo-600 shadow-sm'
+                      parseCount > 0 ? 'text-cyan-600' : 'text-gray-500',
+                      statusFilter === 'parse' && 'bg-cyan-100 dark:bg-cyan-900/30 font-medium border border-cyan-400 dark:border-cyan-600 shadow-sm'
                     )}
                   >
-                    {t('documentPanel.documentManager.filters.analyzing')} ({analyzingCount})
+                    {t('documentPanel.documentManager.filters.parse')} ({parseCount})
                   </Button>
                   <Button
                     size="sm"
-                    variant={statusFilter === 'processing' ? 'secondary' : 'outline'}
-                    onClick={() => handleStatusFilterChange('processing')}
+                    variant={statusFilter === 'analyze' ? 'secondary' : 'outline'}
+                    onClick={() => handleStatusFilterChange('analyze')}
                     disabled={isRefreshing}
                     className={cn(
-                      processingCount > 0 ? 'text-blue-600' : 'text-gray-500',
-                      statusFilter === 'processing' && 'bg-blue-100 dark:bg-blue-900/30 font-medium border border-blue-400 dark:border-blue-600 shadow-sm'
+                      analyzeCount > 0 ? 'text-indigo-600' : 'text-gray-500',
+                      statusFilter === 'analyze' && 'bg-indigo-100 dark:bg-indigo-900/30 font-medium border border-indigo-400 dark:border-indigo-600 shadow-sm'
                     )}
                   >
-                    {t('documentPanel.documentManager.filters.processing')} ({processingCount})
+                    {t('documentPanel.documentManager.filters.analyze')} ({analyzeCount})
                   </Button>
                   <Button
                     size="sm"
-                    variant={statusFilter === 'pending' ? 'secondary' : 'outline'}
-                    onClick={() => handleStatusFilterChange('pending')}
+                    variant={statusFilter === 'process' ? 'secondary' : 'outline'}
+                    onClick={() => handleStatusFilterChange('process')}
                     disabled={isRefreshing}
                     className={cn(
-                      pendingCount > 0 ? 'text-yellow-600' : 'text-gray-500',
-                      statusFilter === 'pending' && 'bg-yellow-100 dark:bg-yellow-900/30 font-medium border border-yellow-400 dark:border-yellow-600 shadow-sm'
+                      processCount > 0 ? 'text-blue-600' : 'text-gray-500',
+                      statusFilter === 'process' && 'bg-blue-100 dark:bg-blue-900/30 font-medium border border-blue-400 dark:border-blue-600 shadow-sm'
                     )}
                   >
-                    {t('documentPanel.documentManager.filters.pending')} ({pendingCount})
+                    {t('documentPanel.documentManager.filters.process')} ({processCount})
                   </Button>
                   <Button
                     size="sm"

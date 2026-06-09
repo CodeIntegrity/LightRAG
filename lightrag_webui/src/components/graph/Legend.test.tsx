@@ -25,7 +25,20 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@/stores/graph', () => ({
   useGraphStore: {
+    getState: () => ({
+      focusedNode: null,
+      selectedNode: null,
+      selectedNodeSource: null,
+      setFocusedNode: () => {},
+      setSelectedNode: () => {},
+      setSelectedEdge: () => {},
+      clearSelection: () => {}
+    }),
     use: {
+      sigmaGraph: () => null,
+      rawGraph: () => null,
+      searchEngine: () => null,
+      searchEngineKey: () => null,
       typeColorMap: () =>
         new Map<string, string>([
           ['PERSON', '#ff0000'],

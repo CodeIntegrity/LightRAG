@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
 import { useGraphStore, RawNodeType, RawEdgeType } from '@/stores/graph'
+import { useBackendState } from '@/stores/state'
 import Text from '@/components/ui/Text'
 import Button from '@/components/ui/Button'
 import { useTranslation } from 'react-i18next'
-import { GitBranchPlus, Scissors } from 'lucide-react'
+import { GitBranchPlus, Scissors, Lock } from 'lucide-react'
 import EditablePropertyRow from './EditablePropertyRow'
 import { resolveNodeDisplayName } from '@/utils/graphLabel'
 import { getVisibleGraphPropertyEntries } from '@/utils/graphProperties'
@@ -23,6 +24,7 @@ const PropertiesView = ({ panelClassName }: PropertiesViewProps) => {
   const selectedEdge = useGraphStore.use.selectedEdge()
   const focusedEdge = useGraphStore.use.focusedEdge()
   const graphDataVersion = useGraphStore.use.graphDataVersion()
+  const pipelineBusy = useBackendState.use.pipelineBusy()
 
   const getNode = (nodeId: string) => rawGraph?.getNode(nodeId) || null
   const getEdge = (edgeId: string, dynamicId: boolean = true) =>
@@ -74,9 +76,9 @@ const PropertiesView = ({ panelClassName }: PropertiesViewProps) => {
   return (
     <div className={containerClassName}>
       {currentType == 'node' ? (
-        <NodePropertiesView node={currentElement as any} />
+        <NodePropertiesView node={currentElement as any} pipelineBusy={pipelineBusy} />
       ) : (
-        <EdgePropertiesView edge={currentElement as any} />
+        <EdgePropertiesView edge={currentElement as any} pipelineBusy={pipelineBusy} />
       )}
     </div>
   )
@@ -191,7 +193,8 @@ const PropertyRow = ({
   targetId,
   isEditable = false,
   truncate,
-  revisionToken
+  revisionToken,
+  pipelineBusy = false
 }: {
   name: string
   value: any
@@ -207,6 +210,7 @@ const PropertyRow = ({
   isEditable?: boolean
   truncate?: string
   revisionToken?: string
+  pipelineBusy?: boolean
 }) => {
   const { t } = useTranslation()
 
@@ -249,6 +253,7 @@ const PropertyRow = ({
         targetId={targetId}
         revisionToken={revisionToken}
         isEditable={true}
+        pipelineBusy={pipelineBusy}
         tooltip={tooltip || (typeof value === 'string' ? value : JSON.stringify(value, null, 2))}
       />
     )
@@ -273,7 +278,7 @@ const PropertyRow = ({
   )
 }
 
-const NodePropertiesView = ({ node }: { node: NodeType }) => {
+const NodePropertiesView = ({ node, pipelineBusy }: { node: NodeType; pipelineBusy: boolean }) => {
   const { t } = useTranslation()
   const visibleLabels = node.labels.filter(
     (label) => typeof label === 'string' && label.trim()
@@ -292,6 +297,20 @@ const NodePropertiesView = ({ node }: { node: NodeType }) => {
       <div className="flex justify-between items-center">
         <h3 className="text-md pl-1 font-bold tracking-wide text-blue-700">{t('graphPanel.propertiesView.node.title')}</h3>
         <div className="flex gap-3">
+          {pipelineBusy && (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label={t('graphPanel.propertiesView.editLockedByPipeline')}
+              aria-disabled="true"
+              className="h-7 w-7 border border-amber-400 hover:bg-amber-50 dark:border-amber-600 dark:hover:bg-amber-900/40 !cursor-default"
+              tooltip={t('graphPanel.propertiesView.editLockedByPipeline')}
+              onClick={(e) => e.preventDefault()}
+            >
+              <Lock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            </Button>
+          )}
           <Button
             size="icon"
             variant="ghost"
@@ -344,6 +363,7 @@ const NodePropertiesView = ({ node }: { node: NodeType }) => {
                 isEditable={name === 'description' || name === 'entity_id' || name === 'entity_type'}
                 truncate={node.properties['truncate']}
                 revisionToken={(node as any).revision_token}
+                pipelineBusy={pipelineBusy}
               />
             )
           })}
@@ -373,7 +393,7 @@ const NodePropertiesView = ({ node }: { node: NodeType }) => {
   )
 }
 
-const EdgePropertiesView = ({ edge }: { edge: EdgeType }) => {
+const EdgePropertiesView = ({ edge, pipelineBusy }: { edge: EdgeType; pipelineBusy: boolean }) => {
   const { t } = useTranslation()
   const relationshipName =
     edge.type ||
@@ -381,7 +401,23 @@ const EdgePropertiesView = ({ edge }: { edge: EdgeType }) => {
 
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="text-md pl-1 font-bold tracking-wide text-violet-700">{t('graphPanel.propertiesView.edge.title')}</h3>
+      <div className="flex justify-between items-center">
+        <h3 className="text-md pl-1 font-bold tracking-wide text-violet-700">{t('graphPanel.propertiesView.edge.title')}</h3>
+        {pipelineBusy && (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label={t('graphPanel.propertiesView.editLockedByPipeline')}
+            aria-disabled="true"
+            className="h-7 w-7 border border-amber-400 hover:bg-amber-50 dark:border-amber-600 dark:hover:bg-amber-900/40 !cursor-default"
+            tooltip={t('graphPanel.propertiesView.editLockedByPipeline')}
+            onClick={(e) => e.preventDefault()}
+          >
+            <Lock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+          </Button>
+        )}
+      </div>
       <div className="bg-primary/5 max-h-96 overflow-auto rounded p-1">
         <PropertyRow name={t('graphPanel.propertiesView.edge.id')} value={edge.id} />
         {relationshipName && (
@@ -424,6 +460,7 @@ const EdgePropertiesView = ({ edge }: { edge: EdgeType }) => {
                 isEditable={name === 'description' || name === 'keywords'}
                 truncate={edge.properties['truncate']}
                 revisionToken={(edge as any).revision_token}
+                pipelineBusy={pipelineBusy}
               />
             )
           })}

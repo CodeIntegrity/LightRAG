@@ -1,6 +1,6 @@
 """Shared helpers for parsing and re-emitting ``<table>`` markup.
 
-These primitives are used by the paragraph-semantic chunker (Stage B
+These primitives are used by the paragraph-semantic chunker (TableRowSplit
 oversized-table re-split) and by the native multimodal surrounding-context
 extractor.  Both call sites need to:
 
@@ -31,6 +31,14 @@ TABLE_TAG_RE = re.compile(
 
 # Format detection regex inside the attrs string, e.g. format="json".
 _TABLE_FORMAT_RE = re.compile(r"""format\s*=\s*["'](?P<fmt>[^"']+)["']""")
+
+# ``id`` attribute extractor inside the attrs string, e.g. id="tb-…". Used to
+# trace a (possibly row-split) ``<table>`` fragment back to its tables.json
+# entry so consumers can recover per-table metadata (e.g. the repeating header).
+# The negative lookbehind rejects ``id`` that is only the tail of another
+# attribute name — both word-char prefixes (``grid``, ``valid``) and
+# hyphen-joined ones (``data-id``) — so only a standalone ``id`` attribute hits.
+_TABLE_ID_RE = re.compile(r"""(?<![\w-])id\s*=\s*["'](?P<id>[^"']+)["']""")
 
 # HTML <tr>...</tr> row extractor.  Standard HTML disallows nested <tr>,
 # so a non-greedy match is sufficient for well-formed input.
@@ -68,6 +76,18 @@ def detect_table_format(attrs: str, body: str) -> str | None:
         return "json"
     if "<tr" in stripped.lower():
         return "html"
+    return None
+
+
+def extract_table_id(attrs: str) -> str | None:
+    """Return the ``id`` attribute value from a ``<table>`` attrs string.
+
+    ``None`` when the attrs carry no ``id`` (e.g. a header already stripped of
+    identifiers, or a malformed tag).
+    """
+    match = _TABLE_ID_RE.search(attrs or "")
+    if match:
+        return match.group("id").strip() or None
     return None
 
 

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import { createLightragApiMock } from '@/test/apiMock'
 
 Object.defineProperty(globalThis, 'localStorage', {
   value: {
@@ -9,11 +10,7 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true
 })
 
-vi.mock('@/api/lightrag', async () => {
-  return {
-    checkHealth: vi.fn(),
-  }
-})
+vi.mock('@/api/lightrag', () => createLightragApiMock())
 
 describe('backend workspace create capability', () => {
   const healthyStatus = {

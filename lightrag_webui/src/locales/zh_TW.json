@@ -140,9 +140,9 @@
       "filters": {
         "all": "全部",
         "completed": "已完成",
-        "analyzing": "分析中",
-        "processing": "處理中",
-        "pending": "等待中",
+        "parse": "內容解析",
+        "analyze": "模態分析",
+        "process": "抽取處理",
         "failed": "失敗"
       },
       "status": {
@@ -305,10 +305,11 @@
     "statusCard": {
       "unavailable": "狀態資訊不可用",
       "serverInfo": "伺服器資訊",
-      "workingDirectory": "工作目錄",
       "inputDirectory": "輸入目錄",
+      "parser": "解析器",
+      "mineru": "MinerU",
+      "docling": "Docling",
       "otherSettings": "其它設定",
-      "summarySettings": "摘要設定",
       "llmConfig": "模型設定",
       "llmBinding": "LLM 綁定",
       "llmBindingHost": "LLM 端點",
@@ -326,11 +327,11 @@
       "rerankerConfig": "重排序設定",
       "rerankerBindingHost": "重排序端點",
       "rerankerModel": "重排序模型",
-      "lockStatus": "鎖定狀態",
-      "threshold": "閾值"
+      "lockStatus": "鎖定狀態"
     },
     "propertiesView": {
       "editProperty": "編輯{{property}}",
+      "editLockedByPipeline": "流水線正忙,暫時無法編輯",
       "editPropertyDescription": "在下方文字區域編輯屬性值。",
       "errors": {
         "duplicateName": "節點名稱已存在",

@@ -77,7 +77,7 @@ api = [
     "aiofiles",
     "ascii_colors",
     "distro",
-    "fastapi",
+    "fastapi>=0.108",  # 0.108 adds FastAPI.__call__ scope["root_path"] override; api_prefix relies on it
     "httpcore",
     "httpx>=0.28.1",
     "jiter",
@@ -95,16 +95,17 @@ api = [
     "pypdf>=6.1.0",                 # PDF processing
     "python-docx>=0.8.11,<2.0.0",  # DOCX processing
     "python-pptx>=0.6.21,<2.0.0",  # PPTX processing
-    "defusedxml>=0.7.0,<1.0.0",    # Safer XML parser used by native_parser/docx
+    "defusedxml>=0.7.0,<1.0.0",    # Safer XML parser used by parser/docx
     # Chunking strategies (process_options=R / V); lazy-imported by lightrag.chunker
     "langchain-text-splitters>=0.3,<2",
-    "langchain-experimental>=0.3,<1",
+    "langchain-experimental>=0.3.2,<1",  # >=0.3.2: SemanticChunker gained min_chunk_size
 ]
 
 # Offline deployment dependencies (layered design for flexibility)
 offline-storage = [
     # Storage backend dependencies
-    "redis>=5.0.0,<8.0.0",
+    "faiss-cpu>=1.7.0,<2.0.0",
+    "redis>=5.0.0,<9.0.0",
     "neo4j>=5.0.0,<7.0.0",
     "pymilvus>=2.6.2,<4.0.0",
     "pymongo>=4.0.0,<5.0.0",

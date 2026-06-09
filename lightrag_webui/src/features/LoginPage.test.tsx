@@ -4,6 +4,7 @@ import { renderToString } from 'react-dom/server'
 import { toast } from 'sonner'
 
 import en from '@/locales/en.json'
+import { createLightragApiMock } from '@/test/apiMock'
 
 let capturedGuestLoginClick: (() => void | Promise<void>) | null = null
 
@@ -66,6 +67,7 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('@/components/ui/Button', () => ({
+  buttonVariants: () => '',
   default: ({
     children,
     onClick,
@@ -74,7 +76,7 @@ vi.mock('@/components/ui/Button', () => ({
     children: React.ReactNode
     onClick?: () => void | Promise<void>
   }) => {
-    const text = React.Children.toArray(children).join('')
+    const text = typeof children === 'string' ? children : ''
     if (typeof onClick === 'function' && text.includes('Continue as guest')) {
       capturedGuestLoginClick = onClick
     }
@@ -108,21 +110,13 @@ vi.mock('@/components/AppSettings', () => ({
   default: ({ className }: { className?: string }) => <div className={className}>settings</div>
 }))
 
-vi.mock('lucide-react', () => ({
-  ZapIcon: ({ className }: { className?: string }) => <div className={className}>zap</div>
-}))
-
-vi.mock('@/api/lightrag', () => ({
-  checkHealth: vi.fn(),
-  getAuthStatus: vi.fn(),
-  loginToServer: vi.fn(),
-  loginAsGuest: vi.fn()
-}))
+vi.mock('@/api/lightrag', () => createLightragApiMock())
 
 const loginMock = vi.fn()
 const logoutMock = vi.fn()
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   vi.clearAllMocks()
   capturedGuestLoginClick = null
   const { useAuthStore } = await import('@/stores/state')

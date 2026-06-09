@@ -140,9 +140,9 @@
       "filters": {
         "all": "すべて",
         "completed": "完了",
-        "analyzing": "分析中",
-        "processing": "処理中",
-        "pending": "保留中",
+        "parse": "抽出",
+        "analyze": "分析",
+        "process": "処理",
         "failed": "失敗"
       },
       "status": {
@@ -305,10 +305,11 @@
     "statusCard": {
       "unavailable": "ステータス情報が利用できません",
       "serverInfo": "サーバー情報",
-      "workingDirectory": "作業ディレクトリ",
       "inputDirectory": "入力ディレクトリ",
+      "parser": "パーサー",
+      "mineru": "MinerU",
+      "docling": "Docling",
       "otherSettings": "その他の設定",
-      "summarySettings": "概要設定",
       "llmConfig": "モデル設定",
       "llmBinding": "LLMバインディング",
       "llmBindingHost": "LLMエンドポイント",
@@ -326,11 +327,11 @@
       "rerankerConfig": "リランカー設定",
       "rerankerBindingHost": "リランカーエンドポイント",
       "rerankerModel": "リランカーモデル",
-      "lockStatus": "ロックステータス",
-      "threshold": "しきい値"
+      "lockStatus": "ロックステータス"
     },
     "propertiesView": {
       "editProperty": "{{property}}を編集",
+      "editLockedByPipeline": "パイプライン処理中のため、編集できません",
       "editPropertyDescription": "下のテキストエリアでプロパティ値を編集してください。",
       "errors": {
         "duplicateName": "ノード名が既に存在します",

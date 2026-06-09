@@ -11,7 +11,7 @@ Top-level directories:
 - **lightrag/**: Core Python package — see *Module Layout* below.
 - **lightrag_webui/**: React 19 + TypeScript client (Bun + Vite + Tailwind). UI components in `src/`.
 - **scripts/**: `test.sh` (preferred test runner), `setup/` interactive environment wizard (use `make env-*` rather than calling `setup.sh` directly — see *Configuration > Setup Wizard Outputs*), and release tooling.
-- **tests/** and root-level `test_*.py`: Pytest coverage. Working datasets stay in `inputs/`, `rag_storage/`, and `temp/`; deployment collateral lives in `docs/`, `k8s-deploy/`, and compose files.
+- **tests/**: Pytest coverage, organized into subdirectories that mirror `lightrag/` (see *Testing* below for layout). Working datasets stay in `inputs/`, `rag_storage/`, and `temp/`; deployment collateral lives in `docs/`, `k8s-deploy/`, and compose files.
 
 ### Module Layout (`lightrag/`)
 
@@ -25,8 +25,8 @@ Top-level directories:
 - **base.py**: Abstract base classes for storage backends (`BaseKVStorage`, `BaseVectorStorage`, `BaseGraphStorage`, `BaseDocStatusStorage`).
 - **kg/**: Storage implementations (JSON, NetworkX, Neo4j, PostgreSQL, MongoDB, Redis, Milvus, Qdrant, Faiss, Memgraph, OpenSearch, NanoVectorDB). The backend registry (`STORAGE_IMPLEMENTATIONS` / `STORAGES`) lives in `kg/__init__.py`; `kg/factory.py::get_storage_class()` resolves backend classes from configuration.
 - **llm/**: LLM and embedding provider bindings (OpenAI, Ollama, Azure, Gemini, Bedrock, Anthropic, etc.). All async with caching support.
-- **parser_routing.py**: Parser engine and filename-hint resolution for `legacy`, `native`, `mineru`, and `docling` flows, plus chunker configuration resolution.
-- **native_parser/** and **chunker/**: Native document parsing and chunking layers. `.docx` parsing lives under `native_parser/docx/`; chunking strategies include token-size, recursive character, semantic vector, and paragraph semantic chunkers.
+- **parser/**: Unified parsing layer. `parser/routing.py` resolves engine and filename hints for `legacy`, `native`, `mineru`, and `docling` flows; `parser/debug.py` provides an offline LightRAG stub for the `parser/cli.py` debug entry point (`python -m lightrag.parser.cli`). Native format parsers live as sibling sub-packages under `parser/` (currently `parser/docx/`); external HTTP-based adapters live under `parser/external/` (`mineru`, `docling`) with shared helpers in `parser/external/_common.py`, `_manifest.py`, `_zip.py`.
+- **chunker/**: Chunking strategies (token-size, recursive character, semantic vector, paragraph semantic).
 - **api/**: FastAPI service (`lightrag_server.py`) with REST endpoints and Ollama-compatible API; routers under `routers/`, static Swagger assets, packaged WebUI output, and Gunicorn launcher.
 
 ## Core Architecture
@@ -141,20 +141,31 @@ bun test src/api/lightrag.test.ts  # Single test file
 
 ### Testing
 
-Backend tests use pytest; frontend unit tests use Bun's built-in runner — see *WebUI* above.
+- Use mock-based tests for external services (Redis, httpx, etc.) — do not depend on live services in unit tests.
+- Add regression tests for every bug fix.
+- Run the full test suite (or relevant subset) and report pass counts before declaring done.
+- Backend tests use pytest; frontend unit tests use Bun's built-in runner — see *WebUI* above.
 
 ```bash
 # Preferred for fresh shells and automation; resolves PYTHON, venv, uv, .venv, venv, python, python3
 ./scripts/test.sh tests
 
 # Run specific test file
-./scripts/test.sh test_graph_storage.py
+./scripts/test.sh tests/kg/test_graph_storage.py
 
 # Run with custom workers
 ./scripts/test.sh tests --test-workers 4
 ```
 
-- `tests/`: main test suite (mirrors feature folders); root-level `test_*.py` for specific integration tests.
+- `tests/`: main test suite, mirrors feature folders. Place new tests under the subdirectory matching the module under test:
+  - `tests/api/{auth,config,routes}/` for FastAPI server tests (auth/token, config loading, route handlers); top-level `tests/api/` for app-wide concerns (path prefixes, Ollama-compatible endpoint).
+  - `tests/chunker/`, `tests/evaluation/`, `tests/extraction/` for the like-named modules.
+  - `tests/kg/<backend>_impl/` for backend-specific storage tests, mirroring the `lightrag/kg/<backend>_impl.py` file naming. The `_impl` suffix on every subdirectory keeps the layout uniform and avoids `sys.path` shadowing on names that overlap with top-level PyPI/stdlib packages (`faiss`, `json`, `neo4j`, `networkx`, `redis`) when a test is launched directly via `python tests/kg/...`. Current backends: `faiss_impl/`, `json_impl/`, `memgraph_impl/`, `milvus_impl/`, `mongo_impl/`, `nano_impl/`, `neo4j_impl/`, `networkx_impl/`, `opensearch_impl/`, `postgres_impl/`, `qdrant_impl/`, `redis_impl/`. `tests/kg/` root holds cross-backend tests (`test_graph_storage`, `test_batch_graph_operations`, `test_unified_lock_safety`, `test_file_atomic`).
+  - `tests/llm/<provider>_impl/` for provider-specific behavior, same `_impl` convention: `bedrock_impl/`, `gemini_impl/`, `ollama_impl/`, `openai_impl/`, `voyageai_impl/`, `zhipu_impl/`. `tests/llm/` root holds cross-provider concerns (embedding, VLM, cache, role).
+  - `tests/parser/`, `tests/parser/docx/`, `tests/parser/external/{mineru,docling}/` for parser implementations.
+  - `tests/pipeline/` for ingestion pipeline and doc-status behavior (including `test_pipeline_*`, `test_doc_status_*`, `test_multimodal_*`, `test_graph_keyed_locks`).
+  - `tests/sidecar/`, `tests/setup/`, `tests/workspace/` for the like-named cross-cutting concerns.
+  - When adding a new backend or LLM provider, create a new subdirectory plus an empty `__init__.py` rather than dropping the file in the parent directory root.
 - Markers (see `tests/pytest.ini`): `offline`, `integration`, `requires_db`, `requires_api`. Integration tests are skipped by default via `-m "not integration"`.
 - Integration env vars: `LIGHTRAG_RUN_INTEGRATION=true`, `LIGHTRAG_KEEP_ARTIFACTS=true`, `LIGHTRAG_TEST_WORKERS=4`, plus storage-specific connection strings.
 
@@ -250,7 +261,7 @@ await rag.ainsert("Text", ids=["doc-123"])
 await rag.ainsert(["Text 1", "Text 2"], file_paths=["doc1.pdf", "doc2.pdf"])
 
 # Configure batch size
-rag = LightRAG(..., max_parallel_insert=4)  # Default: 2, max recommended: 10
+rag = LightRAG(..., max_parallel_insert=4)  # Default: 3, max recommended: 10
 ```
 
 ### Query Configuration
@@ -273,6 +284,10 @@ result = await rag.aquery(
     )
 )
 ```
+
+## Frontend Debugging via Playwright
+
+For WebUI bugs whose symptoms only surface in the rendered DOM — layout/overflow/scrollbar issues, transient flashes, third-party libraries attaching helpers to `<body>` outside React's tree, or end-to-end verification of a fix — drive the running dev server (`http://localhost:5173`) with the `document-skills:webapp-testing` skill instead of reasoning from source alone. Seed state directly via `localStorage` (persist key `settings-storage`, schema in `lightrag_webui/src/stores/settings.ts`) to skip live LLM calls. Use `wait_until="domcontentloaded"` plus a selector wait — Vite dev's long-lived polling makes `networkidle` time out.
 
 ## Configuration
 
@@ -311,5 +326,5 @@ Comments, backend code, and log messages in English. Frontend uses i18next for m
 
 ## Commit and Pull Request Guidance
 
-- This repo is a fork of `HKUDS/LightRAG`. Target to `HKUDS/LightRAG` when creating PRs, not the fork's own repo.
+- If this repo is a fork of `HKUDS/LightRAG`. Target to `HKUDS/LightRAG` when creating PRs, not the fork's own repo.
 - PR descriptions should include: summary, motivation, linked issues if applyed, what's changed, what's broken and how it works.

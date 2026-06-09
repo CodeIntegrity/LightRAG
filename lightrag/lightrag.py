@@ -47,6 +47,7 @@ from lightrag.constants import (
     DEFAULT_MAX_ENTITY_TOKENS,
     DEFAULT_MAX_RELATION_TOKENS,
     DEFAULT_MAX_TOTAL_TOKENS,
+    DEFAULT_SUMMARY_PRIORITY,
     DEFAULT_COSINE_THRESHOLD,
     DEFAULT_RELATED_CHUNK_NUMBER,
     DEFAULT_KG_CHUNK_PICK_METHOD,
@@ -69,7 +70,8 @@ from lightrag.constants import (
     DEFAULT_MAX_PARALLEL_PARSE_NATIVE,
     DEFAULT_MAX_PARALLEL_PARSE_MINERU,
     DEFAULT_MAX_PARALLEL_PARSE_DOCLING,
-    DEFAULT_QUEUE_SIZE_DEFAULT,
+    DEFAULT_QUEUE_SIZE_PARSE,
+    DEFAULT_QUEUE_SIZE_ANALYZE,
     DEFAULT_QUEUE_SIZE_INSERT,
     DEFAULT_FILE_PATH_MORE_PLACEHOLDER,
 )
@@ -85,6 +87,7 @@ from lightrag.kg.shared_storage import (
     get_default_workspace,
     set_default_workspace,
     get_namespace_lock,
+    get_storage_keyed_lock,
 )
 
 from lightrag.base import (
@@ -109,10 +112,10 @@ from lightrag.operate import (
     merge_nodes_and_edges,
     naive_query,
     rebuild_knowledge_from_chunks,
-    _warn_deprecated_query_model_func,
 )
 from lightrag.utils_pipeline import normalize_document_file_path
 from lightrag.constants import GRAPH_FIELD_SEP
+from lightrag.exceptions import IndexFlushError
 from lightrag.utils import (
     Tokenizer,
     TiktokenTokenizer,
@@ -333,6 +336,11 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
     )
     """Method for selecting text chunks: 'WEIGHT' for weight-based selection, 'VECTOR' for embedding similarity-based selection."""
 
+    enable_content_headings: bool = field(
+        default_factory=lambda: get_env_value("ENABLE_CONTENT_HEADINGS", True, bool)
+    )
+    """Append each chunk's parent heading path as a `content_headings` field in the chunk JSON sent to the LLM."""
+
     # Entity extraction
     # ---
 
@@ -387,7 +395,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
     so the per-doc snapshot reflects the constructor choice.  Per-strategy
     chunker parameters (R / V separators, thresholds, overlap overrides,
     etc.) live in ``addon_params['chunker']`` and are documented in
-    :func:`lightrag.parser_routing.default_chunker_config`.  Per-doc
+    :func:`lightrag.parser.routing.default_chunker_config`.  Per-doc
     snapshots are persisted to ``full_docs[doc_id]['chunk_options']``
     at enqueue time."""
 
@@ -437,7 +445,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         ``process_options`` simply does not select a chunker.
 
     The presence/absence of the selector is exposed by
-    :attr:`lightrag.parser_routing.ProcessOptions.chunking_explicit`.
+    :attr:`lightrag.parser.routing.ProcessOptions.chunking_explicit`.
 
     **Signature** — preserved unchanged from earlier LightRAG releases
     so externally-supplied chunkers continue to drop in without edits:
@@ -536,7 +544,9 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
     """Recommended length of LLM summary output."""
 
     llm_model_max_async: int = field(
-        default=int(os.getenv("MAX_ASYNC", DEFAULT_MAX_ASYNC))
+        default=int(
+            os.getenv("MAX_ASYNC_LLM", os.getenv("MAX_ASYNC", DEFAULT_MAX_ASYNC))
+        )
     )
     """Maximum number of concurrent LLM calls."""
 
@@ -566,12 +576,13 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         default=int(
             os.getenv(
                 "MAX_ASYNC_RERANK",
-                os.getenv("MAX_ASYNC", DEFAULT_MAX_ASYNC),
+                os.getenv("MAX_ASYNC_LLM", os.getenv("MAX_ASYNC", DEFAULT_MAX_ASYNC)),
             )
         )
     )
     """Maximum number of concurrent rerank calls.
-    Falls back to MAX_ASYNC when MAX_ASYNC_RERANK is unset."""
+    Falls back to MAX_ASYNC_LLM when MAX_ASYNC_RERANK is unset
+    (MAX_ASYNC is still accepted as a deprecated alias)."""
 
     default_rerank_timeout: int = field(
         default=int(os.getenv("RERANK_TIMEOUT", DEFAULT_RERANK_TIMEOUT))
@@ -641,8 +652,11 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             os.getenv("MAX_PARALLEL_ANALYZE", str(DEFAULT_MAX_PARALLEL_ANALYZE))
         )
     )
-    queue_size_default: int = field(
-        default=int(os.getenv("QUEUE_SIZE_DEFAULT", str(DEFAULT_QUEUE_SIZE_DEFAULT)))
+    queue_size_parse: int = field(
+        default=int(os.getenv("QUEUE_SIZE_PARSE", str(DEFAULT_QUEUE_SIZE_PARSE)))
+    )
+    queue_size_analyze: int = field(
+        default=int(os.getenv("QUEUE_SIZE_ANALYZE", str(DEFAULT_QUEUE_SIZE_ANALYZE)))
     )
     queue_size_insert: int = field(
         default=int(os.getenv("QUEUE_SIZE_INSERT", str(DEFAULT_QUEUE_SIZE_INSERT)))
@@ -763,12 +777,18 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
 
         1. ``addon_params['chunker']`` explicit (user-supplied dict that
            already carries the key).
-        2. Strategy-specific env (``CHUNK_F_OVERLAP_SIZE`` /
-           ``CHUNK_R_OVERLAP_SIZE`` / ``CHUNK_P_OVERLAP_SIZE`` — already pre-filled by
-           :func:`lightrag.parser_routing.default_chunker_config` *only*
-           when the env var is set).  No strategy-specific top-level
-           ``CHUNK_*_SIZE`` exists today; if added later, plug it in
-           between this tier and the legacy ctor tier.
+        2. Strategy-specific env (``CHUNK_F_SIZE`` / ``CHUNK_R_SIZE`` /
+           ``CHUNK_V_SIZE`` for per-strategy ``chunk_token_size``;
+           ``CHUNK_F_OVERLAP_SIZE`` / ``CHUNK_R_OVERLAP_SIZE`` /
+           ``CHUNK_P_OVERLAP_SIZE`` for overlap).  These are pre-filled into
+           the strategy sub-dict by
+           :func:`lightrag.parser.routing.default_chunker_config` when it
+           builds the dict from scratch; for a *partial*
+           ``addon_params['chunker']`` (which skips that builder) this overlay
+           mirrors the size-env reads below so the env still applies.  Either
+           way the slot is filled *only* when the env var is set.  No strategy
+           env feeds the *top-level* ``chunk_token_size`` slot; that chain
+           stays addon_params > legacy ctor > ``CHUNK_SIZE``.
         3. Legacy constructor field
            (``LightRAG(chunk_token_size=…, chunk_overlap_token_size=…)``).
            Strategy-agnostic; only fills slots that were not already set
@@ -837,6 +857,31 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             "chunk_token_size",
             int(p_size_raw) if p_size_raw is not None else DEFAULT_CHUNK_P_SIZE,
         )
+
+        # Per-strategy F/R/V chunk_token_size from strategy env
+        # (CHUNK_F_SIZE / CHUNK_R_SIZE / CHUNK_V_SIZE).  Same rationale as the
+        # P backfill above: ``default_chunker_config`` seeds these when it
+        # builds the chunker dict from scratch, but a partial
+        # ``addon_params['chunker']`` skips that builder
+        # (``normalize_addon_params`` only defaults the whole ``chunker`` key
+        # when it is absent), so this overlay is the last guard.  Unlike P,
+        # the slot is filled ONLY when the env is actually set — leaving it
+        # absent otherwise so F/R/V inherit the top-level ``chunk_token_size``
+        # at consumption time.  ``setdefault`` preserves an explicit
+        # caller-supplied value (tier 1 wins over the env tier 2).
+        for strategy_key, size_env in (
+            ("fixed_token", "CHUNK_F_SIZE"),
+            ("recursive_character", "CHUNK_R_SIZE"),
+            ("semantic_vector", "CHUNK_V_SIZE"),
+        ):
+            size_raw = os.getenv(size_env)
+            if size_raw is None:
+                continue
+            sub = chunker_cfg.get(strategy_key)
+            if not isinstance(sub, dict):
+                sub = {}
+                chunker_cfg[strategy_key] = sub
+            sub.setdefault("chunk_token_size", int(size_raw))
 
         # Back-fill legacy instance fields → always int afterwards.
         # Overlap mirrors the F-strategy resolved value, matching the
@@ -1400,7 +1445,25 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         file_paths: str | list[str] | None = None,
         track_id: str | None = None,
     ) -> str:
-        """Async Insert documents with checkpoint support
+        """Async insert documents with checkpoint support (fixed-token chunking only).
+
+        SDK convenience entry point. It **always** chunks with the fixed-token
+        (F) strategy: ``process_options`` is intentionally not passed, so the
+        document runs the F chunker. ``split_by_character`` /
+        ``split_by_character_only`` are F-strategy runtime args; the rest of
+        the F config (``chunk_token_size`` / ``chunk_overlap_token_size``,
+        seeded from ``CHUNK_F_SIZE`` / ``CHUNK_SIZE`` etc.) comes from
+        ``addon_params['chunker']['fixed_token']``. ``ainsert`` cannot select
+        the recursive-character (R), semantic-vector (V), or paragraph-semantic
+        (P) strategies.
+
+        The LightRAG **server / REST API does not call this method** — it
+        ingests via :meth:`apipeline_enqueue_documents` +
+        :meth:`apipeline_process_enqueue_documents` with a per-document
+        ``process_options`` selector, which is how F/R/V/P are chosen there.
+        To use R/V/P (or pass an explicit per-document ``chunk_options``) from
+        the SDK, call those two methods directly with ``process_options=…``
+        instead of ``ainsert``.
 
         Args:
             input: Single document string or list of document strings
@@ -1424,7 +1487,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         # setting.  ``apipeline_enqueue_documents`` itself doesn't take
         # split args — chunk_options is the canonical chunker-config
         # carrier; runtime split args are an ainsert-only concern.
-        from lightrag.parser_routing import resolve_chunk_options
+        from lightrag.parser.routing import resolve_chunk_options
 
         chunk_opts = resolve_chunk_options(
             self.addon_params,
@@ -1623,7 +1686,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
 
         finally:
             if update_storage:
-                await self._insert_done()
+                await self._insert_done_with_cleanup()
 
     async def _process_extract_entities(
         self, chunk: dict[str, Any], pipeline_status=None, pipeline_status_lock=None
@@ -1647,12 +1710,11 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                     pipeline_status["history_messages"].append(error_msg)
             raise e
 
-    async def _insert_done(
-        self, pipeline_status=None, pipeline_status_lock=None
-    ) -> None:
-        tasks = [
-            cast(StorageNameSpace, storage_inst).index_done_callback()
-            for storage_inst in [  # type: ignore
+    def _index_storages(self) -> list:
+        """All storages flushed together by index_done_callback / abort."""
+        return [
+            storage_inst
+            for storage_inst in [
                 self.full_docs,
                 self.doc_status,
                 self.text_chunks,
@@ -1668,7 +1730,130 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             ]
             if storage_inst is not None
         ]
-        await asyncio.gather(*tasks)
+
+    async def _discard_pending_index_ops(
+        self, *, skip_enqueue_owned: bool = True
+    ) -> None:
+        """Drop not-yet-flushed buffers on an aborting batch.
+
+        Called when a batch aborts on an internal storage error. Each
+        still-buffered KG/vector record belongs to a document that will be
+        marked FAILED and fully reprocessed, so dropping the shared cross-file
+        buffers is safe and stops the poisoned/stale records from being
+        re-flushed by remaining in-flight documents or carried into the next
+        batch.
+
+        ``skip_enqueue_owned`` controls whether ``full_docs`` / ``doc_status``
+        are cleared:
+
+        * ``True`` (the file pipeline) — skip them. They are written by the
+          concurrent ``apipeline_enqueue_documents`` path (under
+          ``enqueue_serialize_lock``, which this cleanup does not hold), as
+          ``full_docs.upsert -> index_done_callback -> doc_status.upsert``.
+          Clearing ``full_docs``'s buffer in the window between an in-flight
+          upload's upsert and its flush would drop the document body while the
+          PENDING ``doc_status`` row still gets written, leaving an accepted
+          document with no content. Those writes self-flush immediately, so
+          skipping them discards nothing processing-owned.
+        * ``False`` (direct, non-pipeline callers like ``ainsert_custom_chunks``
+          via ``_insert_done_with_cleanup``) — clear them too. There is no
+          concurrent-enqueue contract for these callers, and a permanent
+          ``full_docs`` bulk failure (e.g. OpenSearch KV) must be cleared or it
+          stays buffered and every later ``_insert_done()`` replays the same
+          poisoned record. ``doc_status`` is immediate-write (no buffered
+          backend overrides ``drop_pending_index_ops``), so dropping it is a
+          no-op; only ``full_docs`` is meaningfully cleared. (Edge: a direct
+          insert racing a concurrent enqueue mid-window could still drop that
+          enqueue's in-flight body, but per-item backends only retain the
+          failed item and the enqueue race is a pipeline-only concern.)
+
+        The LLM response cache gets a final flush *before* its buffer is
+        dropped, because — unlike regenerable KG data — re-running LLM calls
+        is expensive, so cached results must be persisted maximally:
+
+        * When the abort was NOT caused by the cache, the cache backend is
+          healthy and this flush commits every still-buffered entry, leaving
+          the buffer empty so the subsequent drop discards nothing persistable.
+        * When a poisoned cache item is itself the abort cause (OpenSearch now
+          raises on non-retryable bulk failures), the flush persists the
+          writable entries (per-item backends pop successes) while the
+          un-writable item stays buffered and the drop then clears it — so a
+          bad cache entry cannot re-flush and re-abort every subsequent batch
+          and wedge the pipeline.
+
+        Backends that materialize writes in memory and only persist on a
+        later save (FAISS / Nano) discard just the pending buffer here and do
+        NOT roll back already-materialized-but-unsaved writes: the FAILED
+        documents are reprocessed idempotently, so the rollback would be
+        non-load-bearing and inconsistent with the server-backed backends
+        (see those backends' ``drop_pending_index_ops`` docstrings).
+
+        Best-effort throughout: a flush/clear failure is logged, not raised,
+        so cleanup never masks the original abort cause.
+        """
+        for storage_inst in self._index_storages():
+            if skip_enqueue_owned and (
+                storage_inst is self.full_docs or storage_inst is self.doc_status
+            ):
+                # enqueue-owned (see docstring): skipped for the file pipeline
+                # to avoid racing a concurrent enqueue; direct callers pass
+                # skip_enqueue_owned=False so a poisoned full_docs op is cleared.
+                continue
+            if storage_inst is self.llm_response_cache:
+                # Persist what can still be written, then fall through to drop
+                # whatever could not (a poisoned item) so it cannot wedge the
+                # next batch.
+                try:
+                    await cast(StorageNameSpace, storage_inst).index_done_callback()
+                except Exception as e:
+                    logger.error(f"Failed to persist LLM cache on abort: {e}")
+            try:
+                await cast(StorageNameSpace, storage_inst).drop_pending_index_ops()
+            except Exception as e:
+                logger.error(
+                    f"Failed to discard pending ops on "
+                    f"{type(storage_inst).__name__}: {e}"
+                )
+
+    async def _insert_done(
+        self, pipeline_status=None, pipeline_status_lock=None
+    ) -> None:
+        storages = self._index_storages()
+
+        async def _flush_one(storage_inst) -> None:
+            # Wrap each flush so a failure carries the driver name + namespace.
+            # The pipeline uses this to abort the batch with an actionable
+            # reason instead of misattributing a shared-buffer flush error to
+            # whichever document happened to trigger index_done_callback.
+            try:
+                await cast(StorageNameSpace, storage_inst).index_done_callback()
+            except Exception as e:
+                namespace = getattr(storage_inst, "final_namespace", None) or getattr(
+                    storage_inst, "namespace", ""
+                )
+                raise IndexFlushError(type(storage_inst).__name__, namespace, e) from e
+
+        # Await every flush to completion (return_exceptions=True) before
+        # raising. With the default gather, the first IndexFlushError is
+        # propagated while sibling flush coroutines keep running detached —
+        # they could commit records or race _discard_pending_index_ops after
+        # the abort decision, and a second failing sibling would surface as a
+        # "Task exception was never retrieved" warning. Collecting all results
+        # first makes teardown deterministic and lets us report every failure.
+        results = await asyncio.gather(
+            *[_flush_one(inst) for inst in storages], return_exceptions=True
+        )
+        errors = [r for r in results if isinstance(r, BaseException)]
+        if errors:
+            # A cooperative cancellation must propagate as-is, not be reported
+            # as a storage flush failure (_flush_one's `except Exception` does
+            # not catch CancelledError, so it lands here as a result).
+            for exc in errors:
+                if isinstance(exc, asyncio.CancelledError):
+                    raise exc
+            for extra in errors[1:]:
+                logger.error(f"Additional index flush failure: {extra}")
+            raise errors[0]
 
         log_message = "In memory DB persist to disk"
         logger.info(log_message)
@@ -1677,6 +1862,37 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             async with pipeline_status_lock:
                 pipeline_status["latest_message"] = log_message
                 pipeline_status["history_messages"].append(log_message)
+
+    async def _insert_done_with_cleanup(self) -> None:
+        """``_insert_done`` for UPSERT-oriented direct (non-pipeline) callers,
+        discarding the pending buffers on a flush failure.
+
+        The file pipeline aborts and calls ``_discard_pending_index_ops()``
+        centrally, but direct insert callers (custom KG / chunks insert) have
+        no such cleanup. Without it, a permanent flush failure leaves the
+        poisoned op buffered — OpenSearch keeps a non-retryable bulk item;
+        milvus/qdrant/postgres/mongo keep the whole buffer — and every later
+        ``_insert_done()`` replays it, even after the caller submits otherwise
+        valid work. Discard pending on ``IndexFlushError`` so the buffer is
+        clean for the next attempt, then re-raise so the failure still
+        surfaces to the caller.
+
+        WARNING: do NOT use this on deletion paths. ``_discard_pending_index_ops``
+        drops pending DELETES too, but deletes are not regenerable by
+        reprocessing (the document is being removed, nothing re-issues them).
+        Dropping them — while a deletion may still report success — would leave
+        stale vectors/KV searchable. Deletion paths must use plain
+        ``_insert_done`` so failed deletes stay buffered for a later retry.
+        """
+        try:
+            await self._insert_done()
+        except IndexFlushError:
+            # Direct callers have no concurrent-enqueue contract, so clear
+            # full_docs too (skip_enqueue_owned=False) — otherwise a permanent
+            # full_docs bulk failure stays buffered and replays on every later
+            # _insert_done().
+            await self._discard_pending_index_ops(skip_enqueue_owned=False)
+            raise
 
     def insert_custom_kg(
         self,
@@ -1966,7 +2182,22 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         entities = custom_kg.get("entities", [])
         relationships = custom_kg.get("relationships", [])
         if not chunks and not entities and not relationships:
-            raise ValueError("custom_kg must contain chunks, entities, or relationships")
+            if all(hasattr(self, attr) for attr in ("full_docs", "doc_status")):
+                raise ValueError(
+                    "custom_kg must contain chunks, entities, or relationships"
+                )
+            track_id = generate_track_id("custom_kg")
+            full_doc_id = full_doc_id or compute_mdhash_id(
+                f"{track_id}:custom_kg",
+                prefix="doc-",
+            )
+            return {
+                "full_doc_id": full_doc_id,
+                "track_id": track_id,
+                "chunk_count": 0,
+                "entity_count": 0,
+                "relationship_count": 0,
+            }
 
         def _require_text(data: dict[str, Any], field: str, owner: str) -> str:
             value = str(data.get(field, "")).strip()
@@ -2013,6 +2244,12 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         chunk_ids: list[str] = []
         entity_index_names: list[str] = []
         relation_index_pairs: list[list[str]] = []
+        has_doc_tracking = all(
+            hasattr(self, attr) for attr in ("full_docs", "doc_status")
+        )
+        has_graph_tracking = all(
+            hasattr(self, attr) for attr in ("full_entities", "full_relations")
+        )
 
         def _append_unique(target: list[str], value: str) -> None:
             if value not in target:
@@ -2037,35 +2274,37 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                 return "UNKNOWN"
             return GRAPH_FIELD_SEP.join(dict.fromkeys(source_ids))
 
-        await self.full_docs.upsert(
-            {
-                full_doc_id: {
-                    "content": content,
-                    "file_path": file_path,
-                    "created_at": now_iso,
-                    "updated_at": now_iso,
-                }
-            }
-        )
-        await self.doc_status.upsert(
-            {
-                full_doc_id: {
-                    "status": DocStatus.PENDING,
-                    "content_summary": get_content_summary(content),
-                    "content_length": len(content),
-                    "chunks_count": 0,
-                    "chunks_list": [],
-                    "file_path": file_path,
-                    "track_id": track_id,
-                    "created_at": now_iso,
-                    "updated_at": now_iso,
-                    "metadata": {"source": "custom_kg"},
-                    "error_msg": "",
-                }
-            }
-        )
-        update_storage = True
         try:
+            if has_doc_tracking:
+                await self.full_docs.upsert(
+                    {
+                        full_doc_id: {
+                            "content": content,
+                            "file_path": file_path,
+                            "created_at": now_iso,
+                            "updated_at": now_iso,
+                        }
+                    }
+                )
+                await self.doc_status.upsert(
+                    {
+                        full_doc_id: {
+                            "status": DocStatus.PENDING,
+                            "content_summary": get_content_summary(content),
+                            "content_length": len(content),
+                            "chunks_count": 0,
+                            "chunks_list": [],
+                            "file_path": file_path,
+                            "track_id": track_id,
+                            "created_at": now_iso,
+                            "updated_at": now_iso,
+                            "metadata": {"source": "custom_kg"},
+                            "error_msg": "",
+                        }
+                    }
+                )
+                update_storage = True
+
             # Insert chunks into vector storage
             all_chunks_data: dict[str, dict[str, str]] = {}
             chunk_to_source_map: dict[str, list[str]] = {}
@@ -2160,10 +2399,6 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                 _append_unique(entity_index_names, entity_name)
                 update_storage = True
 
-            # Batch insert entities (reduces N serial awaits to 1)
-            if entity_nodes:
-                await self.chunk_entity_relation_graph.upsert_nodes_batch(entity_nodes)
-
             # Keep the default upstream-compatible undirected import behavior.
             # Custom KG callers can opt into preserving endpoint order during
             # import deduplication without changing global graph storage rules.
@@ -2177,169 +2412,209 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                 deduped_relationships.pop(relation_key, None)
                 deduped_relationships[relation_key] = relationship_data
 
-            # Insert relationships into knowledge graph (batch for performance)
-            all_relationships_data: list[dict[str, str]] = []
-            edge_list: list[tuple[str, str, dict[str, str]]] = []
-
-            # Batch check which relationship endpoints exist (1 await instead of 2M)
-            needed_node_ids: set[str] = set()
+            # Coarse-grained keyed lock covering every entity name and every
+            # relationship endpoint this batch will write. Keys collide with
+            # the per-entity and sorted([src, tgt]) edge locks held by the
+            # doc-ingest pipeline (operate.py:_locked_process_entity_name and
+            # _locked_process_edges) in the same namespace, so a concurrent
+            # insert_custom_kg waits behind an in-flight document ingest
+            # rather than racing it. Two concurrent custom-KG inserts that
+            # touch overlapping entities likewise mutually exclude here.
+            # An empty batch skips the lock entirely — nothing to serialise on.
+            lock_key_set: set[str] = {entity_name for entity_name, _ in entity_nodes}
             for relationship_data in deduped_relationships.values():
-                needed_node_ids.add(relationship_data["src_id"])
-                needed_node_ids.add(relationship_data["tgt_id"])
+                lock_key_set.add(relationship_data["src_id"])
+                lock_key_set.add(relationship_data["tgt_id"])
 
-            existing_nodes_result = await self.chunk_entity_relation_graph.has_nodes_batch(
-                list(needed_node_ids)
-            )
-            existing_nodes = (
-                set(existing_nodes_result.keys())
-                if isinstance(existing_nodes_result, dict)
-                else set(existing_nodes_result or [])
-            )
+            workspace = self.workspace or ""
+            namespace = f"{workspace}:GraphDB" if workspace else "GraphDB"
+            all_relationships_data: list[dict[str, Any]] = []
+            edge_list: list[tuple[str, str, dict[str, Any]]] = []
+            missing_nodes: list[tuple[str, dict[str, Any]]] = []
 
-            # Create missing nodes in batch
-            missing_nodes_by_id: dict[str, dict[str, Any]] = {}
-            for relationship_data in deduped_relationships.values():
-                src_id = relationship_data["src_id"]
-                tgt_id = relationship_data["tgt_id"]
-                source_chunk_id = relationship_data.get("source_id", "UNKNOWN")
-                source_ids = _source_ids_for(source_chunk_id)
-                source_id = _join_sources(source_ids)
-                relation_file_path = normalize_document_file_path(
-                    relationship_data.get("file_path", "custom_kg")
-                )
-
-                if source_id == "UNKNOWN":
-                    logger.warning(
-                        f"Relationship from '{src_id}' to '{tgt_id}' has an UNKNOWN source_id. Please check the source mapping."
+            async def _do_graph_and_vdb_writes() -> None:
+                # Batch insert entities (reduces N serial awaits to 1)
+                if entity_nodes:
+                    await self.chunk_entity_relation_graph.upsert_nodes_batch(
+                        entity_nodes
                     )
 
-                for need_insert_id in [src_id, tgt_id]:
-                    if need_insert_id not in existing_nodes:
-                        if need_insert_id not in missing_nodes_by_id:
-                            missing_nodes_by_id[need_insert_id] = {
-                                "entity_id": need_insert_id,
-                                "source_ids": [],
-                                "description": "UNKNOWN",
-                                "entity_type": "UNKNOWN",
-                                "file_path": relation_file_path,
-                                "created_at": int(time.time()),
-                            }
-                        missing_nodes_by_id[need_insert_id]["source_ids"].extend(
-                            source_ids
+                # Batch check which relationship endpoints exist (1 await instead of 2M)
+                needed_node_ids: set[str] = set()
+                for relationship_data in deduped_relationships.values():
+                    needed_node_ids.add(relationship_data["src_id"])
+                    needed_node_ids.add(relationship_data["tgt_id"])
+
+                existing_nodes_result = (
+                    await self.chunk_entity_relation_graph.has_nodes_batch(
+                        list(needed_node_ids)
+                    )
+                )
+                existing_nodes = (
+                    set(existing_nodes_result.keys())
+                    if isinstance(existing_nodes_result, dict)
+                    else set(existing_nodes_result or [])
+                )
+
+                # Create missing nodes in batch
+                missing_nodes_by_id: dict[str, dict[str, Any]] = {}
+                for relationship_data in deduped_relationships.values():
+                    src_id = relationship_data["src_id"]
+                    tgt_id = relationship_data["tgt_id"]
+                    source_chunk_id = relationship_data.get("source_id", "UNKNOWN")
+                    source_ids = _source_ids_for(source_chunk_id)
+                    source_id = _join_sources(source_ids)
+                    relation_file_path = normalize_document_file_path(
+                        relationship_data.get("file_path", "custom_kg")
+                    )
+
+                    if source_id == "UNKNOWN":
+                        logger.warning(
+                            f"Relationship from '{src_id}' to '{tgt_id}' has an UNKNOWN source_id. Please check the source mapping."
                         )
-                        _append_unique(entity_index_names, need_insert_id)
 
-                relation_src_id, relation_tgt_id = _custom_kg_relation_key(
-                    src_id, tgt_id, directed_relation_dedup
-                )
+                    for need_insert_id in [src_id, tgt_id]:
+                        if need_insert_id not in existing_nodes:
+                            if need_insert_id not in missing_nodes_by_id:
+                                missing_nodes_by_id[need_insert_id] = {
+                                    "entity_id": need_insert_id,
+                                    "source_ids": [],
+                                    "description": "UNKNOWN",
+                                    "entity_type": "UNKNOWN",
+                                    "file_path": relation_file_path,
+                                    "created_at": int(time.time()),
+                                }
+                            missing_nodes_by_id[need_insert_id]["source_ids"].extend(
+                                source_ids
+                            )
+                            _append_unique(entity_index_names, need_insert_id)
 
-                edge_data = {
-                    "weight": relationship_data.get("weight", 1.0),
-                    "description": relationship_data["description"],
-                    "keywords": relationship_data["keywords"],
-                    "source_id": source_id,
-                    "file_path": relation_file_path,
-                    "created_at": int(time.time()),
-                }
-                rel_custom_properties = _collect_custom_properties(
-                    relationship_data,
-                    {
-                        "src_id",
-                        "tgt_id",
-                        "description",
-                        "keywords",
-                        "weight",
-                        "source_id",
-                        "file_path",
-                    },
-                )
-                if rel_custom_properties:
-                    edge_data["custom_properties"] = rel_custom_properties
-                edge_list.append((src_id, tgt_id, edge_data))
+                    relation_src_id, relation_tgt_id = _custom_kg_relation_key(
+                        src_id, tgt_id, directed_relation_dedup
+                    )
 
-                all_relationships_data.append(
-                    {
-                        "src_id": relation_src_id,
-                        "tgt_id": relation_tgt_id,
+                    edge_data = {
+                        "weight": relationship_data.get("weight", 1.0),
                         "description": relationship_data["description"],
                         "keywords": relationship_data["keywords"],
                         "source_id": source_id,
-                        "weight": relationship_data.get("weight", 1.0),
                         "file_path": relation_file_path,
                         "created_at": int(time.time()),
                     }
-                )
-                relation_pair = [relation_src_id, relation_tgt_id]
-                if relation_pair not in relation_index_pairs:
-                    relation_index_pairs.append(relation_pair)
-                update_storage = True
+                    rel_custom_properties = _collect_custom_properties(
+                        relationship_data,
+                        {
+                            "src_id",
+                            "tgt_id",
+                            "description",
+                            "keywords",
+                            "weight",
+                            "source_id",
+                            "file_path",
+                        },
+                    )
+                    if rel_custom_properties:
+                        edge_data["custom_properties"] = rel_custom_properties
+                    edge_list.append((src_id, tgt_id, edge_data))
 
-            # Batch insert missing placeholder nodes
-            missing_nodes: list[tuple[str, dict[str, Any]]] = []
-            for node_id, node_data in missing_nodes_by_id.items():
-                source_ids = node_data.pop("source_ids", [])
-                node_data["source_id"] = _join_sources(source_ids)
-                missing_nodes.append((node_id, node_data))
-            if missing_nodes:
-                await self.chunk_entity_relation_graph.upsert_nodes_batch(missing_nodes)
+                    all_relationships_data.append(
+                        {
+                            "src_id": relation_src_id,
+                            "tgt_id": relation_tgt_id,
+                            "description": relationship_data["description"],
+                            "keywords": relationship_data["keywords"],
+                            "source_id": source_id,
+                            "weight": relationship_data.get("weight", 1.0),
+                            "file_path": relation_file_path,
+                            "created_at": int(time.time()),
+                        }
+                    )
+                    relation_pair = [relation_src_id, relation_tgt_id]
+                    if relation_pair not in relation_index_pairs:
+                        relation_index_pairs.append(relation_pair)
 
-            # Batch insert edges
-            if edge_list:
-                await self.chunk_entity_relation_graph.upsert_edges_batch(edge_list)
+                for node_id, node_data in missing_nodes_by_id.items():
+                    source_ids = node_data.pop("source_ids", [])
+                    node_data["source_id"] = _join_sources(source_ids)
+                    missing_nodes.append((node_id, node_data))
 
-            # Insert entities and relationships into vector storage (parallel)
-            data_for_entities_vdb = {
-                compute_mdhash_id(dp["entity_name"], prefix="ent-"): {
-                    "content": dp["entity_name"] + "\n" + dp["description"],
-                    "entity_name": dp["entity_name"],
-                    "source_id": dp["source_id"],
-                    "description": dp["description"],
-                    "entity_type": dp["entity_type"],
-                    "file_path": dp.get("file_path", "custom_kg"),
-                }
-                for dp in all_entities_data
-            }
+                # Batch insert missing placeholder nodes
+                if missing_nodes:
+                    await self.chunk_entity_relation_graph.upsert_nodes_batch(
+                        missing_nodes
+                    )
 
-            data_for_rels_vdb = {
-                _custom_kg_relation_vdb_id(
-                    dp["src_id"], dp["tgt_id"], directed_relation_dedup
-                ): {
-                    "src_id": dp["src_id"],
-                    "tgt_id": dp["tgt_id"],
-                    "source_id": dp["source_id"],
-                    "content": f"{dp['keywords']}\t{dp['src_id']}\n{dp['tgt_id']}\n{dp['description']}",
-                    "keywords": dp["keywords"],
-                    "description": dp["description"],
-                    "weight": dp["weight"],
-                    "file_path": dp.get("file_path", "custom_kg"),
-                }
-                for dp in all_relationships_data
-            }
+                # Batch insert edges
+                if edge_list:
+                    await self.chunk_entity_relation_graph.upsert_edges_batch(edge_list)
 
-            legacy_rel_ids_to_delete = (
-                []
-                if directed_relation_dedup
-                else sorted(
-                    {
-                        rel_id
-                        for dp in all_relationships_data
-                        for rel_id in make_relation_vdb_ids(
-                            dp["src_id"], dp["tgt_id"]
-                        )[1:]
+                # Insert entities and relationships into vector storage (parallel)
+                data_for_entities_vdb = {
+                    compute_mdhash_id(dp["entity_name"], prefix="ent-"): {
+                        "content": dp["entity_name"] + "\n" + dp["description"],
+                        "entity_name": dp["entity_name"],
+                        "source_id": dp["source_id"],
+                        "description": dp["description"],
+                        "entity_type": dp["entity_type"],
+                        "file_path": dp.get("file_path", "custom_kg"),
                     }
+                    for dp in all_entities_data
+                }
+
+                data_for_rels_vdb = {
+                    _custom_kg_relation_vdb_id(
+                        dp["src_id"], dp["tgt_id"], directed_relation_dedup
+                    ): {
+                        "src_id": dp["src_id"],
+                        "tgt_id": dp["tgt_id"],
+                        "source_id": dp["source_id"],
+                        "content": f"{dp['keywords']}\t{dp['src_id']}\n{dp['tgt_id']}\n{dp['description']}",
+                        "keywords": dp["keywords"],
+                        "description": dp["description"],
+                        "weight": dp["weight"],
+                        "file_path": dp.get("file_path", "custom_kg"),
+                    }
+                    for dp in all_relationships_data
+                }
+
+                legacy_rel_ids_to_delete = (
+                    []
+                    if directed_relation_dedup
+                    else sorted(
+                        {
+                            rel_id
+                            for dp in all_relationships_data
+                            for rel_id in make_relation_vdb_ids(
+                                dp["src_id"], dp["tgt_id"]
+                            )[1:]
+                        }
+                    )
                 )
-            )
 
-            # Parallel VDB upserts (was serial in original)
-            await asyncio.gather(
-                self.entities_vdb.upsert(data_for_entities_vdb),
-                self.relationships_vdb.upsert(data_for_rels_vdb),
-            )
+                # Parallel VDB upserts (was serial in original)
+                await asyncio.gather(
+                    self.entities_vdb.upsert(data_for_entities_vdb),
+                    self.relationships_vdb.upsert(data_for_rels_vdb),
+                )
 
-            if legacy_rel_ids_to_delete:
-                await self.relationships_vdb.delete(legacy_rel_ids_to_delete)
+                if legacy_rel_ids_to_delete:
+                    await self.relationships_vdb.delete(legacy_rel_ids_to_delete)
 
-            if self.entity_chunks:
+            if lock_key_set:
+                if entity_nodes or deduped_relationships:
+                    update_storage = True
+                async with get_storage_keyed_lock(
+                    sorted(lock_key_set),
+                    namespace=namespace,
+                    enable_logging=False,
+                ):
+                    await _do_graph_and_vdb_writes()
+            else:
+                # No entities, no relationships — nothing to serialise on.
+                await _do_graph_and_vdb_writes()
+
+            entity_chunks = getattr(self, "entity_chunks", None)
+            if entity_chunks:
                 entity_chunk_payload = {
                     entity_name: {
                         "chunk_ids": [
@@ -2363,86 +2638,90 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                     if payload["chunk_ids"]
                 }
                 if entity_chunk_payload:
-                    await self.entity_chunks.upsert(entity_chunk_payload)
+                    await entity_chunks.upsert(entity_chunk_payload)
 
-            if self.relation_chunks:
+            relation_chunks_storage = getattr(self, "relation_chunks", None)
+            if relation_chunks_storage:
                 relation_chunk_payload = {}
                 for rel in all_relationships_data:
-                    relation_chunks = [
+                    relation_chunk_ids = [
                         chunk_id
                         for chunk_id in rel["source_id"].split(GRAPH_FIELD_SEP)
                         if chunk_id and chunk_id != "UNKNOWN"
                     ]
-                    if not relation_chunks:
+                    if not relation_chunk_ids:
                         continue
                     storage_key = make_relation_chunk_key(rel["src_id"], rel["tgt_id"])
                     relation_chunk_payload[storage_key] = {
-                        "chunk_ids": relation_chunks,
-                        "count": len(relation_chunks),
+                        "chunk_ids": relation_chunk_ids,
+                        "count": len(relation_chunk_ids),
                         "updated_at": int(time.time()),
                     }
                 if relation_chunk_payload:
-                    await self.relation_chunks.upsert(relation_chunk_payload)
+                    await relation_chunks_storage.upsert(relation_chunk_payload)
 
-            await self.full_entities.upsert(
-                {
-                    full_doc_id: {
-                        "entity_names": entity_index_names,
-                        "count": len(entity_index_names),
-                        "updated_at": now_iso,
+            if has_graph_tracking:
+                await self.full_entities.upsert(
+                    {
+                        full_doc_id: {
+                            "entity_names": entity_index_names,
+                            "count": len(entity_index_names),
+                            "updated_at": now_iso,
+                        }
                     }
-                }
-            )
-            await self.full_relations.upsert(
-                {
-                    full_doc_id: {
-                        "relation_pairs": relation_index_pairs,
-                        "count": len(relation_index_pairs),
-                        "updated_at": now_iso,
+                )
+                await self.full_relations.upsert(
+                    {
+                        full_doc_id: {
+                            "relation_pairs": relation_index_pairs,
+                            "count": len(relation_index_pairs),
+                            "updated_at": now_iso,
+                        }
                     }
-                }
-            )
-            await self.doc_status.upsert(
-                {
-                    full_doc_id: {
-                        "status": DocStatus.PROCESSED,
-                        "content_summary": get_content_summary(content),
-                        "content_length": len(content),
-                        "chunks_count": len(chunk_ids),
-                        "chunks_list": chunk_ids,
-                        "file_path": file_path,
-                        "track_id": track_id,
-                        "created_at": now_iso,
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                        "metadata": {"source": "custom_kg"},
-                        "error_msg": "",
+                )
+            if has_doc_tracking:
+                await self.doc_status.upsert(
+                    {
+                        full_doc_id: {
+                            "status": DocStatus.PROCESSED,
+                            "content_summary": get_content_summary(content),
+                            "content_length": len(content),
+                            "chunks_count": len(chunk_ids),
+                            "chunks_list": chunk_ids,
+                            "file_path": file_path,
+                            "track_id": track_id,
+                            "created_at": now_iso,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                            "metadata": {"source": "custom_kg"},
+                            "error_msg": "",
+                        }
                     }
-                }
-            )
+                )
 
         except Exception as e:
-            await self.doc_status.upsert(
-                {
-                    full_doc_id: {
-                        "status": DocStatus.FAILED,
-                        "content_summary": get_content_summary(content),
-                        "content_length": len(content),
-                        "chunks_count": len(chunk_ids),
-                        "chunks_list": chunk_ids,
-                        "file_path": file_path,
-                        "track_id": track_id,
-                        "created_at": now_iso,
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                        "metadata": {"source": "custom_kg"},
-                        "error_msg": str(e),
+            if has_doc_tracking:
+                await self.doc_status.upsert(
+                    {
+                        full_doc_id: {
+                            "status": DocStatus.FAILED,
+                            "content_summary": get_content_summary(content),
+                            "content_length": len(content),
+                            "chunks_count": len(chunk_ids),
+                            "chunks_list": chunk_ids,
+                            "file_path": file_path,
+                            "track_id": track_id,
+                            "created_at": now_iso,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                            "metadata": {"source": "custom_kg"},
+                            "error_msg": str(e),
+                        }
                     }
-                }
-            )
+                )
             logger.error(f"Error in ainsert_custom_kg: {e}")
             raise
         finally:
             if update_storage:
-                await self._insert_done()
+                await self._insert_done_with_cleanup()
         return {
             "full_doc_id": full_doc_id,
             "track_id": track_id,
@@ -2487,7 +2766,6 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         Args:
             query (str): The query to be executed.
             param (QueryParam): Configuration parameters for query execution.
-                If param.model_func is provided, it will be used instead of the global model.
             system_prompt (Optional[str]): Custom prompts for fine-tuned control over the system's behavior. Defaults to None, which uses PROMPTS["rag_response"].
 
         Returns:
@@ -2655,8 +2933,6 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             hl_keywords=param.hl_keywords,
             ll_keywords=param.ll_keywords,
             conversation_history=param.conversation_history,
-            history_turns=param.history_turns,
-            model_func=param.model_func,
             user_prompt=param.user_prompt,
             enable_rerank=param.enable_rerank,
         )
@@ -2686,6 +2962,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                 global_config,
                 hashing_kv=self.llm_response_cache,
                 system_prompt=None,
+                text_chunks_db=self.text_chunks,
             )
         elif data_param.mode == "bypass":
             logger.debug("[aquery_data] Using bypass mode")
@@ -2782,16 +3059,15 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                     global_config,
                     hashing_kv=self.llm_response_cache,
                     system_prompt=system_prompt,
+                    text_chunks_db=self.text_chunks,
                 )
             elif param.mode == "bypass":
                 # Bypass mode: directly use LLM without knowledge retrieval
-                if param.model_func:
-                    _warn_deprecated_query_model_func("bypass query generation")
-                use_llm_func = (
-                    param.model_func or global_config["role_llm_funcs"]["query"]
+                # Apply higher priority to entity/relation summary tasks
+                use_llm_func = partial(
+                    global_config["role_llm_funcs"]["query"],
+                    _priority=DEFAULT_SUMMARY_PRIORITY,
                 )
-                # Apply higher priority (8) to entity/relation summary tasks
-                use_llm_func = partial(use_llm_func, _priority=8)
 
                 param.stream = True if param.stream is None else param.stream
                 response = await use_llm_func(
@@ -3451,6 +3727,10 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                 raise Exception(f"Failed to delete entities: {e}") from e
 
         # ---- 6. Persist pre-rebuild changes ----
+        # Use plain _insert_done (no discard-on-failure): the pending buffer
+        # here holds DELETES, which are not regenerable by reprocessing. On a
+        # flush failure they must stay buffered for a later retry, not be
+        # discarded (see _insert_done_with_cleanup docstring).
         try:
             await self._insert_done()
         except Exception as e:
@@ -4261,6 +4541,8 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                     raise Exception(f"Failed to delete entities: {e}") from e
 
             # Persist changes to graph database before entity and relationship rebuild
+            # Plain _insert_done: pending DELETES must be retained for retry on
+            # failure, not discarded (see _insert_done_with_cleanup docstring).
             try:
                 deletion_stage = "persist_pre_rebuild_changes"
                 await self._insert_done()
@@ -4411,6 +4693,10 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         finally:
             # ALWAYS ensure persistence if any deletion operations were started
             if deletion_operations_started:
+                # Plain _insert_done: this finally reports the deletion as
+                # successful after logging a persistence error, so discarding
+                # pending DELETES here would drop them with no retry and leave
+                # stale vectors/KV behind. Keep them buffered for a later flush.
                 try:
                     await self._insert_done()
                 except Exception as persistence_error:

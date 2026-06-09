@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 
 import en from '@/locales/en.json'
 import { useSettingsStore } from '@/stores/settings'
+import { createLightragApiMock } from '@/test/apiMock'
 
 let autoSubmitWorkspaceCreateForm = false
 let capturedWorkspaceSwitchClick: (() => void) | null = null
@@ -156,16 +157,11 @@ vi.mock('@/components/ui/Dialog', () => ({
   }) => <div className={className}>{children}</div>
 }))
 
-vi.mock('@/api/lightrag', () => ({
-  checkHealth: vi.fn(async () => ({ status: 'healthy', capabilities: {} })),
-  createWorkspace: vi.fn(),
-  getWorkspaceOperation: vi.fn(),
-  getWorkspaceStats: vi.fn(),
-  hardDeleteWorkspace: vi.fn(),
-  listWorkspaces: vi.fn(async () => ({ workspaces: [] })),
-  restoreWorkspace: vi.fn(),
-  softDeleteWorkspace: vi.fn()
-}))
+vi.mock('@/api/lightrag', () =>
+  createLightragApiMock({
+    checkHealth: vi.fn(async () => ({ status: 'healthy', capabilities: {} }))
+  })
+)
 
 afterEach(async () => {
   vi.restoreAllMocks()

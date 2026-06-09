@@ -9,6 +9,7 @@ import type {
   EntityTypePromptSaveResponse,
   EntityTypePromptValidation
 } from '@/api/lightrag'
+import { createLightragApiMock } from '@/test/apiMock'
 import { presetPrompts } from '../features/promptPresets'
 
 vi.mock('react-i18next', () => ({
@@ -24,15 +25,7 @@ vi.mock('sonner', () => ({
   }
 }))
 
-vi.mock('@/api/lightrag', () => ({
-  listEntityTypePrompts: vi.fn(),
-  readEntityTypePrompt: vi.fn(),
-  validateEntityTypePrompt: vi.fn(),
-  saveEntityTypePromptVersion: vi.fn(),
-  activateEntityTypePrompt: vi.fn(),
-  deactivateEntityTypePrompt: vi.fn(),
-  assistEntityTypePrompt: vi.fn()
-}))
+vi.mock('@/api/lightrag', () => createLightragApiMock())
 
 vi.mock('@/components/ui/YamlEditor', () => ({
   default: ({

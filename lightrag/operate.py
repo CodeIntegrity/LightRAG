@@ -5,7 +5,6 @@ from pathlib import Path
 import asyncio
 import json
 import re
-import warnings
 import json_repair
 from typing import Any, AsyncIterator, overload, Literal
 from collections import Counter, defaultdict
@@ -55,7 +54,10 @@ from lightrag.base import (
     QueryResult,
     QueryContextResult,
 )
-from lightrag.chunk_schema import strip_internal_multimodal_markup_for_extraction
+from lightrag.chunk_schema import (
+    format_parent_headings,
+    strip_internal_multimodal_markup_for_extraction,
+)
 from lightrag.prompt import PROMPTS, resolve_entity_extraction_prompt_profile
 from lightrag.constants import (
     GRAPH_FIELD_SEP,
@@ -63,6 +65,8 @@ from lightrag.constants import (
     DEFAULT_MAX_EXTRACT_INPUT_TOKENS,
     DEFAULT_MAX_RELATION_TOKENS,
     DEFAULT_MAX_TOTAL_TOKENS,
+    DEFAULT_QUERY_PRIORITY,
+    DEFAULT_SUMMARY_PRIORITY,
     DEFAULT_RELATED_CHUNK_NUMBER,
     DEFAULT_KG_CHUNK_PICK_METHOD,
     DEFAULT_SUMMARY_LANGUAGE,
@@ -71,6 +75,7 @@ from lightrag.constants import (
     DEFAULT_FILE_PATH_MORE_PLACEHOLDER,
     DEFAULT_MAX_FILE_PATHS,
     DEFAULT_ENTITY_NAME_MAX_LENGTH,
+    DEFAULT_ENTITY_NAME_MAX_BYTES,
 )
 from lightrag.kg.shared_storage import get_storage_keyed_lock
 import time
@@ -80,16 +85,6 @@ from dotenv import load_dotenv
 # allows to use different .env file for each lightrag instance
 # the OS environment variables take precedence over the .env file
 load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=False)
-
-
-def _warn_deprecated_query_model_func(context: str) -> None:
-    warnings.warn(
-        "QueryParam.model_func is deprecated and will be removed at v1.5.0. "
-        "Use LightRAG.aupdate_llm_role_config() instead. "
-        f"Deprecated override used for {context}.",
-        DeprecationWarning,
-        stacklevel=3,
-    )
 
 
 def _get_relationship_vdb_timeout_seconds(global_config: dict[str, Any]) -> float:
@@ -118,21 +113,40 @@ def _format_relation_edge_label(edge_key: tuple[str, str] | list[str]) -> str:
 
 
 def _truncate_entity_identifier(
-    identifier: str, limit: int, chunk_key: str, identifier_role: str
+    identifier: str,
+    limit: int,
+    chunk_key: str,
+    identifier_role: str,
+    byte_limit: int = DEFAULT_ENTITY_NAME_MAX_BYTES,
 ) -> str:
-    """Truncate entity identifiers that exceed the configured length limit."""
+    """Truncate entity identifiers that exceed the configured length limit.
 
-    if len(identifier) <= limit:
+    Enforces both a character limit (``limit``) and a UTF-8 byte limit
+    (``byte_limit``). Milvus validates VARCHAR ``max_length`` in BYTES, not
+    characters, so a CJK identifier within the character limit can still
+    overflow the field (e.g. 256 Chinese chars ~= 694 bytes > 512). The byte
+    truncation cuts on a character boundary so the result stays valid UTF-8.
+    """
+
+    char_len = len(identifier)
+    byte_len = len(identifier.encode("utf-8"))
+    if char_len <= limit and byte_len <= byte_limit:
         return identifier
 
     display_value = identifier[:limit]
-    preview = identifier[:20]  # Show first 20 characters as preview
+    encoded = display_value.encode("utf-8")
+    if len(encoded) > byte_limit:
+        # Drop the partial trailing multi-byte char left by the byte slice.
+        display_value = encoded[:byte_limit].decode("utf-8", errors="ignore")
+    preview = identifier[:50]  # Show first 50 characters as preview
     logger.warning(
-        "%s: %s len %d > %d chars (Name: '%s...')",
+        "%s: %s len %d chars / %d bytes > %d chars / %d bytes (Name: '%s...')",
         chunk_key,
         identifier_role,
-        len(identifier),
+        char_len,
+        byte_len,
         limit,
+        byte_limit,
         preview,
     )
     return display_value
@@ -352,7 +366,7 @@ async def _summarize_descriptions(
     """
     use_llm_func: callable = global_config["role_llm_funcs"]["extract"]
     # Apply higher priority (8) to entity/relation summary tasks
-    use_llm_func = partial(use_llm_func, _priority=8)
+    use_llm_func = partial(use_llm_func, _priority=DEFAULT_SUMMARY_PRIORITY)
 
     addon_params = global_config.get("addon_params") or {}
     language = global_config.get("_resolved_summary_language")
@@ -3701,15 +3715,11 @@ async def kg_query(
     if not query:
         return QueryResult(content=PROMPTS["fail_response"])
 
-    if query_param.model_func:
-        use_model_func = query_param.model_func
-    else:
-        use_model_func = global_config["role_llm_funcs"]["query"]
-        # Apply higher priority (5) to query relation LLM function
-        use_model_func = partial(use_model_func, _priority=5)
-    llm_cache_identity = get_llm_cache_identity(
-        global_config, "query", query_param.model_func
+    # Apply higher priority (5) to query relation LLM function
+    use_model_func = partial(
+        global_config["role_llm_funcs"]["query"], _priority=DEFAULT_QUERY_PRIORITY
     )
+    llm_cache_identity = get_llm_cache_identity(global_config, "query")
 
     hl_keywords, ll_keywords = await get_keywords_from_query(
         query, query_param, global_config, hashing_kv
@@ -3798,6 +3808,7 @@ async def kg_query(
         ll_keywords_str,
         query_param.user_prompt or "",
         query_param.enable_rerank,
+        global_config.get("enable_content_headings", False),
         "\n<llm_identity>\n",
         serialize_llm_cache_identity(llm_cache_identity),
     )
@@ -3813,8 +3824,6 @@ async def kg_query(
         )
         response = cached_response
     else:
-        if query_param.model_func:
-            _warn_deprecated_query_model_func("KG query generation")
         response = await use_model_func(
             user_query,
             system_prompt=sys_prompt,
@@ -3836,6 +3845,9 @@ async def kg_query(
                 "ll_keywords": ll_keywords_str,
                 "user_prompt": query_param.user_prompt or "",
                 "enable_rerank": query_param.enable_rerank,
+                "enable_content_headings": global_config.get(
+                    "enable_content_headings", False
+                ),
             }
             await save_to_cache(
                 hashing_kv,
@@ -4049,9 +4061,7 @@ async def extract_keywords_only(
         language = addon_params.get("language", DEFAULT_SUMMARY_LANGUAGE)
 
     # 2. Handle cache if needed - add cache type for keywords
-    llm_cache_identity = get_llm_cache_identity(
-        global_config, "keyword", param.model_func
-    )
+    llm_cache_identity = get_llm_cache_identity(global_config, "keyword")
     args_hash = compute_args_hash(
         param.mode,
         text,
@@ -4088,13 +4098,10 @@ async def extract_keywords_only(
     )
 
     # 4. Call the LLM for keyword extraction
-    if param.model_func:
-        _warn_deprecated_query_model_func("keyword extraction")
-        use_model_func = param.model_func
-    else:
-        use_model_func = global_config["role_llm_funcs"]["keyword"]
-        # Apply higher priority (5) to query relation LLM function
-        use_model_func = partial(use_model_func, _priority=5)
+    # Apply higher priority (5) to query relation LLM function
+    use_model_func = partial(
+        global_config["role_llm_funcs"]["keyword"], _priority=DEFAULT_QUERY_PRIORITY
+    )
 
     result = await use_model_func(kw_prompt, response_format={"type": "json_object"})
 
@@ -4259,7 +4266,7 @@ async def _perform_kg_search(
         if texts_to_embed:
             try:
                 all_embeddings = await actual_embedding_func(
-                    texts_to_embed, context="query", _priority=5
+                    texts_to_embed, context="query", _priority=DEFAULT_QUERY_PRIORITY
                 )
                 for i, purpose in enumerate(text_purposes):
                     if purpose == "query":
@@ -4573,6 +4580,29 @@ async def _apply_token_truncation(
     }
 
 
+async def _attach_content_headings(
+    chunks: list[dict], text_chunks_db: BaseKVStorage | None
+) -> None:
+    """Backfill the ``content_headings`` field onto chunks in place.
+
+    Vector chunks never carry a ``heading`` field (chunks_vdb does not store it),
+    and the round-robin merge drops the entity/relation headings too. So we look
+    the chunks up by ``chunk_id`` in text_chunks storage and attach the parent
+    heading path. Only chunks that actually have parent headings get the field,
+    so empty paths are omitted from the JSON sent to the LLM.
+    """
+    if not text_chunks_db or not chunks:
+        return
+    chunk_ids = [c.get("chunk_id") for c in chunks]
+    chunk_data_list = await text_chunks_db.get_by_ids(chunk_ids)
+    for chunk, data in zip(chunks, chunk_data_list):
+        if not isinstance(data, dict):
+            continue
+        headings = format_parent_headings(data)
+        if headings:
+            chunk["content_headings"] = headings
+
+
 async def _merge_all_chunks(
     filtered_entities: list[dict],
     filtered_relations: list[dict],
@@ -4671,6 +4701,12 @@ async def _merge_all_chunks(
     logger.info(
         f"Round-robin merged chunks: {origin_len} -> {len(merged_chunks)} (deduplicated {origin_len - len(merged_chunks)})"
     )
+
+    # Backfill heading path before token truncation so it counts toward the budget
+    if text_chunks_db and text_chunks_db.global_config.get(
+        "enable_content_headings", False
+    ):
+        await _attach_content_headings(merged_chunks, text_chunks_db)
 
     return merged_chunks
 
@@ -4779,12 +4815,13 @@ async def _build_context_str(
     # The actual tokens may be slightly less than available_chunk_tokens due to deduplication logic
     chunks_context = []
     for i, chunk in enumerate(truncated_chunks):
-        chunks_context.append(
-            {
-                "reference_id": chunk["reference_id"],
-                "content": chunk["content"],
-            }
-        )
+        entry = {
+            "reference_id": chunk["reference_id"],
+            "content": chunk["content"],
+        }
+        if chunk.get("content_headings"):
+            entry["content_headings"] = chunk["content_headings"]
+        chunks_context.append(entry)
 
     text_units_str = "\n".join(
         json.dumps(text_unit, ensure_ascii=False) for text_unit in chunks_context
@@ -4851,8 +4888,9 @@ async def _build_context_str(
         entity_id_to_original,
         relation_id_to_original,
     )
+    final_data_payload = final_data.get("data", {})
     logger.debug(
-        f"[_build_context_str] Final data after conversion: {len(final_data.get('entities', []))} entities, {len(final_data.get('relationships', []))} relationships, {len(final_data.get('chunks', []))} chunks"
+        f"[_build_context_str] Final data after conversion: {len(final_data_payload.get('entities', []))} entities, {len(final_data_payload.get('relationships', []))} relationships, {len(final_data_payload.get('chunks', []))} chunks"
     )
     return result, final_data
 
@@ -5556,6 +5594,7 @@ async def naive_query(
     global_config: dict[str, str],
     hashing_kv: BaseKVStorage | None = None,
     system_prompt: str | None = None,
+    text_chunks_db: BaseKVStorage | None = None,
     return_raw_data: Literal[True] = True,
 ) -> dict[str, Any]: ...
 
@@ -5568,6 +5607,7 @@ async def naive_query(
     global_config: dict[str, str],
     hashing_kv: BaseKVStorage | None = None,
     system_prompt: str | None = None,
+    text_chunks_db: BaseKVStorage | None = None,
     return_raw_data: Literal[False] = False,
 ) -> str | AsyncIterator[str]: ...
 
@@ -5579,6 +5619,7 @@ async def naive_query(
     global_config: dict[str, str],
     hashing_kv: BaseKVStorage | None = None,
     system_prompt: str | None = None,
+    text_chunks_db: BaseKVStorage | None = None,
 ) -> QueryResult | None:
     """
     Execute naive query and return unified QueryResult object.
@@ -5604,15 +5645,11 @@ async def naive_query(
     if not query:
         return QueryResult(content=PROMPTS["fail_response"])
 
-    if query_param.model_func:
-        use_model_func = query_param.model_func
-    else:
-        use_model_func = global_config["role_llm_funcs"]["query"]
-        # Apply higher priority (5) to query relation LLM function
-        use_model_func = partial(use_model_func, _priority=5)
-    llm_cache_identity = get_llm_cache_identity(
-        global_config, "query", query_param.model_func
+    # Apply higher priority (5) to query relation LLM function
+    use_model_func = partial(
+        global_config["role_llm_funcs"]["query"], _priority=DEFAULT_QUERY_PRIORITY
     )
+    llm_cache_identity = get_llm_cache_identity(global_config, "query")
 
     tokenizer: Tokenizer = global_config["tokenizer"]
     if not tokenizer:
@@ -5626,6 +5663,10 @@ async def naive_query(
             "[naive_query] No relevant document chunks found; returning no-result."
         )
         return None
+
+    # Backfill heading path before token truncation so it counts toward the budget
+    if global_config.get("enable_content_headings", False):
+        await _attach_content_headings(chunks, text_chunks_db)
 
     # Calculate dynamic token limit for chunks
     max_total_tokens = getattr(
@@ -5707,12 +5748,13 @@ async def naive_query(
     # Build chunks_context from processed chunks with reference IDs
     chunks_context = []
     for i, chunk in enumerate(processed_chunks_with_ref_ids):
-        chunks_context.append(
-            {
-                "reference_id": chunk["reference_id"],
-                "content": chunk["content"],
-            }
-        )
+        entry = {
+            "reference_id": chunk["reference_id"],
+            "content": chunk["content"],
+        }
+        if chunk.get("content_headings"):
+            entry["content_headings"] = chunk["content_headings"]
+        chunks_context.append(entry)
 
     text_units_str = "\n".join(
         json.dumps(text_unit, ensure_ascii=False) for text_unit in chunks_context
@@ -5756,6 +5798,7 @@ async def naive_query(
         query_param.max_total_tokens,
         query_param.user_prompt or "",
         query_param.enable_rerank,
+        global_config.get("enable_content_headings", False),
         "\n<llm_identity>\n",
         serialize_llm_cache_identity(llm_cache_identity),
     )
@@ -5769,8 +5812,6 @@ async def naive_query(
         )
         response = cached_response
     else:
-        if query_param.model_func:
-            _warn_deprecated_query_model_func("naive query generation")
         response = await use_model_func(
             user_query,
             system_prompt=sys_prompt,
@@ -5790,6 +5831,9 @@ async def naive_query(
                 "max_total_tokens": query_param.max_total_tokens,
                 "user_prompt": query_param.user_prompt or "",
                 "enable_rerank": query_param.enable_rerank,
+                "enable_content_headings": global_config.get(
+                    "enable_content_headings", False
+                ),
             }
             await save_to_cache(
                 hashing_kv,

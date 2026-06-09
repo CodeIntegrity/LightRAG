@@ -140,9 +140,9 @@
       "filters": {
         "all": "الكل",
         "completed": "مكتمل",
-        "analyzing": "جارٍ التحليل",
-        "processing": "قيد المعالجة",
-        "pending": "معلق",
+        "parse": "استخراج",
+        "analyze": "تحليل",
+        "process": "معالجة",
         "failed": "فشل"
       },
       "status": {
@@ -305,10 +305,11 @@
     "statusCard": {
       "unavailable": "معلومات الحالة غير متوفرة",
       "serverInfo": "معلومات الخادم",
-      "workingDirectory": "دليل العمل",
       "inputDirectory": "دليل الإدخال",
+      "parser": "المحلل",
+      "mineru": "MinerU",
+      "docling": "Docling",
       "otherSettings": "إعدادات أخرى",
-      "summarySettings": "إعدادات الملخص",
       "llmConfig": "تكوين النموذج",
       "llmBinding": "ربط نموذج اللغة الكبير",
       "llmBindingHost": "نقطة نهاية نموذج اللغة الكبير",
@@ -326,11 +327,11 @@
       "rerankerConfig": "تكوين إعادة الترتيب",
       "rerankerBindingHost": "نقطة نهاية إعادة الترتيب",
       "rerankerModel": "نموذج إعادة الترتيب",
-      "lockStatus": "حالة القفل",
-      "threshold": "العتبة"
+      "lockStatus": "حالة القفل"
     },
     "propertiesView": {
       "editProperty": "تعديل {{property}}",
+      "editLockedByPipeline": "خط الأنابيب مشغول؛ تم تعطيل التحرير",
       "editPropertyDescription": "قم بتحرير قيمة الخاصية في منطقة النص أدناه.",
       "errors": {
         "duplicateName": "اسم العقدة موجود بالفعل",

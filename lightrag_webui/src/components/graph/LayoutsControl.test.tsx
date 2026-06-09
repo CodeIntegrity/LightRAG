@@ -17,7 +17,9 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('@react-sigma/core', () => ({
-  useSigma: vi.fn(() => null)
+  useSigma: vi.fn(() => null),
+  useRegisterEvents: vi.fn(() => vi.fn()),
+  useSetSettings: vi.fn(() => vi.fn())
 }))
 
 vi.mock('@react-sigma/layout-circular', () => ({

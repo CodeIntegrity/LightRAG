@@ -419,8 +419,11 @@ _managed_service_root_name() {
   local service_name="$1"
 
   case "$service_name" in
-    postgres|neo4j|mongodb|redis|qdrant|memgraph|opensearch|vllm-embed|vllm-rerank)
+    postgres|neo4j|mongodb|redis|qdrant|memgraph|vllm-embed|vllm-rerank)
       printf '%s' "$service_name"
+      ;;
+    opensearch|dashboards)
+      printf 'opensearch'
       ;;
     milvus|milvus-etcd|milvus-minio)
       printf 'milvus'
@@ -1894,7 +1897,7 @@ inject_lightrag_bind_mounts() {
       if [[ "$line" =~ ^[[:space:]]{4}[^[:space:]-] || "$line" =~ ^[[:space:]]{2}[^[:space:]] || "$line" =~ ^(volumes|networks): ]]; then
         if [[ "$inserted" == "no" ]]; then
           for mount in "${mounts[@]}"; do
-            printf '      - "%s"\n' "$mount" >> "$tmp_file"
+            printf '      - %s\n' "$mount" >> "$tmp_file"
           done
           inserted="yes"
         fi
@@ -1904,7 +1907,7 @@ inject_lightrag_bind_mounts() {
       if [[ "$inserted" == "no" ]]; then
         printf '    volumes:\n' >> "$tmp_file"
         for mount in "${mounts[@]}"; do
-          printf '      - "%s"\n' "$mount" >> "$tmp_file"
+          printf '      - %s\n' "$mount" >> "$tmp_file"
         done
         inserted="yes"
       fi
@@ -1926,7 +1929,7 @@ inject_lightrag_bind_mounts() {
       printf '    volumes:\n' >> "$tmp_file"
     fi
     for mount in "${mounts[@]}"; do
-      printf '      - "%s"\n' "$mount" >> "$tmp_file"
+      printf '      - %s\n' "$mount" >> "$tmp_file"
     done
   fi
 

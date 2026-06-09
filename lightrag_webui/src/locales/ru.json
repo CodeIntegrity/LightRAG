@@ -140,9 +140,9 @@
       "filters": {
         "all": "Все",
         "completed": "Завершено",
-        "analyzing": "Анализ",
-        "processing": "Обработка",
-        "pending": "Ожидание",
+        "parse": "Извлечение",
+        "analyze": "Анализ",
+        "process": "Обработка",
         "failed": "Ошибка"
       },
       "status": {
@@ -305,10 +305,11 @@
     "statusCard": {
       "unavailable": "Информация о статусе недоступна",
       "serverInfo": "Информация о сервере",
-      "workingDirectory": "Рабочая директория",
       "inputDirectory": "Входная директория",
+      "parser": "Парсер",
+      "mineru": "MinerU",
+      "docling": "Docling",
       "otherSettings": "Другие настройки",
-      "summarySettings": "Настройки краткого содержания",
       "llmConfig": "Конфигурация модели",
       "llmBinding": "Привязка LLM",
       "llmBindingHost": "Конечная точка LLM",
@@ -326,11 +327,11 @@
       "rerankerConfig": "Конфигурация ранжирования",
       "rerankerBindingHost": "Конечная точка ранжирования",
       "rerankerModel": "Модель ранжирования",
-      "lockStatus": "Статус блокировки",
-      "threshold": "Порог"
+      "lockStatus": "Статус блокировки"
     },
     "propertiesView": {
       "editProperty": "Редактировать {{property}}",
+      "editLockedByPipeline": "Конвейер занят; редактирование отключено",
       "editPropertyDescription": "Отредактируйте значение свойства в текстовой области ниже.",
       "errors": {
         "duplicateName": "Имя узла уже существует",

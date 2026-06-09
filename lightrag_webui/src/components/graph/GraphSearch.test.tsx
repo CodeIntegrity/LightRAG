@@ -4,11 +4,24 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 const asyncSearchPropsRef: { current: Record<string, any> | null } = { current: null }
 
+Object.defineProperty(globalThis, 'localStorage', {
+  value: {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {}
+  },
+  configurable: true
+})
+
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
     t: (key: string) => key
   })
+}))
+
+vi.mock('@/api/lightrag', () => ({
+  searchLabels: vi.fn(async () => [])
 }))
 
 vi.mock('@/components/ui/AsyncSearch', () => ({
