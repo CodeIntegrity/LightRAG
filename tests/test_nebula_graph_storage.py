@@ -1,5 +1,6 @@
 import re
 import asyncio
+import types
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -14,16 +15,20 @@ from lightrag.kg import (
     verify_storage_implementation,
 )
 from lightrag.kg.nebula_impl import (
+    _EDGE_FIELDS,
+    _NODE_FIELDS,
     _canonical_edge_pair,
+    _load_nebula_client_types,
+    _load_nebula_session_pool_types,
     _nebula_edge_vids,
     _nebula_vid,
     _ngql_escape_string,
+    _ngql_quote,
     _normalize_space_name,
     _parse_nebula_hosts,
     _result_to_rows,
     _short_hash_suffix,
     _unwrap_nebula_value,
-    _load_nebula_client_types,
     NebulaIndexJobError,
     NebulaGraphStorage,
 )
@@ -268,6 +273,38 @@ def test_load_nebula_client_types_error_mentions_project_install_paths():
     assert "LIGHTRAG_GRAPH_STORAGE=NetworkXStorage" in message
 
 
+def test_load_nebula_session_pool_types_imports_class_not_module():
+    class FakeSessionPoolConfig:
+        pass
+
+    class FakeSessionPool:
+        pass
+
+    nebula_pkg = types.ModuleType("nebula3")
+    config_mod = types.ModuleType("nebula3.Config")
+    config_mod.SessionPoolConfig = FakeSessionPoolConfig
+    gclient_pkg = types.ModuleType("nebula3.gclient")
+    net_pkg = types.ModuleType("nebula3.gclient.net")
+    session_pool_mod = types.ModuleType("nebula3.gclient.net.SessionPool")
+    session_pool_mod.SessionPool = FakeSessionPool
+
+    with patch.dict(
+        "sys.modules",
+        {
+            "nebula3": nebula_pkg,
+            "nebula3.Config": config_mod,
+            "nebula3.gclient": gclient_pkg,
+            "nebula3.gclient.net": net_pkg,
+            "nebula3.gclient.net.SessionPool": session_pool_mod,
+        },
+    ):
+        SessionPoolConfig, SessionPool = _load_nebula_session_pool_types()
+
+    assert SessionPoolConfig is FakeSessionPoolConfig
+    assert SessionPool is FakeSessionPool
+    assert callable(SessionPool)
+
+
 @pytest.mark.asyncio
 async def test_initialize_creates_space_and_schema():
     storage = build_storage(workspace="finance")
@@ -284,9 +321,11 @@ async def test_initialize_creates_space_and_schema():
     use_space_mock = AsyncMock()
     with (
         patch.object(storage, "_execute", exec_mock),
+        patch.object(storage, "_execute_in_space", exec_mock),
         patch.object(storage, "_acquire_session", AsyncMock(return_value=session)),
         patch.object(storage, "_release_session", AsyncMock()),
         patch.object(storage, "_use_space", use_space_mock),
+        patch.object(storage, "_bootstrap_session_pool", AsyncMock()),
         patch.object(storage, "_ensure_fulltext_ready", AsyncMock()),
     ):
         await storage._ensure_space_ready(rebuild_indexes=True)
@@ -340,6 +379,70 @@ async def test_initialize_creates_space_and_schema():
         i for i, sql in enumerate(sql_calls) if "CREATE TAG INDEX IF NOT EXISTS entity_entity_id_idx" in sql
     )
     assert describe_tag_idx < create_tag_index_idx
+
+
+@pytest.mark.asyncio
+async def test_initialize_creates_space_before_session_pool():
+    storage = build_storage()
+    storage._hosts = [("127.0.0.1", 9669)]
+    storage._user = "root"
+    storage._password = "nebula"
+    calls: list[str] = []
+
+    def recorder(name: str):
+        async def _record(*args, **kwargs):
+            calls.append(name)
+
+        return _record
+
+    with (
+        patch.object(
+            storage,
+            "_bootstrap_client",
+            AsyncMock(side_effect=recorder("connection_pool")),
+        ),
+        patch.object(
+            storage,
+            "_create_space_if_needed",
+            AsyncMock(side_effect=recorder("create_space")),
+        ),
+        patch.object(
+            storage,
+            "_wait_for_space_ready",
+            AsyncMock(side_effect=recorder("wait_space")),
+        ),
+        patch.object(
+            storage,
+            "_bootstrap_session_pool",
+            AsyncMock(side_effect=recorder("session_pool")),
+        ),
+        patch.object(
+            storage,
+            "_create_schema_if_needed",
+            AsyncMock(side_effect=recorder("schema")),
+        ),
+        patch.object(
+            storage,
+            "_wait_for_schema_ready",
+            AsyncMock(side_effect=recorder("wait_schema")),
+        ),
+        patch.object(
+            storage,
+            "_create_indexes_if_needed",
+            AsyncMock(side_effect=recorder("indexes")),
+        ),
+    ):
+        await storage.initialize()
+
+    assert calls == [
+        "connection_pool",
+        "create_space",
+        "wait_space",
+        "session_pool",
+        "schema",
+        "wait_schema",
+        "indexes",
+    ]
 
 
 @pytest.mark.asyncio
@@ -433,6 +536,36 @@ async def test_bootstrap_client_initializes_connection_pool_only():
     connection_pool_cls.assert_called_once()
     connection_pool.init.assert_called_once_with(storage._hosts, config, None)
     assert storage._connection_pool is connection_pool
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_client_creates_session_pool_bound_to_space():
+    storage = build_storage()
+    storage._hosts = [("127.0.0.1", 9669)]
+    storage._user = "root"
+    storage._password = "nebula"
+    session_pool = Mock()
+    session_pool.init.return_value = True
+    session_pool_cls = Mock(return_value=session_pool)
+    config = Mock()
+
+    with (
+        patch(
+            "lightrag.kg.nebula_impl._load_nebula_session_pool_types",
+            return_value=(Mock(return_value=config), session_pool_cls),
+        ),
+        patch(
+            "lightrag.kg.nebula_impl._load_nebula_client_types",
+            return_value=(Mock(), Mock(), Mock()),
+        ),
+    ):
+        await storage._bootstrap_session_pool()
+
+    session_pool_cls.assert_called_once_with(
+        "root", "nebula", storage._space_name, storage._hosts
+    )
+    session_pool.init.assert_called_once_with(config, None)
+    assert storage._session_pool is session_pool
 
 
 @pytest.mark.asyncio
@@ -538,13 +671,17 @@ async def test_initialize_lock_prevents_duplicate_bootstrap():
 @pytest.mark.asyncio
 async def test_finalize_closes_client_resources():
     storage = build_storage()
+    session_pool = Mock()
     connection_pool = Mock()
+    storage._session_pool = session_pool
     storage._connection_pool = connection_pool
     storage._initialized = True
 
     await storage.finalize()
 
+    session_pool.close.assert_called_once()
     connection_pool.close.assert_called_once()
+    assert storage._session_pool is None
     assert storage._connection_pool is None
     assert storage._initialized is False
 
@@ -852,6 +989,7 @@ async def test_initialize_skips_rebuild_paths_during_normal_startup():
         patch.object(storage, "_ensure_fulltext_ready", AsyncMock()),
         patch.object(storage, "_create_space_if_needed", AsyncMock()),
         patch.object(storage, "_wait_for_space_ready", AsyncMock()),
+        patch.object(storage, "_bootstrap_session_pool", AsyncMock()),
         patch.object(storage, "_create_schema_if_needed", AsyncMock()),
         patch.object(storage, "_wait_for_schema_ready", AsyncMock()),
         patch.object(storage, "_bootstrap_client", AsyncMock()),
@@ -943,23 +1081,55 @@ async def test_wait_for_fulltext_query_ready_times_out():
 
 
 @pytest.mark.asyncio
-async def test_execute_in_space_uses_same_session_for_use_and_query():
+async def test_execute_in_space_uses_session_pool():
     storage = build_storage(workspace="finance")
-    session = Mock()
-    session.execute.side_effect = [object(), object()]
-    session.release = Mock()
-    connection_pool = Mock()
-    connection_pool.get_session.return_value = session
-    storage._connection_pool = connection_pool
+    mock_pool = Mock()
+    mock_result = object()
+    mock_pool.execute.return_value = mock_result
+    storage._session_pool = mock_pool
+    storage._connection_pool = None
+
+    result = await storage._execute_in_space("YIELD 1;")
+
+    mock_pool.execute.assert_called_once_with("YIELD 1;")
+    assert result is mock_result
+
+
+@pytest.mark.asyncio
+async def test_execute_still_uses_connection_pool_for_system_queries():
+    storage = build_storage()
     storage._user = "root"
     storage._password = "nebula"
+    session = Mock()
+    result = object()
+    session.execute.return_value = result
+    storage._connection_pool = Mock()
+    storage._connection_pool.get_session.return_value = session
 
-    await storage._execute_in_space("SHOW TAG INDEX STATUS;")
+    actual = await storage._execute("SHOW SPACES;")
 
-    connection_pool.get_session.assert_called_once_with("root", "nebula")
-    assert session.execute.call_args_list[0].args[0] == f"USE `{storage._space_name}`;"
-    assert session.execute.call_args_list[1].args[0] == "SHOW TAG INDEX STATUS;"
+    assert actual is result
+    storage._connection_pool.get_session.assert_called_once_with(
+        storage._user, storage._password
+    )
+    session.execute.assert_called_once_with("SHOW SPACES;")
     session.release.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_close_connection_pool_closes_session_and_connection_pools():
+    storage = build_storage()
+    mock_session_pool = Mock()
+    mock_connection_pool = Mock()
+    storage._session_pool = mock_session_pool
+    storage._connection_pool = mock_connection_pool
+
+    await storage._close_connection_pool()
+
+    mock_session_pool.close.assert_called_once()
+    mock_connection_pool.close.assert_called_once()
+    assert storage._session_pool is None
+    assert storage._connection_pool is None
 
 
 @pytest.mark.asyncio
@@ -1021,9 +1191,9 @@ async def test_nebula_upsert_and_get_node_roundtrip():
     assert "INSERT VERTEX entity" in upsert_sql
     assert f'VALUES "{_nebula_vid("A")}"' in upsert_sql
     get_sql = execute_in_space.await_args_list[1].args[0]
-    assert "MATCH (v:entity)" in get_sql
-    assert "v.entity.entity_id ==" in get_sql
-    assert '"A"' in get_sql
+    assert "FETCH PROP ON entity" in get_sql
+    vid_a = _nebula_vid("A")
+    assert _ngql_quote(vid_a) in get_sql
 
 
 @pytest.mark.asyncio
@@ -1215,9 +1385,9 @@ async def test_nebula_long_entity_id_uses_internal_vid_and_property_lookup():
     assert f'VALUES "{internal_vid}"' in upsert_sql
     assert f'VALUES "{entity_id}"' not in upsert_sql
     get_sql = execute_in_space.await_args_list[1].args[0]
-    assert "FETCH PROP ON entity" not in get_sql
-    assert "v.entity.entity_id ==" in get_sql
-    assert entity_id in get_sql
+    assert "FETCH PROP ON entity" in get_sql
+    assert _ngql_quote(_nebula_vid(entity_id)) in get_sql
+    assert f'VALUES "{entity_id}"' not in get_sql
 
 
 @pytest.mark.asyncio
@@ -1268,8 +1438,9 @@ async def test_nebula_long_entity_ids_use_internal_vids_for_edges_and_property_f
     assert f'"{src_vid}"->"{tgt_vid}"' in upsert_sql
     assert f'"{source_id}"->"{target_id}"' not in upsert_sql
     fetch_sql = execute_in_space.await_args_list[1].args[0]
-    assert "a.entity.entity_id ==" in fetch_sql
-    assert "b.entity.entity_id ==" in fetch_sql
+    assert "FETCH PROP ON relation" in fetch_sql
+    assert _ngql_quote(src_vid) in fetch_sql
+    assert _ngql_quote(tgt_vid) in fetch_sql
 
 
 @pytest.mark.asyncio
@@ -1326,8 +1497,12 @@ async def test_nebula_edge_reads_preserve_direction():
     assert f'VALUES "{src_vid}"->"{tgt_vid}"' in upsert_sql
     fetch_sql_1 = execute_in_space.await_args_list[1].args[0]
     fetch_sql_2 = execute_in_space.await_args_list[2].args[0]
-    assert 'WHERE a.entity.entity_id == "B" AND b.entity.entity_id == "A"' in fetch_sql_1
-    assert 'WHERE a.entity.entity_id == "A" AND b.entity.entity_id == "B"' in fetch_sql_2
+    assert "FETCH PROP ON relation" in fetch_sql_1
+    assert "FETCH PROP ON relation" in fetch_sql_2
+    src_vid_ba, tgt_vid_ba = _nebula_edge_vids("B", "A")
+    src_vid_ab, tgt_vid_ab = _nebula_edge_vids("A", "B")
+    assert f"{_ngql_quote(src_vid_ba)}->{_ngql_quote(tgt_vid_ba)}" in fetch_sql_1
+    assert f"{_ngql_quote(src_vid_ab)}->{_ngql_quote(tgt_vid_ab)}" in fetch_sql_2
 
 
 @pytest.mark.asyncio
@@ -1382,8 +1557,8 @@ async def test_nebula_upsert_edge_preserves_source_target_properties():
     assert "keywords" in upsert_sql
     assert "file_path" in upsert_sql
     fetch_sql = execute_in_space.await_args_list[1].args[0]
-    assert "a.entity.entity_id AS source" in fetch_sql
-    assert "b.entity.entity_id AS target" in fetch_sql
+    assert "FETCH PROP ON relation" in fetch_sql
+    assert f"{_ngql_quote(src_vid)}->{_ngql_quote(tgt_vid)}" in fetch_sql
 
 
 @pytest.mark.asyncio
@@ -1499,9 +1674,12 @@ async def test_nebula_drop_drops_space_and_resets_state():
     storage = build_storage(workspace="finance")
     storage._initialized = True
     storage._connection_pool = object()
+    storage._session_pool = Mock()
     execute = AsyncMock(return_value=object())
+    session_pool = storage._session_pool
 
     async def close_pool():
+        storage._session_pool = None
         storage._connection_pool = None
 
     close_connection_pool = AsyncMock(side_effect=close_pool)
@@ -1513,8 +1691,10 @@ async def test_nebula_drop_drops_space_and_resets_state():
 
     sql = execute.await_args_list[0].args[0]
     assert sql == f'DROP SPACE IF EXISTS `{storage._space_name}`;'
+    session_pool.close.assert_called_once()
     assert close_connection_pool.await_count == 1
     assert storage._initialized is False
+    assert storage._session_pool is None
     assert storage._connection_pool is None
     assert result == {
         "status": "success",
@@ -1582,19 +1762,13 @@ async def test_nebula_get_nodes_batch_uses_single_lookup_query():
     }
     assert execute_in_space.await_count == 1
     sql = execute_in_space.await_args_list[0].args[0]
-    _assert_bounded_nebula_query(
-        sql,
-        required_tokens=['"A"', '"B"'],
-        forbidden_patterns=[
-            "MATCH (v:entity) RETURN id(v) AS entity_id",
-        ],
-    )
-    assert "v.entity.name AS name" in sql
-    assert "v.entity.entity_type AS entity_type" in sql
-    assert "v.entity.file_path AS file_path" in sql
-    assert "v.entity.created_at AS created_at" in sql
-    assert "v.entity.truncate AS truncate" in sql
-    assert "v.entity.entity_id AS entity_id" in sql
+    assert "FETCH PROP ON entity" in sql
+    vid_a = _ngql_quote(_nebula_vid("A"))
+    vid_b = _ngql_quote(_nebula_vid("B"))
+    assert vid_a in sql
+    assert vid_b in sql
+    for field in _NODE_FIELDS:
+        assert f"properties(vertex).{field} AS {field}" in sql
 
 
 @pytest.mark.asyncio
@@ -1604,8 +1778,10 @@ async def test_nebula_get_nodes_batch_splits_large_id_filters():
 
     async def fake_execute(sql: str):
         normalized_sql = _normalize_sql_whitespace(sql)
-        has_first = '"node-000"' in normalized_sql
-        has_last = '"node-599"' in normalized_sql
+        vid_first = _ngql_quote(_nebula_vid("node-000"))
+        vid_last = _ngql_quote(_nebula_vid("node-599"))
+        has_first = vid_first in normalized_sql
+        has_last = vid_last in normalized_sql
         assert not (
             has_first and has_last
         ), "large node filter should be split across multiple Nebula queries"
@@ -1654,9 +1830,12 @@ async def test_nebula_node_degrees_batch_aggregates_with_single_query():
     storage = build_storage(workspace="finance")
     execute_in_space = AsyncMock(
         return_value=[
-            {"source": "A", "target": "B"},
-            {"source": "C", "target": "A"},
-            {"source": "B", "target": "C"},
+            {"anchor": "A", "neighbor": "B"},
+            {"anchor": "A", "neighbor": "C"},
+            {"anchor": "B", "neighbor": "A"},
+            {"anchor": "B", "neighbor": "C"},
+            {"anchor": "C", "neighbor": "A"},
+            {"anchor": "C", "neighbor": "B"},
         ]
     )
     with patch.object(storage, "_execute_in_space", execute_in_space):
@@ -1665,15 +1844,9 @@ async def test_nebula_node_degrees_batch_aggregates_with_single_query():
     assert degrees == {"A": 2, "B": 2, "C": 2, "X": 0}
     assert execute_in_space.await_count == 1
     sql = execute_in_space.await_args_list[0].args[0]
-    _assert_bounded_nebula_query(
-        sql,
-        required_tokens=['"A"', '"B"', '"C"', '"X"'],
-        forbidden_patterns=[
-            "MATCH (a:entity)-[e:relation]->(b:entity) RETURN id(a) AS source, id(b) AS target;",
-        ],
-    )
-    assert "a.entity.entity_id AS source" in sql
-    assert "b.entity.entity_id AS target" in sql
+    assert "GO FROM" in sql
+    assert "OVER relation" in sql
+    assert "BIDIRECT" in sql
 
 
 @pytest.mark.asyncio
@@ -1683,16 +1856,18 @@ async def test_nebula_node_degrees_batch_splits_large_endpoint_filters():
 
     async def fake_execute(sql: str):
         normalized_sql = _normalize_sql_whitespace(sql)
-        has_first = '"node-000"' in normalized_sql
-        has_last = '"node-599"' in normalized_sql
+        vid_first = _ngql_quote(_nebula_vid("node-000"))
+        vid_last = _ngql_quote(_nebula_vid("node-599"))
+        has_first = vid_first in normalized_sql
+        has_last = vid_last in normalized_sql
         assert not (
             has_first and has_last
         ), "large degree filter should be split across multiple Nebula queries"
         rows: list[dict[str, str]] = []
         if has_first:
-            rows.append({"source": "node-000", "target": "neighbor-000"})
+            rows.append({"anchor": "node-000", "neighbor": "neighbor-000"})
         if has_last:
-            rows.append({"source": "neighbor-599", "target": "node-599"})
+            rows.append({"anchor": "node-599", "neighbor": "neighbor-599"})
         return rows
 
     execute_in_space = AsyncMock(side_effect=fake_execute)
@@ -1710,8 +1885,8 @@ async def test_nebula_get_edges_batch_preserves_requested_direction():
     execute_in_space = AsyncMock(
         return_value=[
             {
-                "source": "A",
-                "target": "B",
+                "sv": _nebula_vid("A"),
+                "dv": _nebula_vid("B"),
                 "source_id": "A",
                 "target_id": "B",
                 "relationship": "rel-ab",
@@ -1746,17 +1921,12 @@ async def test_nebula_get_edges_batch_preserves_requested_direction():
     }
     assert execute_in_space.await_count == 1
     sql = execute_in_space.await_args_list[0].args[0]
-    _assert_bounded_nebula_query(
-        sql,
-        required_tokens=['"A"', '"B"', '"C"'],
-        forbidden_patterns=[
-            "MATCH (a:entity)-[e:relation]->(b:entity) RETURN id(a) AS source, id(b) AS target, e.source_id AS source_id, e.target_id AS target_id, e.relationship AS relationship, e.description AS description, e.weight AS weight;",
-        ],
-    )
-    assert "a.entity.entity_id AS source" in sql
-    assert "b.entity.entity_id AS target" in sql
-    assert "e.keywords AS keywords" in sql
-    assert "e.file_path AS file_path" in sql
+    assert "FETCH PROP ON relation" in sql
+    vid_a = _ngql_quote(_nebula_vid("A"))
+    vid_b = _ngql_quote(_nebula_vid("B"))
+    assert f"{vid_a}->{vid_b}" in sql
+    for field in _EDGE_FIELDS:
+        assert f"properties(edge).{field} AS {field}" in sql
 
 
 @pytest.mark.asyncio
@@ -1766,8 +1936,12 @@ async def test_nebula_get_edges_batch_splits_large_pair_filters():
 
     async def fake_execute(sql: str):
         normalized_sql = _normalize_sql_whitespace(sql)
-        has_first = '"left-000"' in normalized_sql and '"right-000"' in normalized_sql
-        has_last = '"left-599"' in normalized_sql and '"right-599"' in normalized_sql
+        vid_l0 = _ngql_quote(_nebula_vid("left-000"))
+        vid_r0 = _ngql_quote(_nebula_vid("right-000"))
+        vid_l599 = _ngql_quote(_nebula_vid("left-599"))
+        vid_r599 = _ngql_quote(_nebula_vid("right-599"))
+        has_first = vid_l0 in normalized_sql and vid_r0 in normalized_sql
+        has_last = vid_l599 in normalized_sql and vid_r599 in normalized_sql
         assert not (
             has_first and has_last
         ), "large edge pair filter should be split across multiple Nebula queries"
@@ -1775,6 +1949,8 @@ async def test_nebula_get_edges_batch_splits_large_pair_filters():
         if has_first:
             rows.append(
                 {
+                    "sv": _nebula_vid("left-000"),
+                    "dv": _nebula_vid("right-000"),
                     "source": "left-000",
                     "target": "right-000",
                     "source_id": "left-000",
@@ -1789,6 +1965,8 @@ async def test_nebula_get_edges_batch_splits_large_pair_filters():
         if has_last:
             rows.append(
                 {
+                    "sv": _nebula_vid("left-599"),
+                    "dv": _nebula_vid("right-599"),
                     "source": "left-599",
                     "target": "right-599",
                     "source_id": "left-599",
@@ -1816,8 +1994,24 @@ async def test_nebula_get_nodes_edges_batch_returns_adjacency_mapping():
     storage = build_storage(workspace="finance")
     execute_in_space = AsyncMock(
         return_value=[
-            {"source": "A", "target": "B"},
-            {"source": "C", "target": "A"},
+            {
+                "anchor": "A",
+                "neighbor": "B",
+                "src_vid": _nebula_vid("A"),
+                "anchor_vid": _nebula_vid("A"),
+            },
+            {
+                "anchor": "A",
+                "neighbor": "C",
+                "src_vid": _nebula_vid("C"),
+                "anchor_vid": _nebula_vid("A"),
+            },
+            {
+                "anchor": "B",
+                "neighbor": "A",
+                "src_vid": _nebula_vid("A"),
+                "anchor_vid": _nebula_vid("B"),
+            },
         ]
     )
     with patch.object(storage, "_execute_in_space", execute_in_space):
@@ -1830,15 +2024,9 @@ async def test_nebula_get_nodes_edges_batch_returns_adjacency_mapping():
     }
     assert execute_in_space.await_count == 1
     sql = execute_in_space.await_args_list[0].args[0]
-    _assert_bounded_nebula_query(
-        sql,
-        required_tokens=['"A"', '"B"', '"X"'],
-        forbidden_patterns=[
-            "MATCH (a:entity)-[e:relation]->(b:entity) RETURN id(a) AS source, id(b) AS target;",
-        ],
-    )
-    assert "a.entity.entity_id AS source" in sql
-    assert "b.entity.entity_id AS target" in sql
+    assert "GO FROM" in sql
+    assert "OVER relation" in sql
+    assert "BIDIRECT" in sql
 
 
 @pytest.mark.asyncio
@@ -1848,16 +2036,32 @@ async def test_nebula_get_nodes_edges_batch_splits_large_endpoint_filters():
 
     async def fake_execute(sql: str):
         normalized_sql = _normalize_sql_whitespace(sql)
-        has_first = '"node-000"' in normalized_sql
-        has_last = '"node-599"' in normalized_sql
+        vid_first = _ngql_quote(_nebula_vid("node-000"))
+        vid_last = _ngql_quote(_nebula_vid("node-599"))
+        has_first = vid_first in normalized_sql
+        has_last = vid_last in normalized_sql
         assert not (
             has_first and has_last
         ), "large endpoint filter should be split across multiple Nebula queries"
         rows: list[dict[str, str]] = []
         if has_first:
-            rows.append({"source": "node-000", "target": "neighbor-000"})
+            rows.append(
+                {
+                    "anchor": "node-000",
+                    "neighbor": "neighbor-000",
+                    "src_vid": _nebula_vid("node-000"),
+                    "anchor_vid": _nebula_vid("node-000"),
+                }
+            )
         if has_last:
-            rows.append({"source": "neighbor-599", "target": "node-599"})
+            rows.append(
+                {
+                    "anchor": "node-599",
+                    "neighbor": "neighbor-599",
+                    "src_vid": _nebula_vid("neighbor-599"),
+                    "anchor_vid": _nebula_vid("node-599"),
+                }
+            )
         return rows
 
     execute_in_space = AsyncMock(side_effect=fake_execute)
@@ -1884,7 +2088,8 @@ async def test_nebula_has_node_uses_lightweight_existence_probe():
         assert await storage.has_node("A") is True
 
     sql = execute_in_space.await_args_list[0].args[0]
-    assert "LIMIT 1" in _normalize_sql_whitespace(sql)
+    assert "FETCH PROP ON entity" in _normalize_sql_whitespace(sql)
+    assert "LIMIT 1" not in _normalize_sql_whitespace(sql)
 
 
 @pytest.mark.asyncio
@@ -1902,7 +2107,165 @@ async def test_nebula_has_edge_uses_lightweight_existence_probe():
         assert await storage.has_edge("A", "B") is True
 
     sql = execute_in_space.await_args_list[0].args[0]
-    assert "LIMIT 1" in _normalize_sql_whitespace(sql)
+    assert "FETCH PROP ON relation" in _normalize_sql_whitespace(sql)
+
+
+@pytest.mark.asyncio
+async def test_nebula_get_node_fetch_prop_roundtrip_cjk():
+    storage = build_storage(workspace="finance")
+    cjk_id = "拆采油树，组装防喷器组"
+    vid = _nebula_vid(cjk_id)
+    execute_in_space = AsyncMock(
+        return_value=[
+            {
+                "entity_id": cjk_id,
+                "name": cjk_id,
+                "entity_type": "TypeX",
+                "description": "desc",
+                "keywords": "",
+                "source_id": "s1",
+                "file_path": "",
+                "created_at": 0,
+                "truncate": "",
+            }
+        ]
+    )
+    with patch.object(storage, "_execute_in_space", execute_in_space):
+        node = await storage.get_node(cjk_id)
+
+    assert node is not None
+    assert node["entity_id"] == cjk_id
+    sql = execute_in_space.await_args_list[0].args[0]
+    assert "FETCH PROP ON entity" in sql
+    assert _ngql_quote(vid) in sql
+    assert cjk_id not in sql
+
+
+@pytest.mark.asyncio
+async def test_nebula_get_edge_fetch_prop_returns_edge_by_vid():
+    storage = build_storage(workspace="finance")
+    src_vid, tgt_vid = _nebula_edge_vids("A", "B")
+    execute_in_space = AsyncMock(
+        return_value=[
+            {
+                "sv": src_vid,
+                "dv": tgt_vid,
+                "source_id": "chunk-1",
+                "target_id": "chunk-2",
+                "relationship": "rel",
+                "description": "d",
+                "keywords": "k1",
+                "weight": 1.0,
+                "file_path": "",
+            }
+        ]
+    )
+    with patch.object(storage, "_execute_in_space", execute_in_space):
+        edge = await storage.get_edge("A", "B")
+
+    assert edge is not None
+    assert edge["source"] == "A"
+    assert edge["target"] == "B"
+    sql = execute_in_space.await_args_list[0].args[0]
+    assert "FETCH PROP ON relation" in sql
+    assert f"{_ngql_quote(src_vid)}->{_ngql_quote(tgt_vid)}" in sql
+
+
+@pytest.mark.asyncio
+async def test_nebula_get_nodes_edges_batch_uses_go_bidirect_without_double_append():
+    storage = build_storage(workspace="finance")
+    vid_a = _nebula_vid("A")
+    vid_b = _nebula_vid("B")
+    execute_in_space = AsyncMock(
+        return_value=[
+            {
+                "anchor": "A",
+                "neighbor": "B",
+                "src_vid": vid_a,
+                "anchor_vid": vid_a,
+            },
+            {
+                "anchor": "B",
+                "neighbor": "A",
+                "src_vid": vid_a,
+                "anchor_vid": vid_b,
+            },
+        ]
+    )
+    with patch.object(storage, "_execute_in_space", execute_in_space):
+        result = await storage.get_nodes_edges_batch(["A", "B"])
+
+    assert result == {"A": [("A", "B")], "B": [("A", "B")]}
+    sql = execute_in_space.await_args_list[0].args[0]
+    assert "GO FROM" in sql
+    assert "OVER relation" in sql
+    assert "BIDIRECT" in sql
+    assert _ngql_quote(vid_a) in sql
+
+
+@pytest.mark.asyncio
+async def test_nebula_get_nodes_edges_batch_outbound_direction_skips_bidirect():
+    storage = build_storage(workspace="finance")
+    execute_in_space = AsyncMock(
+        return_value=[
+            {
+                "anchor": "A",
+                "neighbor": "B",
+                "src_vid": _nebula_vid("A"),
+                "anchor_vid": _nebula_vid("A"),
+            },
+        ]
+    )
+    with patch.object(storage, "_execute_in_space", execute_in_space):
+        result = await storage.get_nodes_edges_batch(["A"], direction="outbound")
+
+    sql = execute_in_space.await_args_list[0].args[0]
+    assert "BIDIRECT" not in sql
+    assert "REVERSELY" not in sql
+    assert "GO FROM" in sql
+    assert "OVER relation" in sql
+    assert result["A"] == [("A", "B")]
+
+
+@pytest.mark.asyncio
+async def test_nebula_get_nodes_edges_batch_inbound_direction_uses_reversely():
+    storage = build_storage(workspace="finance")
+    execute_in_space = AsyncMock(
+        return_value=[
+            {
+                "anchor": "A",
+                "neighbor": "C",
+                "src_vid": _nebula_vid("C"),
+                "anchor_vid": _nebula_vid("A"),
+            },
+        ]
+    )
+    with patch.object(storage, "_execute_in_space", execute_in_space):
+        result = await storage.get_nodes_edges_batch(["A"], direction="inbound")
+
+    sql = execute_in_space.await_args_list[0].args[0]
+    assert "GO FROM" in sql
+    assert "OVER relation REVERSELY" in sql
+    assert "BIDIRECT" not in sql
+    assert result["A"] == [("C", "A")]
+
+
+@pytest.mark.asyncio
+async def test_nebula_node_degrees_batch_uses_go_bidirect_without_double_counting():
+    storage = build_storage(workspace="finance")
+    execute_in_space = AsyncMock(
+        return_value=[
+            {"anchor": "A", "neighbor": "B"},
+            {"anchor": "B", "neighbor": "A"},
+        ]
+    )
+    with patch.object(storage, "_execute_in_space", execute_in_space):
+        degrees = await storage.node_degrees_batch(["A", "B"])
+
+    assert degrees == {"A": 1, "B": 1}
+    sql = execute_in_space.await_args_list[0].args[0]
+    assert "GO FROM" in sql
+    assert "OVER relation BIDIRECT" in sql
 
 
 @pytest.mark.asyncio
