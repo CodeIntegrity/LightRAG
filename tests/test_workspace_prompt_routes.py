@@ -394,8 +394,8 @@ def test_assist_entity_type_prompt_returns_validation_errors_for_invalid_yaml(mo
         json={"requirements": "anything"},
     )
 
-    # The endpoint itself succeeds; the validation result reports the failure
-    # and raw_output preserves the original LLM response for UI debugging.
+    # The endpoint itself succeeds; validation reports the failure. raw_output
+    # reflects the latest attempt (here both attempts return the same constant).
     assert response.status_code == 200
     body = response.json()
     assert body["validation"]["valid"] is False
@@ -670,3 +670,88 @@ def test_assist_rejects_overlong_sample_text(monkeypatch):
         json={"requirements": "ok", "sample_text": "z" * 8001},
     )
     assert response.status_code == 422
+
+
+def _make_sequence_llm(responses):
+    """Recording LLM returning queued responses; raises queued exceptions."""
+    remaining = list(responses)
+
+    def _next():
+        value = remaining.pop(0)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    return _make_recording_llm(_next)
+
+
+def test_assist_repairs_invalid_draft_once(monkeypatch):
+    good = _profile_content(label="Repaired")
+    llm = _make_sequence_llm(["not: [valid", good])
+    rag = _AssistDummyRAG(role_query_func=llm)
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist", json={"requirements": "any"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["validation"]["valid"] is True
+    assert body["content"].rstrip() == good.rstrip()
+    assert len(llm.calls) == 2
+    repair_call = llm.calls[1]
+    assert "<previous_draft>" in repair_call["prompt"]
+    assert "not: [valid" in repair_call["prompt"]
+    assert "<original_request>" in repair_call["prompt"]
+    assert "any" in repair_call["prompt"]
+    assert body["warnings"]
+
+
+def test_assist_repair_gives_up_after_one_attempt(monkeypatch):
+    llm = _make_sequence_llm(["still: [broken", "again: [broken"])
+    rag = _AssistDummyRAG(role_query_func=llm)
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist", json={"requirements": "any"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["validation"]["valid"] is False
+    assert len(llm.calls) == 2
+    # The latest attempt is returned for UI debugging.
+    assert body["raw_output"] == "again: [broken"
+    assert body["warnings"]
+
+
+def test_assist_repair_call_failure_falls_back_to_first_draft(monkeypatch):
+    bad = "broken: [yaml"
+    llm = _make_sequence_llm([bad, ConnectionError("repair upstream died")])
+    rag = _AssistDummyRAG(role_query_func=llm)
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist", json={"requirements": "any"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["validation"]["valid"] is False
+    assert body["raw_output"] == bad
+    assert any("repair" in warning.lower() for warning in body["warnings"])
+
+
+def test_assist_valid_first_draft_skips_repair_and_has_no_warnings(monkeypatch):
+    llm = _make_recording_llm(_profile_content(label="Clean"))
+    rag = _AssistDummyRAG(role_query_func=llm)
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist", json={"requirements": "any"}
+    )
+
+    assert response.status_code == 200
+    assert len(llm.calls) == 1
+    assert response.json()["warnings"] == []

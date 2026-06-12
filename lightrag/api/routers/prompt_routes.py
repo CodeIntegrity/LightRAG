@@ -129,7 +129,12 @@ class PromptAssistResponse(BaseModel):
     content: str
     validation: ValidationResult
     warnings: list[str] = Field(default_factory=list)
-    raw_output: str
+    raw_output: str = Field(
+        description=(
+            "Verbatim output of the LLM attempt that produced `content` and "
+            "`validation`; when a repair ran, this is the repair attempt's output."
+        )
+    )
     model: str | None = None
 
 
@@ -607,6 +612,70 @@ async def _invoke_assist_llm(
     return result
 
 
+def _build_prompt_assist_repair_prompt(
+    previous_draft: str, errors: list[str], original_user_prompt: str
+) -> str:
+    """Feed validation errors back for a single corrective retry."""
+    error_lines = "\n".join(f"- {error}" for error in errors)
+    return (
+        "Your previous draft failed validation.\n\n"
+        "Original request (unchanged, still applies):\n"
+        f"<original_request>\n{original_user_prompt.rstrip()}\n</original_request>\n\n"
+        f"Validation errors:\n{error_lines}\n\n"
+        f"<previous_draft>\n{previous_draft.rstrip()}\n</previous_draft>\n\n"
+        "Fix the errors and return the corrected YAML mapping only. Do not "
+        "add any prose or markdown fences."
+    )
+
+
+async def _attempt_assist_repair(
+    llm_callable: Callable[..., Any],
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    draft: str,
+    raw_output: str,
+    validation: ValidationResult,
+    use_json: bool,
+    warnings: list[str],
+) -> tuple[str, str, ValidationResult]:
+    """One-shot repair pass for an invalid assist draft.
+
+    Returns ``(content, raw_output, validation)``: the repaired attempt when
+    the repair LLM call succeeds (whether or not it validates), or the
+    original draft when the repair call itself fails.
+    """
+    repair_prompt = _build_prompt_assist_repair_prompt(
+        draft, validation.errors, user_prompt
+    )
+    try:
+        repaired_raw = await _invoke_assist_llm(
+            llm_callable, user_prompt=repair_prompt, system_prompt=system_prompt
+        )
+    except HTTPException:
+        warnings.append(
+            "Draft failed validation; the automatic repair attempt could not "
+            "be completed."
+        )
+        return draft, raw_output, validation
+
+    repaired = _strip_yaml_fence(repaired_raw)
+    _profile, repaired_validation = _validate_content(
+        repaired, use_json=use_json, source_label="assist draft"
+    )
+    if repaired_validation.valid:
+        warnings.append(
+            "Initial draft failed validation; an automatic repair attempt "
+            "fixed it."
+        )
+    else:
+        warnings.append(
+            "Draft failed validation; one automatic repair attempt did not "
+            "fix it."
+        )
+    return repaired, repaired_raw, repaired_validation
+
+
 def create_prompt_routes(
     rag: Any,
     api_key: str | None = None,
@@ -778,10 +847,22 @@ def create_prompt_routes(
             use_json=use_json,
             source_label="assist draft",
         )
+        warnings: list[str] = []
+        if not validation.valid:
+            cleaned, raw_output, validation = await _attempt_assist_repair(
+                llm_callable,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                draft=cleaned,
+                raw_output=raw_output,
+                validation=validation,
+                use_json=use_json,
+                warnings=warnings,
+            )
         return PromptAssistResponse(
             content=cleaned,
             validation=validation,
-            warnings=[],
+            warnings=warnings,
             raw_output=raw_output,
             model=model_name,
         )
