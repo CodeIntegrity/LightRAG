@@ -38,4 +38,4 @@
 ## Observed Non-Blocking Notes
 
 - Vite still emits chunk-size warnings for large bundles; this pre-existed the current fix and does not block the build.
-- `lightrag_webui/.gitignore` includes an unrelated `.ace-tool/` modification in the worktree.
+- `lightrag_webui/.gitignore` includes an unrelated tool-ignore modification in the worktree.

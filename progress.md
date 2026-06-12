@@ -55,8 +55,8 @@
 | 时间戳 | 错误 | 尝试次数 | 解决方案 |
 |--------|------|---------|---------|
 | 2026-05-22 15:20 CST | `ctx_search` 结果被跨批次索引干扰 | 1 | 改用定向 `ctx_execute` / `ctx_execute_file` 取结构化摘要 |
-| 2026-05-22 15:42 CST | `fast-context` 缺少 `tree-node-cli` 依赖 | 1 | 在 `/root/.codex/skills/fast-context` 执行 `npm install` |
-| 2026-05-22 15:43 CST | `fast-context` 缺 Windsurf API Key | 1 | 回退到 `search_context` + 本地 git/ctx 检索 |
+| 2026-05-22 15:42 CST | 已退役的语义检索脚本缺少 `tree-node-cli` 依赖 | 1 | 改用本地 git/ctx 检索 |
+| 2026-05-22 15:43 CST | 已退役的语义检索脚本缺 Windsurf API Key | 1 | 回退到本地 git/ctx 检索 |
 
 ## 五问重启检查
 | 问题 | 答案 |

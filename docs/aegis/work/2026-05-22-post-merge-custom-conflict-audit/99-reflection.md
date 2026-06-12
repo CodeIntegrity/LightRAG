@@ -9,4 +9,4 @@
 - The remaining backend failures were stale tests, not stale product behavior. Updating the tests to the retired prompt-management contract and current role-llm surface was the right repair.
 - Residual cleanup that can be done later without behavioral risk:
   - remove dead prompt-version locale keys
-  - decide whether the `.ace-tool/` ignore entry should stay
+  - decide whether the unrelated tool-ignore entry should stay

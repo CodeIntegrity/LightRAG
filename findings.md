@@ -44,8 +44,8 @@
 | 问题 | 解决方案 |
 |------|---------|
 | `ctx_search` 在跨批次场景下结果噪声较多 | 改用定向 `ctx_execute` / `ctx_execute_file` 汇总结构化结论 |
-| `fast-context` 脚本缺本地依赖 `tree-node-cli` | 在技能目录运行 `npm install` 修复依赖 |
-| `fast-context` 缺 Windsurf API Key | 回退到本地 git/rg/ctx 检索和 `search_context` |
+| 已退役的语义检索脚本缺本地依赖 `tree-node-cli` | 改用本地 git/rg/ctx 检索 |
+| 已退役的语义检索脚本缺 Windsurf API Key | 回退到本地 git/rg/ctx 检索 |
 
 ## 资源
 - `docs/analysis/2026-05-21-upstream-main-compatibility-report.md`

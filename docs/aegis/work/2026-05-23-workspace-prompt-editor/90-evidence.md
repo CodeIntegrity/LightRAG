@@ -4,7 +4,7 @@
 
 - 已读取计划文件并建立索引。
 - 已读取 Aegis index、initial baseline、prompt retirement plan。
-- 已用 `mcp__ace_tool__.search_context` 定位 prompt profile、workspace header、前端导航相关 owner。
+- 已通过本地代码检索定位 prompt profile、workspace header、前端导航相关 owner。
 - 后端 RED：`./scripts/test.sh tests/test_workspace_prompt_routes.py -q` 失败，证据为 `prompt_routes` 缺失；测试环境阻塞通过 `uv sync --extra test` 解除。
 - 后端 GREEN：`./scripts/test.sh tests/test_workspace_prompt_routes.py -q` -> 3 passed。
 - 后端回归：`./scripts/test.sh tests/test_entity_extraction_stability.py -q` -> 41 passed。

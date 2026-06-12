@@ -1,7 +1,7 @@
 # Evidence Bundle Draft
 
 - `git worktree add .worktrees/backend-runtime-workspace-opt -b feat/backend-runtime-workspace-opt`
-- `mcp__ace_tool__.search_context`: 已定位 `workspace_runtime_binding()`、`get_workspace_from_request()`、`WorkspaceRuntimeManager.acquire_runtime()` 与现有测试文件
+- 本地代码检索：已定位 `workspace_runtime_binding()`、`get_workspace_from_request()`、`WorkspaceRuntimeManager.acquire_runtime()` 与现有测试文件
 - `mcp__context_mode__.ctx_batch_execute`: 已确认计划中文件名与仓库现状有偏差，当前测试入口为：
   - `tests/test_workspace_runtime_app_integration.py`
   - `tests/test_workspace_registry_store.py`

@@ -27,7 +27,7 @@
 ## 已确认的测试/退役残留
 
 - locale 文件中仍保留 prompt version 文案键，但当前运行时代码与测试主路径已不再依赖它们。
-- worktree 内 `lightrag_webui/.gitignore` 存在一处无关修改：新增 `.ace-tool/`；本轮未回滚。
+- worktree 内 `lightrag_webui/.gitignore` 存在一处无关工具忽略项修改；本轮未回滚。
 
 ## 已验证通过的主路径
 
