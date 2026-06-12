@@ -444,30 +444,90 @@ def _strip_yaml_fence(raw: str) -> str:
     return raw
 
 
-def _build_prompt_assist_system_prompt(use_json: bool, default_profile: dict[str, Any]) -> str:
-    """Compose the system prompt for assist generation.
+_ASSIST_TEXT_FORMAT_RULES = (
+    "Each item in `entity_extraction_examples` MUST be one string with three "
+    "sections, in order: `---Entity Types---` (a bullet list mirroring "
+    "entity_types_guidance), `---Input Text---` (a code-fenced sample "
+    "passage), and `---Output---` followed by the extraction rows.\n"
+    "Row syntax (use the literal delimiter `<|#|>`):\n"
+    "  entity<|#|>NAME<|#|>TYPE<|#|>DESCRIPTION\n"
+    "  relation<|#|>SOURCE<|#|>TARGET<|#|>KEYWORDS<|#|>DESCRIPTION\n"
+    "Entity rows have exactly 4 fields; relation rows exactly 5. List all "
+    "entity rows first, then all relation rows, and end every example with "
+    "the literal line `<|COMPLETE|>`.\n"
+    "Do NOT use curly braces anywhere inside `entity_extraction_examples` "
+    "items: no `{tuple_delimiter}`-style placeholders and no other `{` or "
+    "`}` characters. Write the delimiters literally as shown above."
+)
 
-    Embeds the full default ``entity_types_guidance`` so the LLM sees the
-    canonical baseline and a strict YAML output contract.
+_ASSIST_JSON_FORMAT_RULES = (
+    "Each item in `entity_extraction_json_examples` MUST be one string with "
+    "three sections, in order: `---Entity Types---` (a bullet list mirroring "
+    "entity_types_guidance), `---Input Text---` (a code-fenced sample "
+    "passage), and `---Output---` followed by ONE valid JSON object with "
+    "`entities` and `relationships` arrays.\n"
+    'Entity objects use keys: "name", "type", "description". Relationship '
+    'objects use keys: "source", "target", "keywords", "description".'
+)
+
+
+def _render_assist_reference_example(
+    default_profile: dict[str, Any], use_json: bool
+) -> str:
+    """Return the first built-in example, rendered with literal delimiters."""
+    key = (
+        "entity_extraction_json_examples" if use_json else "entity_extraction_examples"
+    )
+    examples = default_profile.get(key) or []
+    if not examples:
+        return ""
+    first = str(examples[0])
+    if use_json:
+        return first.rstrip()
+    return first.format(
+        tuple_delimiter=prompt_module.PROMPTS["DEFAULT_TUPLE_DELIMITER"],
+        completion_delimiter=prompt_module.PROMPTS["DEFAULT_COMPLETION_DELIMITER"],
+        entity_types_guidance="",
+        language="English",
+    ).rstrip()
+
+
+def _build_prompt_assist_system_prompt(
+    use_json: bool, default_profile: dict[str, Any]
+) -> str:
+    """Compose the assist system prompt.
+
+    Names a single REQUIRED examples key for the active extraction mode,
+    embeds the concrete format contract plus a rendered reference example,
+    and keeps the full default guidance as a domain-adaptation baseline.
     """
     default_guidance = default_profile.get("entity_types_guidance", "").rstrip()
-    mode_hint = (
-        "Examples in `entity_extraction_json_examples` MUST be valid JSON strings."
-        if use_json
-        else "Examples in `entity_extraction_examples` MUST follow the text "
-        "delimiter format used by LightRAG."
+    required_key = (
+        "entity_extraction_json_examples" if use_json else "entity_extraction_examples"
     )
+    optional_key = (
+        "entity_extraction_examples" if use_json else "entity_extraction_json_examples"
+    )
+    format_rules = _ASSIST_JSON_FORMAT_RULES if use_json else _ASSIST_TEXT_FORMAT_RULES
+    reference_example = _render_assist_reference_example(default_profile, use_json)
     return (
         "You are helping the user author a LightRAG entity extraction prompt "
-        "profile. Return ONLY a YAML mapping with the keys "
-        "`entity_types_guidance` (non-empty string) and either "
-        "`entity_extraction_examples` (list of strings) or "
-        "`entity_extraction_json_examples` (list of strings).\n"
-        "Do not wrap the output in markdown fences. Do not add any prose "
-        "before or after the YAML.\n"
-        f"{mode_hint}\n\n"
-        "Default `entity_types_guidance` baseline (use as reference only, "
-        "adapt to the user's domain):\n"
+        "profile. Return ONLY a YAML mapping. Do not wrap the output in "
+        "markdown fences. Do not add any prose before or after the YAML.\n"
+        "Required keys:\n"
+        "- `entity_types_guidance`: non-empty string — a short classification "
+        "instruction followed by `- TypeName: description` bullet lines "
+        "tailored to the user's domain.\n"
+        f"- `{required_key}`: list of 1-3 example strings following the "
+        "format contract below.\n"
+        f"You may additionally include `{optional_key}`, but never omit "
+        f"`{required_key}`.\n\n"
+        f"{format_rules}\n\n"
+        "Reference example — imitate the structure, adapt the content to the "
+        "user's domain:\n"
+        f"<reference_example>\n{reference_example}\n</reference_example>\n\n"
+        "Default `entity_types_guidance` baseline (reference only, adapt to "
+        "the user's domain):\n"
         f"{default_guidance}"
     )
 

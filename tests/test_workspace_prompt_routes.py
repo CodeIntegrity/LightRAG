@@ -578,3 +578,46 @@ def test_validate_endpoint_json_mode_ignores_text_example_braces(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["valid"] is True
+
+
+def test_assist_system_prompt_text_mode_contract(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+
+    import lightrag.prompt as prompt_module
+    from lightrag.api.routers.prompt_routes import _build_prompt_assist_system_prompt
+
+    default_profile = prompt_module.get_default_entity_extraction_prompt_profile()
+    sp = _build_prompt_assist_system_prompt(False, default_profile)
+
+    # Active-mode key is REQUIRED (no "either/or" choice left to the LLM).
+    assert "never omit `entity_extraction_examples`" in sp
+    # Concrete row syntax with literal delimiters.
+    assert "entity<|#|>NAME<|#|>TYPE<|#|>DESCRIPTION" in sp
+    assert "relation<|#|>SOURCE<|#|>TARGET<|#|>KEYWORDS<|#|>DESCRIPTION" in sp
+    assert "<|COMPLETE|>" in sp
+    # Brace ban for text-mode examples.
+    assert "Do NOT use curly braces" in sp
+    # Reference example embedded, rendered with literal delimiters.
+    assert "<reference_example>" in sp
+    ref = sp.split("<reference_example>", 1)[1].split("</reference_example>", 1)[0]
+    assert "<|#|>" in ref
+    assert "{tuple_delimiter}" not in ref
+    # Default guidance baseline kept verbatim.
+    assert default_profile["entity_types_guidance"].rstrip() in sp
+
+
+def test_assist_system_prompt_json_mode_contract(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+
+    import lightrag.prompt as prompt_module
+    from lightrag.api.routers.prompt_routes import _build_prompt_assist_system_prompt
+
+    default_profile = prompt_module.get_default_entity_extraction_prompt_profile()
+    sp = _build_prompt_assist_system_prompt(True, default_profile)
+
+    assert "never omit `entity_extraction_json_examples`" in sp
+    assert "`entities` and `relationships`" in sp
+    assert "<reference_example>" in sp
+    # JSON reference example is the default one, verbatim.
+    ref = sp.split("<reference_example>", 1)[1].split("</reference_example>", 1)[0]
+    assert default_profile["entity_extraction_json_examples"][0].rstrip() == ref.strip()
