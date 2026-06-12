@@ -33,6 +33,7 @@ import Separator from '@/components/ui/Separator'
 import Textarea from '@/components/ui/Textarea'
 import YamlEditor from '@/components/ui/YamlEditor'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/Popover'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
 import { useSettingsStore } from '@/stores/settings'
 import { presetPrompts } from '@/features/promptPresets'
 import { cn } from '@/lib/utils'
@@ -332,6 +333,8 @@ export default function Prompts() {
   const [validationDialogOpen, setValidationDialogOpen] = useState(false)
   const [assistOpen, setAssistOpen] = useState(false)
   const [assistRequirements, setAssistRequirements] = useState('')
+  const [assistLanguage, setAssistLanguage] = useState<EntityTypePromptAssistLanguage>('auto')
+  const [assistSampleText, setAssistSampleText] = useState('')
   const [assistDraft, setAssistDraft] = useState<AssistDraftResponse | null>(null)
   const [assistLoading, setAssistLoading] = useState(false)
   const [assistRawOpen, setAssistRawOpen] = useState(false)
@@ -508,7 +511,9 @@ export default function Prompts() {
     try {
       const response = await generateAssistDraft({
         requirements: assistRequirements,
-        currentContent: state.content
+        currentContent: state.content,
+        sampleText: assistSampleText,
+        language: assistLanguage
       })
       setAssistDraft(response)
       setAssistRawOpen(false)
@@ -522,7 +527,7 @@ export default function Prompts() {
     } finally {
       setAssistLoading(false)
     }
-  }, [assistLoading, assistRequirements, state.content, t])
+  }, [assistLanguage, assistLoading, assistRequirements, assistSampleText, state.content, t])
 
   const handleApplyAssistDraft = useCallback(() => {
     if (!assistDraft) {
@@ -732,12 +737,56 @@ export default function Prompts() {
                 </span>
                 <Textarea
                   value={assistRequirements}
+                  maxLength={4000}
                   onChange={(event) => setAssistRequirements(event.target.value)}
                   placeholder={t(
                     'prompts.assist.requirementsPlaceholder',
                     'e.g., extract diseases, medications, symptoms and treatments from medical records'
                   )}
                   className="min-h-[80px]"
+                />
+                <span className="text-right text-xs text-muted-foreground">
+                  {assistRequirements.length}/4000
+                </span>
+              </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="grid gap-1 text-sm">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {t('prompts.assist.languageLabel', 'Generation language')}
+                  </span>
+                  <Select
+                    value={assistLanguage}
+                    onValueChange={(value) =>
+                      setAssistLanguage(value as EntityTypePromptAssistLanguage)
+                    }
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">
+                        {t('prompts.assist.languageAuto', 'Auto (match requirements)')}
+                      </SelectItem>
+                      <SelectItem value="en">English</SelectItem>
+                      <SelectItem value="zh">中文</SelectItem>
+                      <SelectItem value="ja">日本語</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+              </div>
+              <label className="grid gap-1 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {t('prompts.assist.sampleTextLabel', 'Sample text (optional)')}
+                </span>
+                <Textarea
+                  value={assistSampleText}
+                  maxLength={8000}
+                  onChange={(event) => setAssistSampleText(event.target.value)}
+                  placeholder={t(
+                    'prompts.assist.sampleTextPlaceholder',
+                    'Paste a representative passage from your corpus; generated examples will be grounded in it'
+                  )}
+                  className="min-h-[64px]"
                 />
               </label>
               <div className="flex items-center gap-2">
@@ -778,6 +827,13 @@ export default function Prompts() {
                       lines: assistDraft.content ? assistDraft.content.split('\n').length : 0
                     })}
                   </div>
+                  {assistDraft.warnings.length > 0 && (
+                    <ul className="list-inside list-disc text-xs text-amber-600 dark:text-amber-400">
+                      {assistDraft.warnings.map((warning, idx) => (
+                        <li key={idx}>{warning}</li>
+                      ))}
+                    </ul>
+                  )}
                   <YamlEditor
                     value={assistDraft.content}
                     readOnly
