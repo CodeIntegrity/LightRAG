@@ -621,3 +621,52 @@ def test_assist_system_prompt_json_mode_contract(monkeypatch):
     # JSON reference example is the default one, verbatim.
     ref = sp.split("<reference_example>", 1)[1].split("</reference_example>", 1)[0]
     assert default_profile["entity_extraction_json_examples"][0].rstrip() == ref.strip()
+
+
+def test_assist_user_prompt_language_resolution(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+
+    from lightrag.api.routers.prompt_routes import (
+        PromptAssistRequest,
+        _build_prompt_assist_user_prompt,
+    )
+
+    auto = _build_prompt_assist_user_prompt(PromptAssistRequest(requirements="r"))
+    # "auto" is resolved to an instruction the LLM can act on, never passed raw.
+    assert "same language as the requirements" in auto
+    assert "Generation language: auto" not in auto
+
+    zh = _build_prompt_assist_user_prompt(
+        PromptAssistRequest(requirements="r", language="zh")
+    )
+    assert "Write the draft in Chinese." in zh
+
+
+def test_assist_user_prompt_embeds_sample_text_block(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+
+    from lightrag.api.routers.prompt_routes import (
+        PromptAssistRequest,
+        _build_prompt_assist_user_prompt,
+    )
+
+    prompt = _build_prompt_assist_user_prompt(
+        PromptAssistRequest(requirements="r", sample_text="corpus snippet")
+    )
+    assert "<sample_text>" in prompt
+    assert "</sample_text>" in prompt
+    assert "corpus snippet" in prompt
+
+    without = _build_prompt_assist_user_prompt(PromptAssistRequest(requirements="r"))
+    assert "<sample_text>" not in without
+
+
+def test_assist_rejects_overlong_sample_text(monkeypatch):
+    rag = _AssistDummyRAG(role_query_func=_make_recording_llm("ignored"))
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist",
+        json={"requirements": "ok", "sample_text": "z" * 8001},
+    )
+    assert response.status_code == 422

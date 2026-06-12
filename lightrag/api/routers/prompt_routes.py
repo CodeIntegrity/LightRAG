@@ -118,6 +118,7 @@ class PromptAssistRequest(BaseModel):
 
     requirements: str = Field(min_length=1, max_length=4000)
     current_content: str | None = Field(default=None, max_length=30000)
+    sample_text: str | None = Field(default=None, max_length=8000)
     language: Literal["auto", "en", "zh", "ja"] = "auto"
     # Reserved for callers that want to override runtime default. Frontend UI
     # does NOT expose this; defaults to ``rag.entity_extraction_use_json``.
@@ -532,18 +533,38 @@ def _build_prompt_assist_system_prompt(
     )
 
 
+_ASSIST_LANGUAGE_NAMES = {"en": "English", "zh": "Chinese", "ja": "Japanese"}
+
+
 def _build_prompt_assist_user_prompt(
     request: PromptAssistRequest,
 ) -> str:
     """Compose the user prompt.
 
-    ``current_content`` is wrapped in a ``<current_yaml>`` tag so the model
-    treats it as a baseline to revise, not as part of the requirements.
+    ``language="auto"`` resolves to a follow-the-requirements instruction.
+    ``sample_text`` grounds the generated examples in the user's corpus;
+    ``current_content`` is wrapped in ``<current_yaml>`` so the model treats
+    it as a baseline to revise, not as part of the requirements.
     """
+    if request.language == "auto":
+        language_line = (
+            "Write the draft in the same language as the requirements above."
+        )
+    else:
+        language_line = (
+            f"Write the draft in {_ASSIST_LANGUAGE_NAMES[request.language]}."
+        )
     parts = [
         f"Requirements:\n{request.requirements.strip()}",
-        f"Generation language: {request.language}",
+        language_line,
     ]
+    if request.sample_text:
+        parts.append(
+            "Representative sample of the user's corpus. Ground the examples' "
+            "`---Input Text---` passages in this material (quote or "
+            "paraphrase it):\n"
+            f"<sample_text>\n{request.sample_text.rstrip()}\n</sample_text>"
+        )
     if request.current_content:
         parts.append(
             "Current YAML draft (modify, do not echo verbatim unless "
