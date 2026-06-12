@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 from pathlib import Path
-from typing import Any, Mapping, TypedDict
+from typing import Any, Mapping, Sequence, TypedDict
 
 import yaml
 
@@ -898,6 +898,40 @@ def resolve_entity_extraction_prompt_profile(
     }
 
 
+_TEXT_EXAMPLE_FORMAT_CONTEXT: dict[str, str] = {
+    "tuple_delimiter": PROMPTS["DEFAULT_TUPLE_DELIMITER"],
+    "completion_delimiter": PROMPTS["DEFAULT_COMPLETION_DELIMITER"],
+    "entity_types_guidance": "",
+    "language": "English",
+}
+
+
+def ensure_text_examples_formattable(
+    examples: Sequence[str], source_label: str
+) -> None:
+    """Fail fast when a text-mode example would break str.format() at extraction.
+
+    operate.py renders ``entity_extraction_examples`` with
+    ``examples.format(tuple_delimiter=..., completion_delimiter=...,
+    entity_types_guidance=..., language=...)``. A stray ``{``/``}`` or an
+    unknown placeholder only raises there — after save/activate already
+    succeeded. Run the same substitution here so validation reports the
+    problem instead of the indexing pipeline.
+    """
+
+    for index, example in enumerate(examples):
+        try:
+            example.format(**_TEXT_EXAMPLE_FORMAT_CONTEXT)
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{source_label} field 'entity_extraction_examples' item {index} "
+                f"is not format-safe ({exc.__class__.__name__}: {exc}). Only the "
+                "placeholders {tuple_delimiter}, {completion_delimiter}, "
+                "{entity_types_guidance} and {language} are allowed; any other "
+                "curly braces must be doubled ('{{' / '}}') or removed."
+            ) from exc
+
+
 def validate_entity_extraction_prompt_profile_for_mode(
     prompt_profile: Mapping[str, Any],
     use_json: bool,
@@ -905,6 +939,11 @@ def validate_entity_extraction_prompt_profile_for_mode(
 ) -> EntityExtractionPromptProfile:
     """Validate that the resolved profile contains the active-mode examples."""
 
+    source = (
+        f"ENTITY_TYPE_PROMPT_FILE '{prompt_file_name}'"
+        if prompt_file_name
+        else "the resolved prompt profile"
+    )
     required_examples_key = (
         "entity_extraction_json_examples" if use_json else "entity_extraction_examples"
     )
@@ -913,14 +952,17 @@ def validate_entity_extraction_prompt_profile_for_mode(
         or not prompt_profile[required_examples_key]
     ):
         mode_name = "json" if use_json else "text"
-        source = (
-            f"ENTITY_TYPE_PROMPT_FILE '{prompt_file_name}'"
-            if prompt_file_name
-            else "the resolved prompt profile"
-        )
         raise ValueError(
             f"{source} must define '{required_examples_key}' when entity extraction "
             f"runs in {mode_name} mode."
+        )
+
+    if not use_json:
+        # JSON examples legitimately contain '{'/'}' and are never formatted;
+        # only text-mode examples pass through str.format() in operate.py.
+        ensure_text_examples_formattable(
+            [str(example) for example in prompt_profile["entity_extraction_examples"]],
+            source,
         )
 
     return {
