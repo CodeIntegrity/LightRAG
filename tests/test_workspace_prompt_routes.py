@@ -36,6 +36,19 @@ def _profile_content(*, label: str = "Example") -> str:
     )
 
 
+def _json_profile_content() -> str:
+    return (
+        "entity_types_guidance: |\n"
+        "  - ExampleType: Test type\n"
+        "entity_extraction_examples:\n"
+        "  - |\n"
+        "    broken { example\n"
+        "entity_extraction_json_examples:\n"
+        "  - |\n"
+        '    {"entities": [], "relationships": []}\n'
+    )
+
+
 class _DummyRAG:
     def __init__(self, *, use_json: bool = False, active_file: str | None = None):
         self.entity_extraction_use_json = use_json
@@ -504,3 +517,64 @@ def test_assist_rejects_overlong_current_content(monkeypatch):
         },
     )
     assert response.status_code == 422
+
+
+def test_validate_endpoint_reports_format_breaking_example(monkeypatch):
+    rag = _DummyRAG()
+    client = _build_prompt_client(monkeypatch, rag)
+
+    content = (
+        "entity_types_guidance: |\n"
+        "  - T: t\n"
+        "entity_extraction_examples:\n"
+        "  - |\n"
+        "    entity<|#|>A<|#|>T<|#|>D {stray\n"
+        "    <|COMPLETE|>\n"
+    )
+    response = client.post(
+        "/prompts/entity-type/validate",
+        json={"content": content, "use_json": False},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["valid"] is False
+    assert "item 0" in body["errors"][0]
+
+
+def test_save_endpoint_rejects_format_breaking_example(monkeypatch, tmp_path):
+    prompt_dir = tmp_path / "entity_type"
+    prompt_dir.mkdir()
+    rag = _DummyRAG()
+    client = _build_prompt_client(monkeypatch, rag)
+
+    content = (
+        "entity_types_guidance: |\n"
+        "  - T: t\n"
+        "entity_extraction_examples:\n"
+        "  - |\n"
+        "    entity<|#|>A<|#|>T<|#|>D {stray\n"
+        "    <|COMPLETE|>\n"
+    )
+    with patch("lightrag.prompt.get_entity_type_prompt_dir", return_value=prompt_dir):
+        response = client.put(
+            "/prompts/entity-type/entity-type/versions/1",
+            json={"content": content, "activate": False},
+        )
+
+    assert response.status_code == 400
+    # Nothing was written: validation rejected the payload before _atomic_write.
+    assert not list(prompt_dir.iterdir())
+
+
+def test_validate_endpoint_json_mode_ignores_text_example_braces(monkeypatch):
+    rag = _DummyRAG(use_json=True)
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/validate",
+        json={"content": _json_profile_content()},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["valid"] is True
