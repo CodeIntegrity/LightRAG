@@ -288,6 +288,7 @@ export type EntityTypePromptAssistLanguage = 'auto' | 'en' | 'zh' | 'ja'
 export type EntityTypePromptAssistRequest = {
   requirements: string
   current_content?: string
+  sample_text?: string
   language?: EntityTypePromptAssistLanguage
 }
 

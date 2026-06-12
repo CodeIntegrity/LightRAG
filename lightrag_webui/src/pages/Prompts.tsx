@@ -11,6 +11,7 @@ import {
   readEntityTypePrompt,
   saveEntityTypePromptVersion,
   validateEntityTypePrompt,
+  type EntityTypePromptAssistLanguage,
   type EntityTypePromptAssistRequest,
   type EntityTypePromptAssistResponse,
   type EntityTypePromptFile,
@@ -224,19 +225,27 @@ export const formatPromptFileMeta = (file: EntityTypePromptFile): string => {
 export type AssistDraftResponse = EntityTypePromptAssistResponse
 
 /**
- * Pure helper that wraps the API client and strips empty current_content.
+ * Pure helper that wraps the API client and strips empty optional fields.
  * Keeping the request shape minimal lets the backend apply its own defaults
  * (language="auto", use_json from runtime config).
  */
 export const generateAssistDraft = async (params: {
   requirements: string
   currentContent: string
+  sampleText?: string
+  language?: EntityTypePromptAssistLanguage
 }): Promise<AssistDraftResponse> => {
   const request: EntityTypePromptAssistRequest = {
     requirements: params.requirements
   }
   if (params.currentContent) {
     request.current_content = params.currentContent
+  }
+  if (params.sampleText) {
+    request.sample_text = params.sampleText
+  }
+  if (params.language && params.language !== 'auto') {
+    request.language = params.language
   }
   return await assistEntityTypePrompt(request)
 }

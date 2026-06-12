@@ -382,4 +382,52 @@ describe('Prompts assist draft', () => {
     // the closed state so screen readers don't announce a phantom region.
     expect(html).toContain('aria-expanded="false"')
   })
+
+  test('generateAssistDraft forwards sample text and non-auto language', async () => {
+    const api = await import('@/api/lightrag')
+    const page = await import('./Prompts')
+
+    ;(api.assistEntityTypePrompt as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      content: 'entity_types_guidance: drafted\n',
+      validation: { valid: true, errors: [] },
+      warnings: [],
+      raw_output: 'entity_types_guidance: drafted\n',
+      model: 'm'
+    })
+
+    await page.generateAssistDraft({
+      requirements: 'medical',
+      currentContent: '',
+      sampleText: 'patient record snippet',
+      language: 'zh'
+    })
+
+    expect(api.assistEntityTypePrompt).toHaveBeenCalledWith({
+      requirements: 'medical',
+      sample_text: 'patient record snippet',
+      language: 'zh'
+    })
+  })
+
+  test('generateAssistDraft omits auto language and blank sample text', async () => {
+    const api = await import('@/api/lightrag')
+    const page = await import('./Prompts')
+
+    ;(api.assistEntityTypePrompt as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      content: '',
+      validation: { valid: false, errors: ['empty'] },
+      warnings: [],
+      raw_output: '',
+      model: null
+    })
+
+    await page.generateAssistDraft({
+      requirements: 'r',
+      currentContent: '',
+      sampleText: '',
+      language: 'auto'
+    })
+
+    expect(api.assistEntityTypePrompt).toHaveBeenCalledWith({ requirements: 'r' })
+  })
 })
