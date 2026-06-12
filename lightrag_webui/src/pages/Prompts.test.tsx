@@ -444,3 +444,29 @@ describe('Prompt activation semantics', () => {
     expect(page.promptActionForSelection(workspaceFile({ active: true }))).toBe('deactivate')
   })
 })
+
+describe('Validation display state', () => {
+  test('resolveValidationDisplay distinguishes valid/invalid/stale/none', async () => {
+    const page = await import('./Prompts')
+    const v = (valid: boolean, errors: string[] = []) => ({ valid, errors })
+
+    // Never validated (preset / blank / after deactivate) → no badge.
+    expect(
+      page.resolveValidationDisplay({ validation: v(false), content: 'a', lastValidatedContent: null })
+    ).toBe('none')
+    // Content matches what was validated → trust the result.
+    expect(
+      page.resolveValidationDisplay({ validation: v(true), content: 'a', lastValidatedContent: 'a' })
+    ).toBe('valid')
+    expect(
+      page.resolveValidationDisplay({ validation: v(false, ['e']), content: 'a', lastValidatedContent: 'a' })
+    ).toBe('invalid')
+    // Edited since validation → stale, regardless of the old verdict.
+    expect(
+      page.resolveValidationDisplay({ validation: v(true), content: 'b', lastValidatedContent: 'a' })
+    ).toBe('stale')
+    expect(
+      page.resolveValidationDisplay({ validation: v(false, ['e']), content: 'b', lastValidatedContent: 'a' })
+    ).toBe('stale')
+  })
+})

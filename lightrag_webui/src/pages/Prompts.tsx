@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2Icon, ChevronDownIcon, FileTextIcon, PlayIcon, RefreshCwIcon, SaveIcon, SparklesIcon, XCircleIcon, XIcon } from 'lucide-react'
+import { AlertCircleIcon, CheckCircle2Icon, ChevronDownIcon, FileTextIcon, PlayIcon, RefreshCwIcon, SaveIcon, SparklesIcon, XCircleIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 
@@ -226,6 +226,27 @@ export const promptActionForSelection = (
   selectedFile: EntityTypePromptFile | null
 ): 'activate' | 'deactivate' => (selectedFile?.active ? 'deactivate' : 'activate')
 
+export type ValidationDisplay = 'valid' | 'invalid' | 'stale' | 'none'
+
+/**
+ * The validation result only describes `lastValidatedContent`. Once the
+ * editor diverges from it the verdict is stale; with no validated content
+ * at all (preset / blank / post-deactivate) there is nothing to show.
+ */
+export const resolveValidationDisplay = (params: {
+  validation: EntityTypePromptValidation
+  content: string
+  lastValidatedContent: string | null
+}): ValidationDisplay => {
+  if (params.lastValidatedContent === null) {
+    return 'none'
+  }
+  if (params.content !== params.lastValidatedContent) {
+    return 'stale'
+  }
+  return params.validation.valid ? 'valid' : 'invalid'
+}
+
 export type AssistDraftResponse = EntityTypePromptAssistResponse
 
 /**
@@ -306,6 +327,7 @@ export default function Prompts() {
   const [saving, setSaving] = useState(false)
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null)
   const [savedContent, setSavedContent] = useState('')
+  const [lastValidatedContent, setLastValidatedContent] = useState<string | null>(null)
   const [presetPopoverOpen, setPresetPopoverOpen] = useState(false)
   const [validationDialogOpen, setValidationDialogOpen] = useState(false)
   const [assistOpen, setAssistOpen] = useState(false)
@@ -321,6 +343,12 @@ export default function Prompts() {
     [state.list.files, state.selectedFileName]
   )
 
+  const validationDisplay = resolveValidationDisplay({
+    validation: state.validation,
+    content: state.content,
+    lastValidatedContent
+  })
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -330,10 +358,12 @@ export default function Prompts() {
         const defaultPreset = presetPrompts[0]
         nextState.content = defaultPreset.content
         setSavedContent(defaultPreset.content)
+        setLastValidatedContent(null)
         setSelectedPresetId(defaultPreset.id)
       } else {
         setSelectedPresetId(null)
         setSavedContent(nextState.content)
+        setLastValidatedContent(nextState.content)
       }
       setState(nextState)
       const initialFile = chooseInitialFile(nextState.list)
@@ -344,6 +374,7 @@ export default function Prompts() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
       setState(createPromptEditorState({ workspaceKey }))
+      setLastValidatedContent(null)
       setSelectedPresetId(null)
     } finally {
       setLoading(false)
@@ -363,6 +394,7 @@ export default function Prompts() {
     try {
       const nextState = await selectPromptFile(state, fileName)
       setSavedContent(nextState.content)
+      setLastValidatedContent(nextState.content)
       setState(nextState)
       setSelectedPresetId(null)
       const file = nextState.list.files.find((item) => item.file_name === fileName)
@@ -380,6 +412,7 @@ export default function Prompts() {
       return
     }
     setSavedContent(preset.content)
+    setLastValidatedContent(null)
     setSelectedPresetId(preset.id)
     setPresetPopoverOpen(false)
     setState((previous) => ({
@@ -394,6 +427,7 @@ export default function Prompts() {
       return
     }
     setSavedContent('')
+    setLastValidatedContent(null)
     setSelectedPresetId(null)
     setState((previous) => ({
       ...previous,
@@ -403,9 +437,11 @@ export default function Prompts() {
   }, [hasUnsavedChanges, t])
 
   const handleValidate = useCallback(async () => {
+    const validatedContent = state.content
     try {
       const nextState = await validatePromptContent(state)
       setState(nextState)
+      setLastValidatedContent(validatedContent)
       if (nextState.validation.valid) {
         toast.success(t('prompts.validation.valid', 'Prompt is valid'))
       } else {
@@ -425,6 +461,7 @@ export default function Prompts() {
         activate: activateOnSave
       })
       setSavedContent(nextState.content)
+      setLastValidatedContent(nextState.content)
       setState(nextState)
       setSelectedPresetId(null)
       toast.success(t('prompts.saved', 'Prompt saved'))
@@ -439,16 +476,20 @@ export default function Prompts() {
     try {
       const nextState = await activateSelectedPrompt(state)
       setState(nextState)
+      if (!hasUnsavedChanges) {
+        setLastValidatedContent(state.content)
+      }
       toast.success(t('prompts.activated', 'Prompt activated'))
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
     }
-  }, [state, t])
+  }, [hasUnsavedChanges, state, t])
 
   const handleDeactivate = useCallback(async () => {
     try {
       const nextState = await deactivateSelectedPrompt(state)
       setState(nextState)
+      setLastValidatedContent(null)
       toast.success(t('prompts.deactivated', 'Prompt deactivated'))
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
@@ -503,6 +544,7 @@ export default function Prompts() {
       return
     }
     setState((previous) => applyAssistDraft(previous, assistDraft))
+    setLastValidatedContent(assistDraft.content)
     setAssistOpen(false)
   }, [assistDraft, hasUnsavedChanges, t])
 
@@ -822,12 +864,12 @@ export default function Prompts() {
 
           <div className="mt-3 flex shrink-0 items-center justify-between gap-3">
             <div className="min-w-0 text-sm">
-              {state.validation.valid ? (
+              {validationDisplay === 'valid' ? (
                 <span className="inline-flex items-center gap-1 text-emerald-600">
                   <CheckCircle2Icon className="size-4" aria-hidden="true" />
                   {t('prompts.validation.valid', 'Prompt is valid')}
                 </span>
-              ) : state.validation.errors.length > 0 ? (
+              ) : validationDisplay === 'invalid' && state.validation.errors.length > 0 ? (
                 <button
                   type="button"
                   className="inline-flex min-w-0 items-center gap-1 text-destructive cursor-pointer"
@@ -839,6 +881,11 @@ export default function Prompts() {
                     ({state.validation.errors.length})
                   </span>
                 </button>
+              ) : validationDisplay === 'stale' ? (
+                <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                  <AlertCircleIcon className="size-4" aria-hidden="true" />
+                  {t('prompts.validation.stale', 'Edited since last validation')}
+                </span>
               ) : selectedFile ? (
                 <span className="text-muted-foreground">
                   {formatPromptFileTitle(selectedFile)} · {formatPromptFileMeta(selectedFile)}
