@@ -431,3 +431,16 @@ describe('Prompts assist draft', () => {
     expect(api.assistEntityTypePrompt).toHaveBeenCalledWith({ requirements: 'r' })
   })
 })
+
+describe('Prompt activation semantics', () => {
+  test('promptActionForSelection keys off the selected file, not global active state', async () => {
+    const page = await import('./Prompts')
+
+    // Nothing selected → offer activate (disabled by the button itself).
+    expect(page.promptActionForSelection(null)).toBe('activate')
+    // Selected file is inactive → activate it (even if another file is active).
+    expect(page.promptActionForSelection(workspaceFile({ active: false }))).toBe('activate')
+    // Selected file is the active one → offer deactivate.
+    expect(page.promptActionForSelection(workspaceFile({ active: true }))).toBe('deactivate')
+  })
+})

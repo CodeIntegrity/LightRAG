@@ -222,6 +222,10 @@ export const formatPromptFileMeta = (file: EntityTypePromptFile): string => {
   return `${version} · ${file.source}${updatedAt}`
 }
 
+export const promptActionForSelection = (
+  selectedFile: EntityTypePromptFile | null
+): 'activate' | 'deactivate' => (selectedFile?.active ? 'deactivate' : 'activate')
+
 export type AssistDraftResponse = EntityTypePromptAssistResponse
 
 /**
@@ -851,7 +855,7 @@ export default function Prompts() {
                 <CheckCircle2Icon aria-hidden="true" />
                 <span>{t('prompts.validate', 'Validate')}</span>
               </Button>
-              {state.list.active_file ? (
+              {promptActionForSelection(selectedFile) === 'deactivate' ? (
                 <Button
                   type="button"
                   variant="outline"
