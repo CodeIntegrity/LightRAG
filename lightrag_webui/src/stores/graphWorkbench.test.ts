@@ -95,6 +95,27 @@ describe('graphWorkbench store', () => {
     expect(useGraphWorkbenchStore.getState().filterDraft.scope.max_nodes).toBe(300)
   })
 
+  test('值未变化时 syncDefaultMaxNodes 保持引用稳定（避免健康检查每 15 秒触发整图重载）', () => {
+    const store = useGraphWorkbenchStore.getState()
+
+    // 模拟用户在过滤工作台点过“应用”，appliedQuery 变为非 null
+    store.applyFilterDraft()
+
+    const before = useGraphWorkbenchStore.getState()
+    const appliedBefore = before.appliedQuery
+    const draftBefore = before.filterDraft
+    const stableMaxNodes = appliedBefore?.scope.max_nodes ?? 1000
+
+    // 健康检查稳定态：后端限制未变，maxNodes === previousMaxNodes
+    store.syncDefaultMaxNodes(stableMaxNodes, stableMaxNodes)
+
+    const after = useGraphWorkbenchStore.getState()
+    // 值相同的同步必须是 no-op：引用保持不变。否则 useLightragGraph 订阅的
+    // appliedQuery 会被 Object.is 判定为“变化”，导致每次健康检查都重载整图
+    expect(after.appliedQuery).toBe(appliedBefore)
+    expect(after.filterDraft).toBe(draftBefore)
+  })
+
   test('维护 mutationError 与 conflictError 状态', () => {
     const store = useGraphWorkbenchStore.getState()
 

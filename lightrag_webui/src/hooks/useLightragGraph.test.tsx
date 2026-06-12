@@ -17,6 +17,27 @@ describe('useLightragGraph request lifecycle', () => {
     expect(requestState.isCurrent(first.requestId)).toBe(false)
     expect(requestState.isCurrent(second.requestId)).toBe(true)
   })
+
+  test('完成或中止的请求不再保持 active 状态', () => {
+    const requestState = createGraphRequestState()
+    const first = requestState.start()
+
+    expect(requestState.isActive(first.requestId)).toBe(true)
+    expect(requestState.hasActive()).toBe(true)
+
+    requestState.finish(first.requestId)
+
+    expect(requestState.isCurrent(first.requestId)).toBe(true)
+    expect(requestState.isActive(first.requestId)).toBe(false)
+    expect(requestState.hasActive()).toBe(false)
+
+    const second = requestState.start()
+    requestState.abortCurrent()
+
+    expect(second.signal.aborted).toBe(true)
+    expect(requestState.isActive(second.requestId)).toBe(false)
+    expect(requestState.hasActive()).toBe(false)
+  })
 })
 
 describe('graph expand worker path', () => {

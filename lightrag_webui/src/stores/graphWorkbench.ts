@@ -297,6 +297,12 @@ const useGraphWorkbenchStoreBase = create<GraphWorkbenchState>()((set, get) => (
   requestRefresh: () => set((state) => ({ queryVersion: state.queryVersion + 1 })),
   syncDefaultMaxNodes: (maxNodes, previousMaxNodes) =>
     set((state) => {
+      // 值未变化时直接 no-op：避免重建对象引用。否则订阅 appliedQuery 的 useLightragGraph
+      // 会把“同值新引用”误判为依赖变化，导致健康检查每 15 秒重载整图
+      if (maxNodes === previousMaxNodes) {
+        return {}
+      }
+
       const shouldUpdateDraft = state.filterDraft.scope.max_nodes === previousMaxNodes
       const shouldUpdateApplied = state.appliedQuery?.scope.max_nodes === previousMaxNodes
 

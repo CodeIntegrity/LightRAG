@@ -20,6 +20,21 @@ export const createGraphRequestState = () => {
     isCurrent(targetRequestId: number): boolean {
       return targetRequestId === requestId
     },
+    isActive(targetRequestId: number): boolean {
+      return (
+        targetRequestId === requestId &&
+        controller !== null &&
+        !controller.signal.aborted
+      )
+    },
+    hasActive(): boolean {
+      return controller !== null && !controller.signal.aborted
+    },
+    finish(targetRequestId: number): void {
+      if (targetRequestId === requestId) {
+        controller = null
+      }
+    },
     abortCurrent(): void {
       controller?.abort()
       controller = null

@@ -338,6 +338,7 @@ const useLightrangeGraph = () => {
   // Use ref to track if empty data has been handled
   const emptyDataHandledRef = useRef(false)
   const requestStateRef = useRef(createGraphRequestState())
+  const tRef = useRef(t)
 
   const getNode = useCallback(
     (nodeId: string) => {
@@ -361,8 +362,17 @@ const useLightrangeGraph = () => {
   }, [appliedWorkbenchQuery, workbenchQueryVersion, queryLabel, maxQueryDepth, maxNodes])
 
   useEffect(() => {
+    tRef.current = t
+  }, [t])
+
+  useEffect(() => {
     const requestState = requestStateRef.current
     return () => {
+      if (requestState.hasActive()) {
+        const state = useGraphStore.getState()
+        state.setGraphDataFetchAttempted(false)
+        state.setIsFetching(false)
+      }
       requestState.reset()
     }
   }, [])
@@ -435,7 +445,7 @@ const useLightrangeGraph = () => {
         }
 
         if (result?.is_truncated) {
-          toast.info(t('graphPanel.dataIsTruncated', 'Graph data is truncated to Max Nodes'))
+          toast.info(tRef.current('graphPanel.dataIsTruncated', 'Graph data is truncated to Max Nodes'))
         }
 
         if (!data || !data.nodes || data.nodes.length === 0) {
@@ -496,6 +506,8 @@ const useLightrangeGraph = () => {
         nextState.setRequestError(message)
         nextState.setLastSuccessfulQueryLabel('')
         dataLoadedRef.current = false
+      } finally {
+        requestStateRef.current.finish(requestId)
       }
     }
 
@@ -503,8 +515,11 @@ const useLightrangeGraph = () => {
 
     const requestState = requestStateRef.current
     return () => {
-      if (requestState.isCurrent(requestId)) {
+      if (requestState.isActive(requestId)) {
         requestState.abortCurrent()
+        const state = useGraphStore.getState()
+        state.setGraphDataFetchAttempted(false)
+        state.setIsFetching(false)
       }
     }
   }, [
@@ -513,7 +528,6 @@ const useLightrangeGraph = () => {
     workbenchQueryVersion,
     maxQueryDepth,
     maxNodes,
-    t,
     graphDataVersion
   ])
 
