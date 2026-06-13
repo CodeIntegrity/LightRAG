@@ -1183,6 +1183,9 @@ export const assistEntityTypePrompt = async (
   if (request.current_content !== undefined) {
     payload.current_content = request.current_content
   }
+  if (request.sample_text !== undefined) {
+    payload.sample_text = request.sample_text
+  }
   if (request.language !== undefined) {
     payload.language = request.language
   }

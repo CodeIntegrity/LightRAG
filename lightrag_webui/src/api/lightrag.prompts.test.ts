@@ -153,6 +153,7 @@ describe('entity type prompt api client', () => {
     const result = await apiModule.assistEntityTypePrompt({
       requirements: 'Generate medical entity types',
       current_content: 'entity_types_guidance: previous\n',
+      sample_text: 'patient record snippet',
       language: 'zh'
     })
 
@@ -164,6 +165,7 @@ describe('entity type prompt api client', () => {
         data: {
           requirements: 'Generate medical entity types',
           current_content: 'entity_types_guidance: previous\n',
+          sample_text: 'patient record snippet',
           language: 'zh'
         }
       }
