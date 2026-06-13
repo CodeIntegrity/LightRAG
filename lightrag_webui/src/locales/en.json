@@ -964,13 +964,18 @@
     "deactivated": "Prompt deactivated",
     "validation": {
       "valid": "Prompt is valid",
-      "failed": "Validation failed"
+      "failed": "Validation failed",
+      "stale": "Edited since last validation"
     },
     "assist": {
       "button": "Assist",
       "panelTitle": "Assist with LLM",
       "requirementsLabel": "Your requirements",
       "requirementsPlaceholder": "e.g., extract diseases, medications, symptoms and treatments from medical records",
+      "languageLabel": "Generation language",
+      "languageAuto": "Auto (match requirements)",
+      "sampleTextLabel": "Sample text (optional)",
+      "sampleTextPlaceholder": "Paste a representative passage from your corpus; generated examples will be grounded in it",
       "generate": "Generate draft",
       "generating": "Generating...",
       "apply": "Apply draft",
