@@ -378,6 +378,8 @@ export type LightragStatus = {
   core_version?: string
   api_version?: string
   auth_mode?: 'enabled' | 'disabled'
+  server_mode?: 'uvicorn' | 'gunicorn'
+  workers?: number
   pipeline_busy: boolean
   pipeline_active?: boolean
   llm_queue_status?: Record<string, LightragQueueStatus>

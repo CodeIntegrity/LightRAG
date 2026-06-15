@@ -167,6 +167,7 @@ lightrag-hash-password = "lightrag.tools.hash_password:main"
 lightrag-migrate-workspaces = "lightrag.tools.migrate_workspaces:main"
 lightrag-download-cache = "lightrag.tools.download_cache:main"
 lightrag-clean-llmqc = "lightrag.tools.clean_llm_query_cache:main"
+lightrag-rebuild-vdb = "lightrag.tools.rebuild_vdb:main"
 
 [project.urls]
 Homepage = "https://github.com/HKUDS/LightRAG"

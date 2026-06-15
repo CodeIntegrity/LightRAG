@@ -118,7 +118,7 @@ notes.[-R].md
 
 解析 hint 时，无横线内容必须整体匹配引擎名（`mineru` / `native` / `docling` / `legacy`）；带横线且横线前有内容时，横线前是引擎、横线后是选项；以横线开头时表示仅指定选项。旧式 `[OPTIONS]` 写法不再合法，例如 `[iet]` 应改为 `[-iet]`。
 
-### 2.4 内容抽取引擎
+### 2.4 文件解析引擎
 
 | 引擎 | 说明 | 支持的文件格式（后缀） |
 | --- | --- | --- |
@@ -131,39 +131,11 @@ notes.[-R].md
 
 LightRAG 在本地会缓存 `mineru` 和 `docling` 引擎的解析结果。重复上传相同的文件通常不会重新调用引擎解析文档。如果需要删除解析缓存，必须在文档管理界面删除文件弹窗中点击“同时删除文件”选项。修改 `mineru` 和 `docling` 引擎的端点地址和有效提取参数也会导致缓存失效，下次上传相同文件的时候会重新调用引擎解析文件内容。
 
-#### MinerU 配置方法与本地部署
+#### 使用 MinerU 文件解析引擎
 
 MinerU 客户端支持两种模式，二选一：
 
-- `local`：自建 MinerU 服务（推荐用官方 Docker Compose 部署），LightRAG 通过 HTTP 调用本地容器。
-- `official`：直连 MinerU 官方精准 API v4，需要在 [mineru.net](https://mineru.net) 申请 token。
-
-**使用 Docker Compose 本地部署**
-
-从 Github官方仓库   [opendatalab/MinerU](https://github.com/opendatalab/MinerU) 把 Dockerfile 和 compose.yaml 拷贝到本地。这两个文件应该在仓库的 docker 目录可以找到。然后通过以下命令构建 docker 镜像:
-
-```bash
-docker build --tag mineru:latest .
-```
-
-镜像构建好之后通过以下命令启动 API 服务（带 `--profile api` 才会启用 HTTP API 容器，默认监听 8000 端口）：
-
-```bash
-docker compose -f compose.yaml --profile api up -d
-```
-
-镜像构建细节、GPU 驱动准备、模型权重位置等请参考官方 README：<https://github.com/opendatalab/MinerU>。
-
-**LightRAG 侧 env 配置**
-
-Local 模式（自建 mineru-api）：
-
-```bash
-MINERU_API_MODE=local
-MINERU_LOCAL_ENDPOINT=http://localhost:8000
-```
-
-Official 模式（MinerU 云端 API）：
+- `official`模式：使用MinerU云端的 API v4 服务。需要先到 [MinerU官网](https://mineru.net/) 注册账号并创建API-KEY。然后在LightRAG的 `.env` 文件中添加以下配置：
 
 ```bash
 MINERU_API_MODE=official
@@ -171,7 +143,114 @@ MINERU_API_TOKEN=<your_token>
 # MINERU_OFFICIAL_ENDPOINT=https://mineru.net   # 默认值，通常无需修改
 ```
 
-其余高级开关（`MINERU_MODEL_VERSION`、`MINERU_LANGUAGE`、`MINERU_ENABLE_TABLE` / `MINERU_ENABLE_FORMULA`、`MINERU_PAGE_RANGES`、`MINERU_LOCAL_BACKEND` / `MINERU_LOCAL_PARSE_METHOD`、`MINERU_POLL_INTERVAL_SECONDS` / `MINERU_MAX_POLLS`、`MINERU_ENGINE_VERSION`、`LIGHTRAG_FORCE_REPARSE_MINERU` 等）请参考仓库根目录 `env.example` 模板的 MinerU 小节。需要特别注意 `MINERU_PAGE_RANGES` 在两种模式下语义不同：`official` 支持完整列表（如 `1-3,5,7-9`），`local` 仅支持单页（`3`）或简单范围（`1-10`），不接受逗号列表。
+* `local`模式：使用本地部署的MInerU服务。部署方式见后面的说明。本地MinerU服务启动后在LightRAG的 `.env` 文件中添加以下配置：
+
+```bash
+MINERU_API_MODE=local
+MINERU_LOCAL_ENDPOINT=http://<your_mineru_local_server_ip>:8000
+```
+
+其余MinerU的详细配置请参考仓库根目录环境变量示例文件 [env.example](https://github.com/HKUDS/LightRAG/blob/main/env.example) 中的 MinerU 小节。针对 `official` 和 `local` 两种模式，分别有不同的环境变量配置。需要仔细阅读示例文件中的说明。
+
+#### **本地部署 MinerU 服务**
+
+从 Github官方仓库   [opendatalab/MinerU](https://github.com/opendatalab/MinerU) 把 Dockerfile 和 compose.yaml 拷贝到本地。这两个文件应该在仓库的 docker 目录可以找到。针对中国供应商的特殊显卡需要选择相应的 Dockerfile 。
+
+准备好上诉两个文件后通过以下命令构建 docker 镜像:
+
+```bash
+docker build --tag mineru:latest .
+```
+
+镜像构建好之后通过以下命令启动 API 服务（参数 `--profile api` 标识仅启动MinerU的 API 服务，服务默认监听 8000 端口）：
+
+```bash
+docker compose -f compose.yaml --profile api up -d
+```
+
+镜像构建细节、GPU 驱动准备、模型权重位置等请参考官方 README：<https://github.com/opendatalab/MinerU>。
+
+**进阶配置：开启 vLLM 预加载与标题层级修正（可选）**
+
+在基础部署之上，建议为本地 MinerU 额外开启两项 MinerU **服务端**功能。这两项都改的是 MinerU 容器侧配置（容器内 `mineru.json` 与官方 `compose.yaml`），不涉及 LightRAG 的 env 变量；其中标题层级修正还需要一个可用的 LLM API。
+
+- **vLLM 启动预加载**：让容器启动时就把 VLM 模型加载进显存，避免首个解析请求承担模型加载延迟。
+- **标题层级修正（`title_aided`）**：MinerU 借助一个外部 LLM 修正解析输出的标题层级，提升结构化产物质量。这对依赖标题结构的 [P（段落语义）分块策略](#25-文件处理选项)尤其有帮助；`P分块策略` 优先按标题分割，标题层级越准确，分块语义越好。
+
+**步骤1：导出并修改 `mineru-lightrag.json`**
+
+从官方镜像中把 `/root/mineru.json` 拷到宿主机当前目录的 `mineru-lightrag.json`（用固定容器名 `temp_mineru`，无需运行容器）：
+
+```bash
+docker create --name temp_mineru mineru:latest
+docker cp temp_mineru:/root/mineru.json ./mineru-lightrag.json
+docker rm temp_mineru
+```
+
+然后修改 `mineru-lightrag.json` 中的 `llm-aided-config.title_aided`：填入 `api_key`，并把 `enable` 改为 `true`：
+
+```json
+"llm-aided-config": {
+    "title_aided": {
+        "api_key": "your_api_key",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "model": "qwen3.5-plus",
+        "enable_thinking": false,
+        "enable": true
+    }
+}
+```
+
+> `api_key` / `base_url` / `model` 需替换为用户自己可用的 LLM 服务（示例使用阿里云 DashScope 的 OpenAI 兼容接口）。
+
+**步骤2：修改官方 `compose.yaml` 的 `api` profile 服务（`mineru-api`）**
+
+在 `mineru-api` 服务上做三处改动：`environment` 增加 `MINERU_TOOLS_CONFIG_JSON`（让 MinerU 读改过的配置而非镜像内置 `mineru.json`），`volumes` 把宿主机 `mineru-lightrag.json` 挂进容器，`command` 追加 `--enable-vlm-preload true` 开启 vLLM 预加载。改好后的完整 `mineru-api` profile 如下（以 `# <-- 新增` 标注三处增量）：
+
+```yaml
+  mineru-api:
+    image: mineru:latest
+    container_name: mineru-api
+    restart: always
+    profiles: ["api"]
+    ports:
+      - 8000:8000
+    environment:
+      MINERU_MODEL_SOURCE: local
+      MINERU_TOOLS_CONFIG_JSON: /root/mineru-lightrag.json   # <-- Added
+    volumes:
+      - ./mineru-lightrag.json:/root/mineru-lightrag.json    # <-- Added
+    entrypoint: mineru-api
+    command:
+      --host 0.0.0.0
+      --port 8000
+      --allow-public-http-client
+      --gpu-memory-utilization 0.45                          # Reserved 10GB is fine, preventing OOM errors
+      --enable-vlm-preload true                              # <-- Added
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+```
+
+> 示范中请按实际显卡情况调整 `gpu-memory-utilization` ；`environment` / `volumes` / `command` 三处为本次新增项，其余保持官方原样。
+
+**步骤3：重启生效**
+
+改完后重新启动 API 服务让改动生效：
+
+```bash
+docker compose -f compose.yaml --profile api up -d
+```
 
 #### Docling 配置方法
 
@@ -459,7 +538,7 @@ selector → 子字典映射：F → `fixed_token`，R → `recursive_character`
 | `canonical_basename` | 去掉处理提示 hint 后的规范化 basename（例如 `abc.docx`）。文件名查重以此字段为索引 key，保证 `abc.docx` 与 `abc.[native-iet].docx` 视为同一逻辑文档。 |
 | `source_path` | 入队时提供的原始路径（仅当含目录分隔符或绝对路径时才写入），供 `native` / `mineru` / `docling` 解析器定位真实文件位置。 |
 | `parse_format` | 内容格式：`pending_parse`, `raw`, `lightrag`。 |
-| `content` | `raw` 时保存抽取文本；`pending_parse` 时为空字符串；`lightrag` 时存储以 `{{LRdoc}}` 开头的**完整合并文本**（拼接 `.blocks.jsonl` 中所有 `type=="content"` 行的 body 段），分块阶段 `parse_native` 会剥离前缀后再交给 chunking_func，与 `raw` 走完全相同的代码路径。 |
+| `content` | `raw` 时保存抽取文本；`pending_parse` 时为空字符串；`lightrag` 时存储以 `{{LRdoc}}` 开头的**完整合并文本**（拼接 `.blocks.jsonl` 中所有 `type=="content"` 行的 body 段），解析阶段的 reuse handler（`ReuseParser`）会剥离前缀后再交给 chunking_func，与 `raw` 走完全相同的代码路径。 |
 | `content_hash` | 内容 MD5，用于跨文件名查重。`parse_format=raw` 取 `sanitize_text_for_encoding` 后文本的 hash；`parse_format=lightrag` 取 `*.blocks.jsonl` 文件 hash；`parse_format=pending_parse` 不写入，待抽取完成后补上。 |
 | `lightrag_document_path` | `parse_format=lightrag` 时保存结构化 LightRAG Document 的路径；新记录优先保存为相对 `INPUT_DIR` 的路径，例如 `__parsed__/report.docx.parsed/report.blocks.jsonl`。注意路径中的子目录与 blocks 文件名都使用规范化 basename（不含 hint）。 |
 | `parse_engine` | 实际完成抽取的引擎：`legacy`, `native`, `mineru`, `docling`。对于待抽取文件，也可暂存目标引擎。 |
@@ -711,12 +790,13 @@ upload 通过 reservation 后、保存文件前必须双道检查：
 `pipeline_status` 相关的锁解决的是"谁能写"的正确性问题，本节这一组参数解决的是"同时跑几个 worker"的吞吐量问题。流水线分为 3 个阶段，每个阶段的 worker 池数量独立可调：
 
 ```
-          ┌─ q_native  ──► [native parser  × N1] ─┐
-PENDING ─►├─ q_mineru  ──► [mineru parser  × N2] ─┼─► q_analyze ─►[analyzer × N4] ─► q_process ─►[processor × N5]
-          └─ q_docling ──► [docling parser × N3] ─┘
+          ┌─ parse_queues["native"]  ─► [native 池  × N1] ─┐   ← legacy 共享此池
+PENDING ─►├─ parse_queues["mineru"]  ─► [mineru 池  × N2] ─┼─► q_analyze ─►[analyzer × N4] ─► q_process ─►[processor × N5]
+          ├─ parse_queues["docling"] ─► [docling 池 × N3] ─┤
+          └─ parse_queues[<第三方组>] ─► [自定义并发池]  ──┘   ← 按 ParserSpec.queue_group 动态创建
 ```
 
-入队时 `resolve_stored_document_parser_engine` 根据每个文档的 `parser_engine`（来自 `LIGHTRAG_PARSER` 默认值或文件 hint）把它放入对应解析队列；3 个解析队列**完全互不阻塞**——mineru 占满不会拖慢 docling 或 native。解析完成后统一进入 `q_analyze`（多模态分析），再进入 `q_process`（实体/关系抽取 + 入库）。
+解析队列**按注册表的 `ParserSpec.queue_group` 动态创建**（每批取一次注册表快照）：内置 native/mineru/docling 各占一组，legacy 共享 native 池（本地、无网络），第三方引擎可声明独立组与自定义并发数（见 `docs/ThirdPartyParser-zh.md`）。入队时 `resolve_stored_document_parser_engine` 根据每个文档的 `parser_engine`（来自 `LIGHTRAG_PARSER` 默认值或文件 hint）把它放入对应解析队列；各解析队列**完全互不阻塞**——mineru 占满不会拖慢 docling 或 native。解析完成后统一进入 `q_analyze`（多模态分析），再进入 `q_process`（实体/关系抽取 + 入库）。
 
 | 环境变量 | 默认值 | 作用 | 调优建议 |
 | --- | --- | --- | --- |
@@ -762,7 +842,7 @@ PENDING ─►├─ q_mineru  ──► [mineru parser  × N2] ─┼─► q_a
 
 ### 7.2 分支 A：未抽取
 
-走完整流水线（`parse_native` / `parse_mineru` / `parse_docling` → `analyze_multimodal` → 分块 → 实体抽取），按 `full_docs.process_options` 决定每一阶段的行为。这是"首次入队"的常规流。
+走完整流水线（注册表派发解析 `get_parser(engine).parse(...)` → `analyze_multimodal` → 分块 → 实体抽取），按 `full_docs.process_options` 决定每一阶段的行为。这是"首次入队"的常规流。
 
 ### 7.3 分支 B：已抽取
 

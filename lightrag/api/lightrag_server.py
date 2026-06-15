@@ -61,7 +61,11 @@ from lightrag.api.routers.workspace_routes import (
     create_workspace_routes,
     workspace_create_allowed,
 )
-from lightrag.parser.routing import parser_rules_from_env
+from lightrag.parser.plugins import load_third_party_parsers
+from lightrag.parser.routing import (
+    parser_rules_from_env,
+    validate_parser_routing_config,
+)
 from lightrag.parser.external.mineru.cache import MinerUParserOptions
 from lightrag.api.routers.query_routes import create_query_routes
 from lightrag.api.routers.graph_routes import create_graph_routes
@@ -855,6 +859,10 @@ def create_app(args):
     # Setup logging
     logger.setLevel(args.log_level)
     set_verbose_debug(args.verbose)
+    # Discover third-party parser engines (``lightrag.parsers`` entry points)
+    # BEFORE validating routing rules, so LIGHTRAG_PARSER may reference them.
+    load_third_party_parsers()
+    validate_parser_routing_config()
 
     # Create configuration cache (this will output configuration logs)
     config_cache = LLMConfigCache(args)
@@ -2781,6 +2789,10 @@ def create_app(args):
                     "guest_login": _guest_login_capability(),
                     "guest_visible_tabs": _guest_visible_tabs(),
                 },
+                "server_mode": "gunicorn"
+                if os.environ.get("LIGHTRAG_GUNICORN_MODE")
+                else "uvicorn",
+                "workers": getattr(args, "workers", 1),
                 "pipeline_busy": pipeline_busy,
                 "pipeline_active": pipeline_active,
                 "pipeline_scanning": pipeline_scanning,
