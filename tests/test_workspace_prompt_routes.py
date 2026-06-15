@@ -25,7 +25,45 @@ entity{{tuple_delimiter}}{label}{{tuple_delimiter}}ExampleType{{tuple_delimiter}
 {{completion_delimiter}}"""
 
 
+def _json_profile_example(label: str = "Example") -> str:
+    return f"""---Entity Types---
+- ExampleType: Test type
+
+---Input Text---
+```
+{label}
+```
+
+---Output---
+{{
+  "entities": [
+    {{"name": "{label}", "type": "ExampleType", "description": "{label} description."}}
+  ],
+  "relationships": []
+}}"""
+
+
 def _profile_content(*, label: str = "Example") -> str:
+    """A full profile valid in BOTH extraction modes (text + JSON examples).
+
+    The assist endpoint now always generates every part, so its success-path
+    fixtures must satisfy the combined text-and-JSON validation.
+    """
+    return (
+        "entity_types_guidance: |\n"
+        "  - ExampleType: Test type\n"
+        "entity_extraction_examples:\n"
+        "  - |\n"
+        + "\n".join(f"    {line}" for line in _text_profile_example(label).splitlines())
+        + "\n"
+        "entity_extraction_json_examples:\n"
+        "  - |\n"
+        + "\n".join(f"    {line}" for line in _json_profile_example(label).splitlines())
+        + "\n"
+    )
+
+
+def _text_only_profile_content(*, label: str = "Example") -> str:
     return (
         "entity_types_guidance: |\n"
         "  - ExampleType: Test type\n"
@@ -641,18 +679,25 @@ def test_validate_endpoint_json_mode_ignores_text_example_braces(monkeypatch):
     assert response.json()["valid"] is True
 
 
-def test_assist_system_prompt_text_mode_contract(monkeypatch):
+def test_assist_system_prompt_requires_all_parts_both_modes(monkeypatch):
     monkeypatch.setattr(sys, "argv", [sys.argv[0]])
 
     import lightrag.prompt as prompt_module
     from lightrag.api.routers.prompt_routes import _build_prompt_assist_system_prompt
 
     default_profile = prompt_module.get_default_entity_extraction_prompt_profile()
-    sp = _build_prompt_assist_system_prompt(False, default_profile)
+    # Signature no longer takes use_json: every part is generated regardless.
+    sp = _build_prompt_assist_system_prompt(default_profile)
 
-    # Active-mode key is REQUIRED (no "either/or" choice left to the LLM).
-    assert "never omit `entity_extraction_examples`" in sp
-    # Concrete row syntax with placeholder delimiters (sample-file convention).
+    # All three keys are mandatory — no "either/or" mode choice left to the LLM.
+    assert "ALL THREE are mandatory" in sp
+    assert "entity_types_guidance" in sp
+    assert "entity_extraction_examples" in sp
+    assert "entity_extraction_json_examples" in sp
+    # Both example lists must cover the same sample passages.
+    assert "SAME sample passages" in sp
+
+    # TEXT contract: concrete row syntax with placeholder delimiters.
     assert (
         "entity{tuple_delimiter}NAME{tuple_delimiter}TYPE{tuple_delimiter}DESCRIPTION"
         in sp
@@ -662,34 +707,25 @@ def test_assist_system_prompt_text_mode_contract(monkeypatch):
         "{tuple_delimiter}KEYWORDS{tuple_delimiter}DESCRIPTION" in sp
     )
     assert "{completion_delimiter}" in sp
-    # Only the two delimiter placeholders are allowed; no other braces.
     assert "ONLY curly-brace tokens allowed" in sp
-    # Reference example embedded, placeholders kept intact (not substituted).
-    assert "<reference_example>" in sp
-    ref = sp.split("<reference_example>", 1)[1].split("</reference_example>", 1)[0]
-    assert "{tuple_delimiter}" in ref
-    assert "<|#|>" not in ref
-    # Default guidance baseline kept verbatim.
-    assert default_profile["entity_types_guidance"].rstrip() in sp
 
-
-def test_assist_system_prompt_json_mode_contract(monkeypatch):
-    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
-
-    import lightrag.prompt as prompt_module
-    from lightrag.api.routers.prompt_routes import _build_prompt_assist_system_prompt
-
-    default_profile = prompt_module.get_default_entity_extraction_prompt_profile()
-    sp = _build_prompt_assist_system_prompt(True, default_profile)
-
-    assert "never omit `entity_extraction_json_examples`" in sp
+    # JSON contract.
     assert "`entities` and `relationships`" in sp
-    assert "<reference_example>" in sp
-    # JSON reference example is the default one, verbatim.
-    ref = sp.split("<reference_example>", 1)[1].split("</reference_example>", 1)[0]
-    assert default_profile["entity_extraction_json_examples"][0].rstrip() == ref.strip()
     # Root-cause guard: drafts must use real line breaks, not '\n' escapes.
     assert "literal block scalar" in sp
+
+    # Text reference example embedded, placeholders kept intact (not substituted).
+    text_ref = sp.split("<reference_example>", 1)[1].split("</reference_example>", 1)[0]
+    assert "{tuple_delimiter}" in text_ref
+    assert "<|#|>" not in text_ref
+    # JSON reference example is the default one, verbatim.
+    json_ref = sp.split("<json_reference_example>", 1)[1].split(
+        "</json_reference_example>", 1
+    )[0]
+    assert default_profile["entity_extraction_json_examples"][0].rstrip() == json_ref.strip()
+
+    # Default guidance baseline kept verbatim.
+    assert default_profile["entity_types_guidance"].rstrip() in sp
 
 
 def test_normalize_profile_yaml_rewrites_quoted_scalars_as_blocks(monkeypatch):
@@ -781,6 +817,28 @@ def test_assist_rejects_overlong_sample_text(monkeypatch):
     assert response.status_code == 422
 
 
+def test_assist_accepts_deprecated_use_json_but_still_requires_both_modes(monkeypatch):
+    """`use_json` is accepted for old clients but no longer controls output shape."""
+    repaired = _profile_content(label="Compat Repaired")
+    llm = _make_sequence_llm(
+        [_text_only_profile_content(label="Text Only"), repaired]
+    )
+    rag = _AssistDummyRAG(role_query_func=llm)
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist",
+        json={"requirements": "any", "use_json": False},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["validation"]["valid"] is True
+    _assert_same_profile(body["content"], repaired)
+    assert len(llm.calls) == 2
+    assert "entity_extraction_json_examples" in llm.calls[1]["prompt"]
+
+
 def _make_sequence_llm(responses):
     """Recording LLM returning queued responses; raises queued exceptions."""
     remaining = list(responses)
@@ -864,3 +922,108 @@ def test_assist_valid_first_draft_skips_repair_and_has_no_warnings(monkeypatch):
     assert response.status_code == 200
     assert len(llm.calls) == 1
     assert response.json()["warnings"] == []
+
+
+def _profile_with_json_output(json_output: str, *, label: str = "Example") -> str:
+    """Full profile with a valid text example and a JSON example whose
+    ---Output--- body is ``json_output`` verbatim (for exercising deep checks)."""
+    json_example = (
+        "---Entity Types---\n"
+        "- ExampleType: Test type\n\n"
+        "---Input Text---\n"
+        "```\n"
+        f"{label}\n"
+        "```\n\n"
+        "---Output---\n"
+        f"{json_output}"
+    )
+    return (
+        "entity_types_guidance: |\n"
+        "  - ExampleType: Test type\n"
+        "entity_extraction_examples:\n"
+        "  - |\n"
+        + "\n".join(f"    {line}" for line in _text_profile_example(label).splitlines())
+        + "\n"
+        "entity_extraction_json_examples:\n"
+        "  - |\n"
+        + "\n".join(f"    {line}" for line in json_example.splitlines())
+        + "\n"
+    )
+
+
+def test_validate_all_modes_rejects_malformed_json_example_body(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+    from lightrag.api.routers.prompt_routes import _validate_content_all_modes
+
+    content = _profile_with_json_output("{not valid json,,}")
+    _profile, validation = _validate_content_all_modes(content, source_label="draft")
+
+    assert validation.valid is False
+    assert any("is not valid JSON" in e for e in validation.errors)
+
+
+def test_validate_all_modes_rejects_json_example_missing_keys(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+    from lightrag.api.routers.prompt_routes import _validate_content_all_modes
+
+    # Entity is missing the required "description" key.
+    body = '{"entities": [{"name": "A", "type": "ExampleType"}], "relationships": []}'
+    _profile, validation = _validate_content_all_modes(
+        _profile_with_json_output(body), source_label="draft"
+    )
+
+    assert validation.valid is False
+    assert any("entity missing required keys" in e for e in validation.errors)
+
+
+def test_validate_all_modes_rejects_json_example_without_arrays(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+    from lightrag.api.routers.prompt_routes import _validate_content_all_modes
+
+    body = '{"foo": "bar"}'
+    _profile, validation = _validate_content_all_modes(
+        _profile_with_json_output(body), source_label="draft"
+    )
+
+    assert validation.valid is False
+    assert any("'entities' and 'relationships' arrays" in e for e in validation.errors)
+
+
+def test_validate_all_modes_accepts_fenced_json_example_output(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+    from lightrag.api.routers.prompt_routes import _validate_content_all_modes
+
+    # Model may wrap the ---Output--- JSON in a ```json fence; deep check strips it.
+    fenced = (
+        "```json\n"
+        '{"entities": [{"name": "A", "type": "ExampleType", "description": "d"}], '
+        '"relationships": []}\n'
+        "```"
+    )
+    _profile, validation = _validate_content_all_modes(
+        _profile_with_json_output(fenced), source_label="draft"
+    )
+
+    assert validation.valid is True, validation.errors
+
+
+def test_assist_endpoint_repairs_malformed_json_example_body(monkeypatch):
+    """A draft that passes core validation but has an unparseable JSON example
+    output must still fail and trigger the one-shot repair."""
+    bad = _profile_with_json_output("{broken json")
+    good = _profile_content(label="Repaired")
+    llm = _make_sequence_llm([bad, good])
+    rag = _AssistDummyRAG(role_query_func=llm)
+    client = _build_prompt_client(monkeypatch, rag)
+
+    response = client.post(
+        "/prompts/entity-type/assist", json={"requirements": "any"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["validation"]["valid"] is True
+    assert len(llm.calls) == 2
+    # The repair prompt was fed the JSON-body error.
+    assert "valid JSON" in llm.calls[1]["prompt"]
+    assert body["warnings"]

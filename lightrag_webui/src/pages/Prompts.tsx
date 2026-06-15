@@ -271,7 +271,7 @@ export type AssistDraftResponse = EntityTypePromptAssistResponse
 /**
  * Pure helper that wraps the API client and strips empty optional fields.
  * Keeping the request shape minimal lets the backend apply its own defaults
- * (language="auto", use_json from runtime config).
+ * (language="auto"). Assist always drafts both text and JSON examples.
  */
 export const generateAssistDraft = async (params: {
   requirements: string

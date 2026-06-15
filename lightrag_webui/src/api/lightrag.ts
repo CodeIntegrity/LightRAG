@@ -1190,9 +1190,8 @@ export const assistEntityTypePrompt = async (
   request: EntityTypePromptAssistRequest
 ): Promise<EntityTypePromptAssistResponse> => {
   // Strip undefined fields so the backend applies its own defaults
-  // (language="auto", use_json from runtime config). The client never sends
-  // use_json — keeping that decision server-side avoids leaking runtime
-  // configuration into the UI surface.
+  // (language="auto"). The client never sends use_json: assist always drafts
+  // both text and JSON examples, and runtime extraction mode chooses later.
   const payload: Record<string, unknown> = { requirements: request.requirements }
   if (request.current_content !== undefined) {
     payload.current_content = request.current_content

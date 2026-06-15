@@ -830,7 +830,7 @@ MAX_EXTRACTION_ENTITIES=40
 * `POST /prompts/entity-type/validate`：只校验 YAML 内容，不写入文件。
 * `PUT /prompts/entity-type/{prompt_slug}/versions/{version}`：保存校验通过的工作区自有文件；传入 `activate: true` 可在保存后启用。
 * `POST /prompts/entity-type/activate`：校验已有可用文件，并把它设置为当前 runtime 的 `entity_type_prompt_file`。
-* `POST /prompts/entity-type/assist`：让 runtime LLM 根据自然语言需求生成一份 YAML 提示词草稿。接口复用工作区已配置的 LLM（优先使用 `query` 角色绑定），既不会写文件也不会改变当前启用的提示词；响应包含 `content`（清理后的草稿）、`validation`、`raw_output`（LLM 原始返回，用于校验失败时排查）和模型名。前端必须在用户显式确认后才把草稿应用到编辑器。
+* `POST /prompts/entity-type/assist`：让 runtime LLM 根据自然语言需求生成一份完整 YAML 提示词草稿。草稿始终同时包含 `entity_types_guidance`、`entity_extraction_examples` 和 `entity_extraction_json_examples`；生成阶段不按模式裁剪，后续抽取时再由 runtime `entity_extraction_use_json` 选择 text 或 JSON 示例。接口复用工作区已配置的 LLM（优先使用 `query` 角色绑定），既不会写文件也不会改变当前启用的提示词。旧客户端传入的 `use_json` 字段仍会被接受但会被忽略。响应包含 `content`（清理后的草稿）、`validation`、`raw_output`（LLM 原始返回，用于校验失败时排查）和模型名。前端必须在用户显式确认后才把草稿应用到编辑器。
 
 编辑器创建的提示词文件要求服务进程对 `PROMPT_DIR/entity_type` 有写权限。手动放置的 `foo.yml` 等文件仍可通过 `ENTITY_TYPE_PROMPT_FILE` 或构造参数 `addon_params` 使用。在多进程 Gunicorn 部署中，启用操作只更新处理该请求的 runtime；如果需要所有 worker 立即共享同一个 active prompt，请使用一致配置或重启 worker。
 

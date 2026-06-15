@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 import logging
 import os
 from pathlib import Path
@@ -125,9 +126,12 @@ class PromptAssistRequest(BaseModel):
     current_content: str | None = Field(default=None, max_length=30000)
     sample_text: str | None = Field(default=None, max_length=8000)
     language: Literal["auto", "en", "zh", "ja"] = "auto"
-    # Reserved for callers that want to override runtime default. Frontend UI
-    # does NOT expose this; defaults to ``rag.entity_extraction_use_json``.
-    use_json: bool | None = None
+    # Deprecated compatibility carrier. Assist now always generates both text
+    # and JSON examples; runtime extraction mode chooses which list to use.
+    use_json: bool | None = Field(
+        default=None,
+        json_schema_extra={"deprecated": True},
+    )
 
 
 class PromptAssistResponse(BaseModel):
@@ -389,6 +393,125 @@ def _validate_content(
     return profile, ValidationResult(valid=True, errors=[])
 
 
+_ASSIST_EXAMPLE_SECTION_RE = re.compile(
+    r"---Entity Types---.*?---Input Text---.*?---Output---(?P<output>.*)",
+    re.DOTALL,
+)
+_JSON_ENTITY_KEYS = {"name", "type", "description"}
+_JSON_RELATION_KEYS = {"source", "target", "keywords", "description"}
+
+
+def _strip_assist_output_fence(output: str) -> str:
+    """Drop an optional ```json fence the model may wrap the ---Output--- in."""
+    body = output.strip()
+    if body.startswith("```"):
+        body = re.sub(r"\A```(?:json)?[ \t]*\n?", "", body)
+        body = re.sub(r"\n?[ \t]*```\Z", "", body)
+    return body.strip()
+
+
+def _check_json_example_payload(
+    payload: Any, *, index: int, field: str, source_label: str
+) -> list[str]:
+    """Enforce the JSON example shape: entities[]/relationships[] with the
+    contract keys on every item."""
+    prefix = f"{source_label} field '{field}' item {index} ---Output---"
+    if not isinstance(payload, dict):
+        return [f"{prefix} must be a single JSON object."]
+    entities = payload.get("entities")
+    relationships = payload.get("relationships")
+    if not isinstance(entities, list) or not isinstance(relationships, list):
+        return [f"{prefix} JSON must contain 'entities' and 'relationships' arrays."]
+    errors: list[str] = []
+    if any(
+        not isinstance(entity, dict) or not _JSON_ENTITY_KEYS <= set(entity)
+        for entity in entities
+    ):
+        errors.append(
+            f"{prefix} has an entity missing required keys "
+            f"{sorted(_JSON_ENTITY_KEYS)}."
+        )
+    if any(
+        not isinstance(relation, dict) or not _JSON_RELATION_KEYS <= set(relation)
+        for relation in relationships
+    ):
+        errors.append(
+            f"{prefix} has a relationship missing required keys "
+            f"{sorted(_JSON_RELATION_KEYS)}."
+        )
+    return errors
+
+
+def _validate_assist_json_example_bodies(
+    examples: list[Any], source_label: str
+) -> list[str]:
+    """Assist-only deep check: every JSON example's ---Output--- must be one
+    valid JSON object carrying the contract shape.
+
+    Core validation only checks the key exists and is non-empty; at extraction
+    time these examples are concatenated as text (operate.py never parses them),
+    so a malformed body would silently ship a low-quality few-shot. Because the
+    assist endpoint *generates* these, it holds them to the full contract and
+    lets the repair pass fix any failure.
+    """
+    field = "entity_extraction_json_examples"
+    errors: list[str] = []
+    for index, example in enumerate(examples):
+        match = _ASSIST_EXAMPLE_SECTION_RE.search(str(example))
+        if match is None:
+            errors.append(
+                f"{source_label} field '{field}' item {index} is missing the "
+                "---Entity Types---/---Input Text---/---Output--- sections."
+            )
+            continue
+        body = _strip_assist_output_fence(match.group("output"))
+        try:
+            payload = json.loads(body)
+        except (json.JSONDecodeError, ValueError) as exc:
+            errors.append(
+                f"{source_label} field '{field}' item {index} ---Output--- is not "
+                f"valid JSON ({exc.__class__.__name__})."
+            )
+            continue
+        errors.extend(
+            _check_json_example_payload(
+                payload, index=index, field=field, source_label=source_label
+            )
+        )
+    return errors
+
+
+def _validate_content_all_modes(
+    content: str,
+    *,
+    source_label: str,
+) -> tuple[dict[str, Any], ValidationResult]:
+    """Validate a draft against BOTH extraction modes at once.
+
+    The assist endpoint generates every part regardless of
+    ``ENTITY_EXTRACTION_USE_JSON``, so the draft must satisfy the text-mode
+    contract (``entity_extraction_examples`` present + ``str.format``-safe) and
+    the JSON-mode contract (``entity_extraction_json_examples`` present). On top
+    of the core checks it also parses each JSON example body — see
+    ``_validate_assist_json_example_bodies``. Errors are merged, de-duplicated,
+    order-preserved.
+    """
+    profile_text, val_text = _validate_content(
+        content, use_json=False, source_label=source_label
+    )
+    profile_json, val_json = _validate_content(
+        content, use_json=True, source_label=source_label
+    )
+    errors = list(dict.fromkeys([*val_text.errors, *val_json.errors]))
+    profile = profile_text or profile_json
+    if profile:
+        json_examples = profile.get("entity_extraction_json_examples") or []
+        for err in _validate_assist_json_example_bodies(json_examples, source_label):
+            if err not in errors:
+                errors.append(err)
+    return profile, ValidationResult(valid=not errors, errors=errors)
+
+
 def _file_response(
     path: Path,
     *,
@@ -575,24 +698,20 @@ def _render_assist_reference_example(
     return str(examples[0]).rstrip()
 
 
-def _build_prompt_assist_system_prompt(
-    use_json: bool, default_profile: dict[str, Any]
-) -> str:
+def _build_prompt_assist_system_prompt(default_profile: dict[str, Any]) -> str:
     """Compose the assist system prompt.
 
-    Names a single REQUIRED examples key for the active extraction mode,
-    embeds the concrete format contract plus a rendered reference example,
-    and keeps the full default guidance as a domain-adaptation baseline.
+    Always requires ALL profile parts — ``entity_types_guidance`` plus BOTH the
+    text-mode (``entity_extraction_examples``) and JSON-mode
+    (``entity_extraction_json_examples``) example lists — independent of the
+    runtime ``ENTITY_EXTRACTION_USE_JSON`` setting, so one generated draft is
+    usable in either extraction mode. Both format contracts and a rendered
+    reference example per mode are embedded, with the full default guidance as a
+    domain-adaptation baseline.
     """
     default_guidance = default_profile.get("entity_types_guidance", "").rstrip()
-    required_key = (
-        "entity_extraction_json_examples" if use_json else "entity_extraction_examples"
-    )
-    optional_key = (
-        "entity_extraction_examples" if use_json else "entity_extraction_json_examples"
-    )
-    format_rules = _ASSIST_JSON_FORMAT_RULES if use_json else _ASSIST_TEXT_FORMAT_RULES
-    reference_example = _render_assist_reference_example(default_profile, use_json)
+    text_reference = _render_assist_reference_example(default_profile, use_json=False)
+    json_reference = _render_assist_reference_example(default_profile, use_json=True)
     return (
         "You are helping the user author a LightRAG entity extraction prompt "
         "profile. Return ONLY a YAML mapping. Do not wrap the output in "
@@ -601,18 +720,27 @@ def _build_prompt_assist_system_prompt(
         "`key: |` (or `- |` for list items) followed by indented lines with "
         "REAL line breaks. Never emit `\\n` escape sequences or collapse a "
         "value into one quoted line.\n"
-        "Required keys:\n"
+        "Required keys (ALL THREE are mandatory — never omit any):\n"
         "- `entity_types_guidance`: non-empty string — a short classification "
         "instruction followed by `- TypeName: description` bullet lines "
         "tailored to the user's domain.\n"
-        f"- `{required_key}`: list of 1-3 example strings following the "
-        "format contract below.\n"
-        f"You may additionally include `{optional_key}`, but never omit "
-        f"`{required_key}`.\n\n"
-        f"{format_rules}\n\n"
-        "Reference example — imitate the structure, adapt the content to the "
-        "user's domain:\n"
-        f"<reference_example>\n{reference_example}\n</reference_example>\n\n"
+        "- `entity_extraction_examples`: list of 1-3 text-mode example strings "
+        "following the TEXT format contract below.\n"
+        "- `entity_extraction_json_examples`: list of 1-3 JSON-mode example "
+        "strings following the JSON format contract below.\n"
+        "The two example lists MUST cover the SAME sample passages: reuse the "
+        "identical `---Entity Types---` and `---Input Text---` sections in both "
+        "lists, differing ONLY in how the `---Output---` section is rendered "
+        "(delimited rows vs. JSON object).\n\n"
+        "TEXT format contract (entity_extraction_examples):\n"
+        f"{_ASSIST_TEXT_FORMAT_RULES}\n\n"
+        "JSON format contract (entity_extraction_json_examples):\n"
+        f"{_ASSIST_JSON_FORMAT_RULES}\n\n"
+        "Text-mode reference example — imitate the structure, adapt the content "
+        "to the user's domain:\n"
+        f"<reference_example>\n{text_reference}\n</reference_example>\n\n"
+        "JSON-mode reference example — same structure, JSON output:\n"
+        f"<json_reference_example>\n{json_reference}\n</json_reference_example>\n\n"
         "Default `entity_types_guidance` baseline (reference only, adapt to "
         "the user's domain):\n"
         f"{default_guidance}"
@@ -717,7 +845,6 @@ async def _attempt_assist_repair(
     draft: str,
     raw_output: str,
     validation: ValidationResult,
-    use_json: bool,
     warnings: list[str],
 ) -> tuple[str, str, ValidationResult]:
     """One-shot repair pass for an invalid assist draft.
@@ -741,8 +868,8 @@ async def _attempt_assist_repair(
         return draft, raw_output, validation
 
     repaired = _strip_yaml_fence(repaired_raw)
-    _profile, repaired_validation = _validate_content(
-        repaired, use_json=use_json, source_label="assist draft"
+    _profile, repaired_validation = _validate_content_all_modes(
+        repaired, source_label="assist draft"
     )
     if repaired_validation.valid:
         warnings.append(
@@ -957,9 +1084,8 @@ def create_prompt_routes(
     )
     async def assist_entity_type_prompt(request: PromptAssistRequest):
         llm_callable, model_name = _resolve_assist_llm(rag)
-        use_json = _use_json_mode(rag, request.use_json)
         default_profile = prompt_module.get_default_entity_extraction_prompt_profile()
-        system_prompt = _build_prompt_assist_system_prompt(use_json, default_profile)
+        system_prompt = _build_prompt_assist_system_prompt(default_profile)
         user_prompt = _build_prompt_assist_user_prompt(request)
         raw_output = await _invoke_assist_llm(
             llm_callable,
@@ -967,9 +1093,8 @@ def create_prompt_routes(
             system_prompt=system_prompt,
         )
         cleaned = _strip_yaml_fence(raw_output)
-        _profile, validation = _validate_content(
+        _profile, validation = _validate_content_all_modes(
             cleaned,
-            use_json=use_json,
             source_label="assist draft",
         )
         warnings: list[str] = []
@@ -981,7 +1106,6 @@ def create_prompt_routes(
                 draft=cleaned,
                 raw_output=raw_output,
                 validation=validation,
-                use_json=use_json,
                 warnings=warnings,
             )
         if validation.valid:
