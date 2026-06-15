@@ -49,6 +49,19 @@ def _json_profile_content() -> str:
     )
 
 
+def _assert_same_profile(actual: str, expected: str) -> None:
+    """Assert two drafts carry the same profile, ignoring serialization style.
+
+    The assist endpoint re-serializes validated output into sample-style block
+    scalars, so byte-equality no longer holds; semantic equality does.
+    """
+    from lightrag.api.routers.prompt_routes import _load_prompt_profile_from_content
+
+    assert _load_prompt_profile_from_content(
+        actual, "actual"
+    ) == _load_prompt_profile_from_content(expected, "expected")
+
+
 class _DummyRAG:
     def __init__(self, *, use_json: bool = False, active_file: str | None = None):
         self.entity_extraction_use_json = use_json
@@ -264,6 +277,52 @@ def test_prompt_routes_list_read_validate_save_activate_workspace_files(
         assert rag.refresh_count == 3
 
 
+def test_delete_entity_type_prompt_removes_workspace_file(monkeypatch, tmp_path):
+    prompt_dir = tmp_path / "entity_type"
+    prompt_dir.mkdir()
+    (prompt_dir / "default--entity-type--v1.yml").write_text(
+        _profile_content(label="Active"), encoding="utf-8"
+    )
+    (prompt_dir / "default--entity-type--v2.yml").write_text(
+        _profile_content(label="Spare"), encoding="utf-8"
+    )
+    (prompt_dir / "other--entity-type--v1.yml").write_text(
+        _profile_content(label="Other WS"), encoding="utf-8"
+    )
+    (prompt_dir / "foo.yml").write_text(_profile_content(), encoding="utf-8")
+    rag = _DummyRAG(active_file="default--entity-type--v1.yml")
+    client = _build_prompt_client(monkeypatch, rag)
+
+    with patch("lightrag.prompt.get_entity_type_prompt_dir", return_value=prompt_dir):
+        # Happy path: a workspace-owned, non-active file is removed from disk.
+        ok = client.delete("/prompts/entity-type/default--entity-type--v2.yml")
+        assert ok.status_code == 200
+        assert ok.json() == {
+            "deleted_file": "default--entity-type--v2.yml",
+            "active_file": "default--entity-type--v1.yml",
+        }
+        assert not (prompt_dir / "default--entity-type--v2.yml").exists()
+
+        # Missing file -> 404.
+        missing = client.delete("/prompts/entity-type/default--entity-type--v9.yml")
+        assert missing.status_code == 404
+
+        # Active file is protected (409) and stays on disk.
+        active = client.delete("/prompts/entity-type/default--entity-type--v1.yml")
+        assert active.status_code == 409
+        assert (prompt_dir / "default--entity-type--v1.yml").exists()
+
+        # Global/shared file is not deletable (403).
+        global_file = client.delete("/prompts/entity-type/foo.yml")
+        assert global_file.status_code == 403
+        assert (prompt_dir / "foo.yml").exists()
+
+        # Another workspace's file is rejected (400) and untouched.
+        cross = client.delete("/prompts/entity-type/other--entity-type--v1.yml")
+        assert cross.status_code == 400
+        assert (prompt_dir / "other--entity-type--v1.yml").exists()
+
+
 def test_prompt_routes_include_in_server_runtime_binding(monkeypatch, tmp_path):
     import tests.test_workspace_runtime_app_integration as runtime_tests
 
@@ -329,7 +388,9 @@ def test_assist_entity_type_prompt_uses_runtime_llm_and_validates_output(monkeyp
 
     assert response.status_code == 200
     body = response.json()
-    assert body["content"].rstrip() == yaml_payload.rstrip()
+    _assert_same_profile(body["content"], yaml_payload)
+    # Output is normalized into sample-style block scalars, not the LLM's raw form.
+    assert "entity_extraction_examples:\n  - |" in body["content"]
     assert body["validation"]["valid"] is True
     assert body["raw_output"] == yaml_payload
     assert body["model"] == "role-query-model"
@@ -488,7 +549,7 @@ def test_assist_strips_yaml_fence_from_llm_output(monkeypatch):
     # the YAML examples themselves are allowed.)
     assert not body["content"].lstrip().startswith("```")
     assert not body["content"].rstrip().endswith("```")
-    assert body["content"].rstrip() == yaml_body.rstrip()
+    _assert_same_profile(body["content"], yaml_body)
     # raw_output preserves the original LLM response unchanged.
     assert body["raw_output"] == fenced
     assert body["validation"]["valid"] is True
@@ -591,17 +652,23 @@ def test_assist_system_prompt_text_mode_contract(monkeypatch):
 
     # Active-mode key is REQUIRED (no "either/or" choice left to the LLM).
     assert "never omit `entity_extraction_examples`" in sp
-    # Concrete row syntax with literal delimiters.
-    assert "entity<|#|>NAME<|#|>TYPE<|#|>DESCRIPTION" in sp
-    assert "relation<|#|>SOURCE<|#|>TARGET<|#|>KEYWORDS<|#|>DESCRIPTION" in sp
-    assert "<|COMPLETE|>" in sp
-    # Brace ban for text-mode examples.
-    assert "Do NOT use curly braces" in sp
-    # Reference example embedded, rendered with literal delimiters.
+    # Concrete row syntax with placeholder delimiters (sample-file convention).
+    assert (
+        "entity{tuple_delimiter}NAME{tuple_delimiter}TYPE{tuple_delimiter}DESCRIPTION"
+        in sp
+    )
+    assert (
+        "relation{tuple_delimiter}SOURCE{tuple_delimiter}TARGET"
+        "{tuple_delimiter}KEYWORDS{tuple_delimiter}DESCRIPTION" in sp
+    )
+    assert "{completion_delimiter}" in sp
+    # Only the two delimiter placeholders are allowed; no other braces.
+    assert "ONLY curly-brace tokens allowed" in sp
+    # Reference example embedded, placeholders kept intact (not substituted).
     assert "<reference_example>" in sp
     ref = sp.split("<reference_example>", 1)[1].split("</reference_example>", 1)[0]
-    assert "<|#|>" in ref
-    assert "{tuple_delimiter}" not in ref
+    assert "{tuple_delimiter}" in ref
+    assert "<|#|>" not in ref
     # Default guidance baseline kept verbatim.
     assert default_profile["entity_types_guidance"].rstrip() in sp
 
@@ -621,6 +688,48 @@ def test_assist_system_prompt_json_mode_contract(monkeypatch):
     # JSON reference example is the default one, verbatim.
     ref = sp.split("<reference_example>", 1)[1].split("</reference_example>", 1)[0]
     assert default_profile["entity_extraction_json_examples"][0].rstrip() == ref.strip()
+    # Root-cause guard: drafts must use real line breaks, not '\n' escapes.
+    assert "literal block scalar" in sp
+
+
+def test_normalize_profile_yaml_rewrites_quoted_scalars_as_blocks(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+
+    import yaml
+
+    from lightrag.api.routers.prompt_routes import _normalize_profile_yaml
+
+    # Mirrors a real assist draft: single-quoted guidance keeps '\n' LITERAL
+    # (no real break), while the double-quoted example decodes '\n' to breaks.
+    ugly = (
+        "entity_types_guidance: '从记录提取实体。\\n\\n- 设备: 关键部件。'\n"
+        "entity_extraction_json_examples:\n"
+        '- "---Entity Types---\\n- 设备: 关键部件。\\n\\n---Output---\\n'
+        '{\\n  \\"entities\\": []\\n}"\n'
+    )
+    out = _normalize_profile_yaml(ugly, "assist draft")
+
+    # Sample-style block scalars, no escaped newlines left behind.
+    assert "entity_types_guidance: |" in out
+    assert "\n  - |" in out
+    assert "\\n" not in out
+    # The broken single-quoted guidance recovered real line breaks.
+    reparsed = yaml.safe_load(out)
+    assert "\n" in reparsed["entity_types_guidance"]
+    assert "设备" in reparsed["entity_types_guidance"]
+    # JSON example content and structure survive the round-trip.
+    assert '"entities"' in reparsed["entity_extraction_json_examples"][0]
+
+
+def test_normalize_profile_yaml_passes_through_unparseable(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+
+    from lightrag.api.routers.prompt_routes import _normalize_profile_yaml
+
+    broken = "entity_types_guidance: [unterminated\n"
+    # Unparseable content is returned untouched (callers only normalize valid drafts).
+    assert _normalize_profile_yaml(broken, "assist draft") == broken
+
 
 
 def test_assist_user_prompt_language_resolution(monkeypatch):
@@ -698,7 +807,7 @@ def test_assist_repairs_invalid_draft_once(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["validation"]["valid"] is True
-    assert body["content"].rstrip() == good.rstrip()
+    _assert_same_profile(body["content"], good)
     assert len(llm.calls) == 2
     repair_call = llm.calls[1]
     assert "<previous_draft>" in repair_call["prompt"]

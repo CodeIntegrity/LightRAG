@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertCircleIcon, CheckCircle2Icon, ChevronDownIcon, FileTextIcon, PlayIcon, RefreshCwIcon, SaveIcon, SparklesIcon, XCircleIcon, XIcon } from 'lucide-react'
+import { AlertCircleIcon, CheckCircle2Icon, ChevronDownIcon, FileTextIcon, PlayIcon, RefreshCwIcon, SaveIcon, SparklesIcon, Trash2Icon, XCircleIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 
@@ -7,6 +7,7 @@ import {
   activateEntityTypePrompt,
   assistEntityTypePrompt,
   deactivateEntityTypePrompt,
+  deleteEntityTypePrompt,
   listEntityTypePrompts,
   readEntityTypePrompt,
   saveEntityTypePromptVersion,
@@ -207,6 +208,23 @@ export const deactivateSelectedPrompt = async (
       files
     },
     validation: { valid: false, errors: [] }
+  }
+}
+
+export const deletePromptFile = async (
+  state: PromptEditorState,
+  fileName: string
+): Promise<{ state: PromptEditorState; wasSelected: boolean }> => {
+  await deleteEntityTypePrompt(fileName)
+  const files = state.list.files.filter((file) => file.file_name !== fileName)
+  const wasSelected = state.selectedFileName === fileName
+  return {
+    state: {
+      ...state,
+      list: { ...state.list, files },
+      selectedFileName: wasSelected ? null : state.selectedFileName
+    },
+    wasSelected
   }
 }
 
@@ -475,6 +493,29 @@ export default function Prompts() {
     }
   }, [activateOnSave, promptSlug, state, t, version])
 
+  const handleDelete = useCallback(async (file: EntityTypePromptFile) => {
+    if (!window.confirm(
+      t('prompts.deleteConfirm', 'Delete "{{name}}"? This cannot be undone.', {
+        name: file.prompt_slug
+      })
+    )) {
+      return
+    }
+    try {
+      const { state: nextState, wasSelected } = await deletePromptFile(state, file.file_name)
+      setState(nextState)
+      if (wasSelected) {
+        // The edited file is gone; keep its content as a detached, unsaved
+        // draft so an accidental delete does not lose work.
+        setSavedContent('')
+        setSelectedPresetId(null)
+      }
+      toast.success(t('prompts.deleted', 'Prompt deleted'))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
+  }, [state, t])
+
   const handleActivate = useCallback(async () => {
     try {
       const nextState = await activateSelectedPrompt(state)
@@ -625,28 +666,43 @@ export default function Prompts() {
               </div>
               <div className="space-y-2">
                 {state.list.files.map((file) => (
-                  <button
-                    type="button"
+                  <div
                     key={file.file_name}
                     className={cn(
-                      'flex w-full items-start gap-2 rounded-md border p-2 text-left text-sm transition-colors hover:bg-accent',
+                      'flex w-full items-start gap-2 rounded-md border p-2 text-sm transition-colors hover:bg-accent',
                       state.selectedFileName === file.file_name && 'border-primary bg-accent'
                     )}
-                    onClick={() => void handleSelect(file.file_name)}
                   >
-                    <FileTextIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{formatPromptFileTitle(file)}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {formatPromptFileMeta(file)}
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                      onClick={() => void handleSelect(file.file_name)}
+                    >
+                      <FileTextIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{formatPromptFileTitle(file)}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {formatPromptFileMeta(file)}
+                        </span>
                       </span>
-                    </span>
+                    </button>
                     {file.active && (
-                      <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                      <span className="mt-0.5 shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                         {t('prompts.active', 'Active')}
                       </span>
                     )}
-                  </button>
+                    {file.source === 'workspace' && !file.active && (
+                      <button
+                        type="button"
+                        className="mt-0.5 shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        aria-label={t('prompts.delete', 'Delete')}
+                        title={t('prompts.delete', 'Delete')}
+                        onClick={() => void handleDelete(file)}
+                      >
+                        <Trash2Icon className="size-4" aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </>

@@ -68,8 +68,8 @@ describe('Preset prompts', () => {
     expect(preset.content).toContain('entity_types_guidance')
     expect(preset.content).toContain('entity_extraction_examples')
     expect(preset.content).toContain('entity_extraction_json_examples')
-    expect(preset.content).toContain('<|#|>')
-    expect(preset.content).toContain('<|COMPLETE|>')
+    expect(preset.content).toContain('{tuple_delimiter}')
+    expect(preset.content).toContain('{completion_delimiter}')
   })
 
   test('preset content contains Chinese entity type definitions', () => {
@@ -215,6 +215,50 @@ describe('Prompts page state', () => {
 
     expect(page.shouldReloadPromptEditor(activated, 'workspace-b')).toBe(true)
     expect(page.shouldReloadPromptEditor(activated, 'workspace-a')).toBe(false)
+  })
+
+  test('deletePromptFile removes the file and clears selection only when it was selected', async () => {
+    const api = await import('@/api/lightrag')
+    const page = await import('./Prompts')
+    ;(api.deleteEntityTypePrompt as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      deleted_file: 'default--entity-type--v2.yml',
+      active_file: 'default--entity-type--v1.yml'
+    })
+
+    const baseState = page.createPromptEditorState({
+      workspaceKey: 'workspace-a',
+      list: {
+        workspace: 'default',
+        active_file: 'default--entity-type--v1.yml',
+        files: [
+          workspaceFile({ active: true }),
+          workspaceFile({ file_name: 'default--entity-type--v2.yml', version: 2 })
+        ]
+      },
+      selectedFileName: 'default--entity-type--v2.yml',
+      content: 'draft',
+      validation: { valid: true, errors: [] }
+    })
+
+    const { state: afterDelete, wasSelected } = await page.deletePromptFile(
+      baseState,
+      'default--entity-type--v2.yml'
+    )
+
+    expect(api.deleteEntityTypePrompt).toHaveBeenCalledWith('default--entity-type--v2.yml')
+    expect(wasSelected).toBe(true)
+    expect(afterDelete.list.files.map((f) => f.file_name)).toEqual([
+      'default--entity-type--v1.yml'
+    ])
+    expect(afterDelete.selectedFileName).toBeNull()
+
+    // Deleting a non-selected file keeps the current selection intact.
+    const { state: afterOther, wasSelected: other } = await page.deletePromptFile(
+      { ...baseState, selectedFileName: 'default--entity-type--v1.yml' },
+      'default--entity-type--v2.yml'
+    )
+    expect(other).toBe(false)
+    expect(afterOther.selectedFileName).toBe('default--entity-type--v1.yml')
   })
 
   test('formats prompt files with logical fields instead of real file names', async () => {

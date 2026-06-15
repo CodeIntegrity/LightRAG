@@ -962,6 +962,9 @@
     "saved": "Prompt saved",
     "activated": "Prompt activated",
     "deactivated": "Prompt deactivated",
+    "delete": "Delete",
+    "deleted": "Prompt deleted",
+    "deleteConfirm": "Delete \"{{name}}\"? This cannot be undone.",
     "validation": {
       "valid": "Prompt is valid",
       "failed": "Validation failed",

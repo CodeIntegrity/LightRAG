@@ -960,6 +960,9 @@
     "saved": "提示词已保存",
     "activated": "提示词已启用",
     "deactivated": "提示词已停用",
+    "delete": "删除",
+    "deleted": "提示词已删除",
+    "deleteConfirm": "确定删除“{{name}}”吗？此操作不可撤销。",
     "validation": {
       "valid": "提示词校验通过",
       "failed": "校验未通过",

@@ -13,10 +13,11 @@ export COMPOSE_DOCKER_CLI_BUILD="${COMPOSE_DOCKER_CLI_BUILD:-1}"
 usage() {
   cat <<'EOF'
 用法:
-  scripts/docker-compose-source.sh [build|up|down|restart|logs|ps|pull] [额外 docker compose 参数]
+  scripts/docker-compose-source.sh [build|rebuild|up|down|restart|logs|ps|pull] [额外 docker compose 参数]
 
 示例:
   scripts/docker-compose-source.sh up -d
+  scripts/docker-compose-source.sh rebuild  # 构建、关闭现有容器并后台启动
   scripts/docker-compose-source.sh build
   scripts/docker-compose-source.sh logs -f lightrag
 EOF
@@ -29,8 +30,13 @@ case "${cmd}" in
   build)
     exec docker compose -f "${COMPOSE_FILE}" build "$@"
     ;;
+  rebuild)
+    docker compose -f "${COMPOSE_FILE}" build "$@"
+    docker compose -f "${COMPOSE_FILE}" down
+    exec docker compose -f "${COMPOSE_FILE}" up -d "$@"
+    ;;
   up)
-    exec docker compose -f "${COMPOSE_FILE}" up --build "$@"
+    exec docker compose -f "${COMPOSE_FILE}" up "$@"
     ;;
   down)
     exec docker compose -f "${COMPOSE_FILE}" down "$@"

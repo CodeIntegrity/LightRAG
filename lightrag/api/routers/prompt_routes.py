@@ -113,6 +113,11 @@ class PromptDeactivateResponse(BaseModel):
     previous_file: WorkspacePromptFile | None = None
 
 
+class PromptDeleteResponse(BaseModel):
+    deleted_file: str
+    active_file: str | None = None
+
+
 class PromptAssistRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -279,6 +284,79 @@ def _load_prompt_profile_from_content(content: str, source_label: str) -> dict[s
         profile[field_name] = normalized_examples
 
     return profile
+
+
+class _BlockStyleDumper(yaml.SafeDumper):
+    """Force indented block sequences so output matches the sample files."""
+
+    def increase_indent(self, flow=False, indentless=False):
+        return super().increase_indent(flow=flow, indentless=False)
+
+
+def _represent_multiline_str(dumper: yaml.Dumper, data: str) -> Any:
+    """Render multi-line strings as literal ``|`` blocks, not quoted scalars.
+
+    The assist LLM frequently emits double-quoted scalars with escaped ``\\n``,
+    which are valid YAML but show as a single unreadable line in the editor.
+    Appending one trailing newline picks clip chomping (``|``), matching
+    ``prompts/samples/*.sample.yml``.
+    """
+    if "\n" in data:
+        return dumper.represent_scalar(
+            "tag:yaml.org,2002:str", data + "\n", style="|"
+        )
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+_BlockStyleDumper.add_representer(str, _represent_multiline_str)
+
+
+def _recover_escaped_newlines(value: str) -> str:
+    r"""Turn literal ``\n`` escape sequences into real line breaks.
+
+    The assist LLM sometimes single-quotes a multi-line value while still
+    writing ``\n`` escapes; YAML single-quotes keep those literal, so the
+    parsed string carries a backslash-n pair instead of a break. Double-quoted
+    values already decoded to real newlines and contain no literal ``\n``, so
+    this leaves them untouched.
+    """
+    if "\\n" not in value:
+        return value
+    return value.replace("\\r\\n", "\n").replace("\\n", "\n").rstrip()
+
+
+def _normalize_profile_yaml(content: str, source_label: str) -> str:
+    """Re-serialize valid profile YAML into readable sample-style block scalars.
+
+    Round-trips the content through the parser and re-dumps it. Returns the
+    original content untouched when it cannot be parsed — callers only
+    normalize drafts that already validated.
+    """
+    try:
+        profile = _load_prompt_profile_from_content(content, source_label)
+    except ValueError:
+        return content
+    if not profile:
+        return content
+    normalized: dict[str, Any] = {}
+    for key, value in profile.items():
+        if isinstance(value, str):
+            normalized[key] = _recover_escaped_newlines(value)
+        elif isinstance(value, list):
+            normalized[key] = [
+                _recover_escaped_newlines(item) if isinstance(item, str) else item
+                for item in value
+            ]
+        else:
+            normalized[key] = value
+    return yaml.dump(
+        normalized,
+        Dumper=_BlockStyleDumper,
+        allow_unicode=True,
+        sort_keys=False,
+        default_flow_style=False,
+        width=4096,
+    )
 
 
 def _validate_content(
@@ -455,15 +533,17 @@ _ASSIST_TEXT_FORMAT_RULES = (
     "sections, in order: `---Entity Types---` (a bullet list mirroring "
     "entity_types_guidance), `---Input Text---` (a code-fenced sample "
     "passage), and `---Output---` followed by the extraction rows.\n"
-    "Row syntax (use the literal delimiter `<|#|>`):\n"
-    "  entity<|#|>NAME<|#|>TYPE<|#|>DESCRIPTION\n"
-    "  relation<|#|>SOURCE<|#|>TARGET<|#|>KEYWORDS<|#|>DESCRIPTION\n"
+    "Row syntax (use the placeholder token `{tuple_delimiter}` verbatim as the "
+    "field separator — do NOT replace it with any actual delimiter "
+    "character):\n"
+    "  entity{tuple_delimiter}NAME{tuple_delimiter}TYPE{tuple_delimiter}DESCRIPTION\n"
+    "  relation{tuple_delimiter}SOURCE{tuple_delimiter}TARGET{tuple_delimiter}KEYWORDS{tuple_delimiter}DESCRIPTION\n"
     "Entity rows have exactly 4 fields; relation rows exactly 5. List all "
-    "entity rows first, then all relation rows, and end every example with "
-    "the literal line `<|COMPLETE|>`.\n"
-    "Do NOT use curly braces anywhere inside `entity_extraction_examples` "
-    "items: no `{tuple_delimiter}`-style placeholders and no other `{` or "
-    "`}` characters. Write the delimiters literally as shown above."
+    "entity rows first, then all relation rows, and end every example with a "
+    "line containing only the placeholder token `{completion_delimiter}`.\n"
+    "The ONLY curly-brace tokens allowed inside `entity_extraction_examples` "
+    "items are `{tuple_delimiter}` and `{completion_delimiter}`, written "
+    "exactly like that. Do NOT introduce any other `{` or `}` characters."
 )
 
 _ASSIST_JSON_FORMAT_RULES = (
@@ -480,22 +560,19 @@ _ASSIST_JSON_FORMAT_RULES = (
 def _render_assist_reference_example(
     default_profile: dict[str, Any], use_json: bool
 ) -> str:
-    """Return the first built-in example, rendered with literal delimiters."""
+    """Return the first built-in example verbatim, placeholders intact.
+
+    Both modes show the example exactly as it lives in the profile —
+    text-mode examples keep their ``{tuple_delimiter}`` / ``{completion_delimiter}``
+    placeholders so the draft mirrors the sample-file convention.
+    """
     key = (
         "entity_extraction_json_examples" if use_json else "entity_extraction_examples"
     )
     examples = default_profile.get(key) or []
     if not examples:
         return ""
-    first = str(examples[0])
-    if use_json:
-        return first.rstrip()
-    return first.format(
-        tuple_delimiter=prompt_module.PROMPTS["DEFAULT_TUPLE_DELIMITER"],
-        completion_delimiter=prompt_module.PROMPTS["DEFAULT_COMPLETION_DELIMITER"],
-        entity_types_guidance="",
-        language="English",
-    ).rstrip()
+    return str(examples[0]).rstrip()
 
 
 def _build_prompt_assist_system_prompt(
@@ -520,6 +597,10 @@ def _build_prompt_assist_system_prompt(
         "You are helping the user author a LightRAG entity extraction prompt "
         "profile. Return ONLY a YAML mapping. Do not wrap the output in "
         "markdown fences. Do not add any prose before or after the YAML.\n"
+        "Write every multi-line value as a YAML literal block scalar — "
+        "`key: |` (or `- |` for list items) followed by indented lines with "
+        "REAL line breaks. Never emit `\\n` escape sequences or collapse a "
+        "value into one quoted line.\n"
         "Required keys:\n"
         "- `entity_types_guidance`: non-empty string — a short classification "
         "instruction followed by `- TypeName: description` bullet lines "
@@ -825,6 +906,50 @@ def create_prompt_routes(
                 pass
         return PromptDeactivateResponse(previous_file=previous_file)
 
+    @router.delete(
+        "/entity-type/{file_name}",
+        response_model=PromptDeleteResponse,
+        dependencies=[Depends(combined_auth)],
+    )
+    async def delete_entity_type_prompt(file_name: str):
+        workspace = _current_workspace(workspace_getter)
+        try:
+            path = resolve_prompt_file_for_workspace(file_name, workspace=workspace)
+        except Exception as exc:
+            raise _http_error_from_exception(exc) from exc
+
+        # Built-in / shared files have no workspace prefix; they may be upstream
+        # samples shared across workspaces, so they are not deletable here.
+        if parse_workspace_prompt_file_name(path.name) is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Prompt file '{path.name}' is a shared/global profile and "
+                    "cannot be deleted."
+                ),
+            )
+
+        # Deleting the active file would leave a dangling reference; require an
+        # explicit deactivate first instead of silently changing extraction.
+        active_file = _active_file(rag)
+        if path.name == active_file:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Prompt file '{path.name}' is active. Deactivate it before "
+                    "deleting."
+                ),
+            )
+
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to delete prompt file '{path.name}': {exc}",
+            ) from exc
+        return PromptDeleteResponse(deleted_file=path.name, active_file=active_file)
+
     @router.post(
         "/entity-type/assist",
         response_model=PromptAssistResponse,
@@ -859,6 +984,10 @@ def create_prompt_routes(
                 use_json=use_json,
                 warnings=warnings,
             )
+        if validation.valid:
+            # Re-serialize into readable block scalars so the editor shows real
+            # line breaks instead of the LLM's escaped-'\n' quoted strings.
+            cleaned = _normalize_profile_yaml(cleaned, "assist draft")
         return PromptAssistResponse(
             content=cleaned,
             validation=validation,

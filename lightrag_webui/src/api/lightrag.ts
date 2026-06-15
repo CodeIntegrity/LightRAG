@@ -283,6 +283,11 @@ export type EntityTypePromptDeactivateResponse = {
   previous_file: EntityTypePromptFile | null
 }
 
+export type EntityTypePromptDeleteResponse = {
+  deleted_file: string
+  active_file: string | null
+}
+
 export type EntityTypePromptAssistLanguage = 'auto' | 'en' | 'zh' | 'ja'
 
 export type EntityTypePromptAssistRequest = {
@@ -1169,6 +1174,15 @@ export const activateEntityTypePrompt = async (
 
 export const deactivateEntityTypePrompt = async (): Promise<EntityTypePromptDeactivateResponse> => {
   const response = await promptHttpClient.post('/prompts/entity-type/deactivate')
+  return response.data
+}
+
+export const deleteEntityTypePrompt = async (
+  fileName: string
+): Promise<EntityTypePromptDeleteResponse> => {
+  const response = await promptHttpClient.delete(
+    `/prompts/entity-type/${encodeURIComponent(fileName)}`
+  )
   return response.data
 }
 
