@@ -683,6 +683,12 @@ const useLightrangeGraph = () => {
         state.setViewState(resolveGraphErrorViewState(error))
       } finally {
         state.setIsFetching(false)
+        // Early returns (node missing, no label, fetch failed, noNewNodes) leave
+        // viewState stuck on 'loading'. The catch branch already set an error state,
+        // so only the leftover 'loading' needs to fall back to 'ready' to clear the overlay.
+        if (useGraphStore.getState().viewState === 'loading') {
+          state.setViewState('ready')
+        }
       }
     }
 
