@@ -4,13 +4,21 @@ import { useEffect, useState } from 'react'
 import StatusDialog from './StatusDialog'
 import { useTranslation } from 'react-i18next'
 
-const StatusIndicator = () => {
+interface StatusIndicatorProps {
+  compact?: boolean
+  className?: string
+}
+
+const StatusIndicator = ({ compact = false, className }: StatusIndicatorProps) => {
   const { t } = useTranslation()
   const health = useBackendState.use.health()
   const lastCheckTime = useBackendState.use.lastCheckTime()
   const status = useBackendState.use.status()
   const [animate, setAnimate] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const statusLabel = health
+    ? t('graphPanel.statusIndicator.connected')
+    : t('graphPanel.statusIndicator.disconnected')
 
   // listen to health change
   useEffect(() => {
@@ -23,14 +31,26 @@ const StatusIndicator = () => {
   }, [lastCheckTime])
 
   return (
-    <div className="fixed right-4 bottom-4 flex items-center gap-2 opacity-80 select-none">
+    <>
+    <button
+      type="button"
+      className={cn(
+        'flex items-center gap-2 opacity-80 select-none',
+        compact ? 'h-8 rounded-md px-2 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' : '',
+        'cursor-pointer',
+        className
+      )}
+      onClick={() => setDialogOpen(true)}
+      aria-label={statusLabel}
+      title={statusLabel}
+    >
       <div
         className="flex cursor-pointer items-center gap-2"
-        onClick={() => setDialogOpen(true)}
       >
         <div
           className={cn(
-            'h-3 w-3 rounded-full transition-all duration-300',
+            compact ? 'h-2.5 w-2.5' : 'h-3 w-3',
+            'rounded-full transition-all duration-300',
             'shadow-[0_0_8px_rgba(0,0,0,0.2)]',
             health ? 'bg-green-500' : 'bg-red-500',
             animate && 'scale-125',
@@ -38,17 +58,16 @@ const StatusIndicator = () => {
             animate && !health && 'shadow-[0_0_12px_rgba(239,68,68,0.4)]'
           )}
         />
-        <span className="text-muted-foreground text-xs">
-          {health ? t('graphPanel.statusIndicator.connected') : t('graphPanel.statusIndicator.disconnected')}
-        </span>
+        {!compact && <span className="text-muted-foreground text-xs">{statusLabel}</span>}
       </div>
+    </button>
 
       <StatusDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         status={status}
       />
-    </div>
+    </>
   )
 }
 

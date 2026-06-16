@@ -1,6 +1,7 @@
 import Button from '@/components/ui/Button'
 import { SiteInfo, webuiPrefix } from '@/lib/constants'
 import AppSettings from '@/components/AppSettings'
+import StatusIndicator from '@/components/status/StatusIndicator'
 import WorkspaceSwitcher from '@/components/workspace/WorkspaceSwitcher'
 import { TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { useSettingsStore } from '@/stores/settings'
@@ -75,6 +76,7 @@ function TabsNavigation() {
 export default function SiteHeader() {
   const { t } = useTranslation()
   const { isGuestMode, username, webuiTitle, webuiDescription } = useAuthStore()
+  const enableHealthCheck = useSettingsStore.use.enableHealthCheck()
 
   const handleAuthAction = () => {
     navigationService.navigateToLogin()
@@ -129,6 +131,7 @@ export default function SiteHeader() {
 
       <nav className="w-[200px] flex items-center justify-end">
         <div className="flex items-center gap-2">
+          {enableHealthCheck && <StatusIndicator compact />}
           <AppSettings />
           <Button
             variant="ghost"
