@@ -27,6 +27,24 @@ describe('guestFeatures', () => {
     ])
   })
 
+  test('resolveVisibleTabsForSession keeps prompts before retrieval', () => {
+    expect(
+      resolveVisibleTabsForSession(false, [
+        'documents',
+        'knowledge-graph',
+        'prompts',
+        'retrieval',
+        'api',
+      ])
+    ).toEqual([
+      'documents',
+      'knowledge-graph',
+      'prompts',
+      'retrieval',
+      'api',
+    ])
+  })
+
   test('resolveActiveTabForSession falls back to first visible tab when current tab is hidden', () => {
     expect(resolveActiveTabForSession('prompts', ['documents', 'api'])).toBe(
       'documents'

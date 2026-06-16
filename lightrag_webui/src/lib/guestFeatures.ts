@@ -1,8 +1,8 @@
 export const allGuestVisibleTabs = [
   'documents',
   'knowledge-graph',
-  'retrieval',
   'prompts',
+  'retrieval',
   'api',
 ] as const
 
