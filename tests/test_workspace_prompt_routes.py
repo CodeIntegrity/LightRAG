@@ -713,6 +713,9 @@ def test_assist_system_prompt_requires_all_parts_both_modes(monkeypatch):
     assert "`entities` and `relationships`" in sp
     # Root-cause guard: drafts must use real line breaks, not '\n' escapes.
     assert "literal block scalar" in sp
+    # Root-cause guard: generated TypeNames must not carry separator/structural
+    # characters the extractor rejects (e.g. the slash in `参数/指标`).
+    assert "Never join two concepts with a slash" in sp
 
     # Text reference example embedded, placeholders kept intact (not substituted).
     text_ref = sp.split("<reference_example>", 1)[1].split("</reference_example>", 1)[0]
@@ -960,6 +963,39 @@ def test_validate_all_modes_rejects_malformed_json_example_body(monkeypatch):
 
     assert validation.valid is False
     assert any("is not valid JSON" in e for e in validation.errors)
+
+
+def test_validate_rejects_slash_in_entity_type_name(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+    from lightrag.api.routers.prompt_routes import _validate_content_all_modes
+
+    # A '/' in the type NAME is exactly what the extractor drops (e.g. 参数/指标).
+    content = _profile_content().replace(
+        "  - ExampleType: Test type", "  - 参数/指标: 量化数据"
+    )
+    _profile, validation = _validate_content_all_modes(content, source_label="draft")
+
+    assert validation.valid is False
+    assert any("参数/指标" in e for e in validation.errors)
+    # Merged across both modes, the single guidance error is not duplicated.
+    assert (
+        sum("entity type names with characters" in e for e in validation.errors) == 1
+    )
+
+
+def test_validate_allows_slash_only_in_type_description(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [sys.argv[0]])
+    from lightrag.api.routers.prompt_routes import _validate_content_all_modes
+
+    # The rule targets the type NAME only; a slash inside the description is
+    # legitimate and must not trip a false positive.
+    content = _profile_content().replace(
+        "  - ExampleType: Test type", "  - ExampleType: handles input/output data"
+    )
+    _profile, validation = _validate_content_all_modes(content, source_label="draft")
+
+    assert validation.valid is True
+    assert validation.errors == []
 
 
 def test_validate_all_modes_rejects_json_example_missing_keys(monkeypatch):

@@ -363,6 +363,37 @@ def _normalize_profile_yaml(content: str, source_label: str) -> str:
     )
 
 
+# Characters the extraction stage rejects in an entity type (see the entity
+# `type` validation in operate.py). A type whose name carries any of these is
+# silently dropped during extraction, so the authoring/save path rejects it up
+# front; the assist repair loop also feeds the message back to the model.
+_FORBIDDEN_ENTITY_TYPE_CHARS = ("'", "(", ")", "<", ">", "|", "/", "\\", ",")
+_ENTITY_TYPE_BULLET_RE = re.compile(
+    r"^[ \t]*-[ \t]+(?P<name>[^:：\n]+)[:：]", re.MULTILINE
+)
+
+
+def _check_entity_type_names(guidance: str, source_label: str) -> None:
+    """Reject ``- TypeName: ...`` bullets whose type name uses a character the
+    extractor forbids (e.g. the slash in ``参数/指标``), which would otherwise be
+    silently discarded at extraction time."""
+    offenders: list[str] = []
+    for match in _ENTITY_TYPE_BULLET_RE.finditer(guidance):
+        name = match.group("name").strip()
+        bad = [char for char in _FORBIDDEN_ENTITY_TYPE_CHARS if char in name]
+        if bad:
+            offenders.append(f"'{name}' ({''.join(bad)})")
+    if offenders:
+        forbidden = " ".join(_FORBIDDEN_ENTITY_TYPE_CHARS)
+        raise ValueError(
+            f"{source_label} field 'entity_types_guidance' uses entity type "
+            "names with characters the extractor rejects (such entities are "
+            f"dropped): {'; '.join(offenders)}. A type name must be a single "
+            f"label containing none of: {forbidden} — split a compound like "
+            "'参数/指标' into separate types '参数' and '指标'."
+        )
+
+
 def _validate_content(
     content: str,
     *,
@@ -371,6 +402,9 @@ def _validate_content(
 ) -> tuple[dict[str, Any], ValidationResult]:
     try:
         profile = _load_prompt_profile_from_content(content, source_label)
+        guidance = profile.get("entity_types_guidance")
+        if guidance:
+            _check_entity_type_names(guidance, source_label)
         default_profile = prompt_module.get_default_entity_extraction_prompt_profile()
         prompt_module.validate_entity_extraction_prompt_profile_for_mode(
             {
@@ -723,7 +757,14 @@ def _build_prompt_assist_system_prompt(default_profile: dict[str, Any]) -> str:
         "Required keys (ALL THREE are mandatory — never omit any):\n"
         "- `entity_types_guidance`: non-empty string — a short classification "
         "instruction followed by `- TypeName: description` bullet lines "
-        "tailored to the user's domain.\n"
+        "tailored to the user's domain. Each `TypeName` MUST be a single "
+        "concise label and MUST NOT contain a separator or structural "
+        "character — none of `/`, `\\`, `|`, `(`, `)`, `<`, `>`, `'`, or a "
+        "comma (the extractor rejects any entity type containing these). "
+        "Never join two concepts with a slash: split them into separate "
+        "types or keep the dominant one (write `参数` and `指标` as separate "
+        "types, NOT `参数/指标`). This rule applies to every TYPE token used "
+        "in the examples as well.\n"
         "- `entity_extraction_examples`: list of 1-3 text-mode example strings "
         "following the TEXT format contract below.\n"
         "- `entity_extraction_json_examples`: list of 1-3 JSON-mode example "
