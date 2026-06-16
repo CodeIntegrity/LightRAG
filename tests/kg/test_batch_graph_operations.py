@@ -1797,6 +1797,106 @@ class TestAinsertCustomKgBatchPath:
 
     @pytest.mark.offline
     @pytest.mark.asyncio
+    async def test_arebuild_all_custom_chunks_graphs_purges_kg_before_reextract(
+        self, monkeypatch
+    ):
+        """Rebuild must purge a doc's prior graph contribution before
+        re-extracting, while keeping the chunks it re-extracts from."""
+        from lightrag import LightRAG
+        from lightrag.base import DocStatus
+
+        workspace = f"purge-rebuild-{time.time_ns()}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rag = LightRAG(
+                working_dir=tmp,
+                workspace=workspace,
+                llm_model_func=AsyncMock(return_value=""),
+                embedding_func=mock_embedding_func,
+            )
+            await rag.initialize_storages()
+
+            doc_id = "doc-purge-rebuild-1"
+            chunk_id = "chunk-purge-rebuild-1"
+
+            await rag.full_docs.upsert(
+                {doc_id: {"content": "full text", "file_path": "note.md"}}
+            )
+            await rag.text_chunks.upsert(
+                {
+                    chunk_id: {
+                        "content": "chunk text",
+                        "full_doc_id": doc_id,
+                        "tokens": 3,
+                        "chunk_order_index": 0,
+                        "file_path": "note.md",
+                    }
+                }
+            )
+            await rag.doc_status.upsert(
+                {
+                    doc_id: {
+                        "status": DocStatus.PROCESSED,
+                        "content_summary": "summary",
+                        "content_length": 16,
+                        "chunks_count": 1,
+                        "chunks_list": [chunk_id],
+                        "created_at": "2026-05-09T00:00:00+00:00",
+                        "updated_at": "2026-05-09T00:00:00+00:00",
+                        "file_path": "note.md",
+                        "track_id": "track-purge",
+                        "metadata": {"source": "upload"},
+                    }
+                }
+            )
+
+            call_order: list[str] = []
+            purge_calls: list[tuple[str, set, bool]] = []
+
+            async def fake_purge(
+                self,
+                purged_doc_id,
+                purged_chunk_ids,
+                *,
+                pipeline_status,
+                pipeline_status_lock,
+                delete_chunks=True,
+            ):
+                call_order.append("purge")
+                purge_calls.append(
+                    (purged_doc_id, set(purged_chunk_ids), delete_chunks)
+                )
+
+            async def fake_extract(self, chunks, *_args):
+                call_order.append("extract")
+                return [("nodes", "edges")]
+
+            async def fake_merge(**kwargs):
+                call_order.append("merge")
+
+            monkeypatch.setattr(
+                rag, "_purge_doc_chunks_and_kg", MethodType(fake_purge, rag)
+            )
+            monkeypatch.setattr(
+                rag, "_process_extract_entities", MethodType(fake_extract, rag)
+            )
+            monkeypatch.setattr("lightrag.lightrag.merge_nodes_and_edges", fake_merge)
+
+            summary = await rag.arebuild_all_custom_chunks_graphs([doc_id])
+
+            assert summary["rebuilt"] == 1
+            assert summary["failed"] == 0
+            # Purged exactly once, for this doc, keeping its chunks (delete_chunks=False).
+            assert purge_calls == [(doc_id, {chunk_id}, False)]
+            # Cleanup must precede re-extraction and the subsequent merge.
+            assert call_order == ["purge", "extract", "merge"]
+            # The chunk we re-extract from must still be present.
+            assert await rag.text_chunks.get_by_id(chunk_id) is not None
+
+            await rag.finalize_storages()
+
+    @pytest.mark.offline
+    @pytest.mark.asyncio
     async def test_ainsert_custom_kg_marks_doc_status_failed_on_error(self):
         """When the graph upsert blows up, doc_status must be flipped to FAILED."""
         from lightrag import LightRAG

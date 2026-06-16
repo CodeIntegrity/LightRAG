@@ -2194,6 +2194,19 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                         }
                     )
 
+                    # Replace (not duplicate) this document's prior graph
+                    # contribution before re-extracting: purge its entities /
+                    # relations first. delete_chunks=False keeps the chunks we
+                    # re-extract from; entities shared with other documents are
+                    # rebuilt from their remaining chunks rather than dropped.
+                    await self._purge_doc_chunks_and_kg(
+                        doc_id,
+                        set(chunk_ids),
+                        pipeline_status=pipeline_status,
+                        pipeline_status_lock=pipeline_status_lock,
+                        delete_chunks=False,
+                    )
+
                     chunk_results = await self._process_extract_entities(
                         chunks, pipeline_status, pipeline_status_lock
                     )
@@ -3502,6 +3515,7 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
         *,
         pipeline_status: dict,
         pipeline_status_lock: Any,
+        delete_chunks: bool = True,
     ) -> None:
         """Remove a document's chunks and clean up its knowledge-graph contributions.
 
@@ -3510,6 +3524,11 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
               document whose content is already extracted is re-processed
               under different ``process_options``: chunks must be wiped and
               entities/relations rebuilt fresh.
+            - The custom-chunk graph rebuild path
+              (``arebuild_all_custom_chunks_graphs``), which re-extracts from
+              the SAME chunks and therefore passes ``delete_chunks=False`` to
+              keep them in storage while still replacing (not duplicating) the
+              document's entities/relations.
             - Future deletion paths that want a focused "purge KG only"
               operation without the LLM-cache / doc_status / full_docs
               cleanup that ``adelete_by_doc_id`` also performs.
@@ -3524,7 +3543,8 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
                *delete-outright* (no remaining sources) or *rebuild*
                (still references chunks from other documents).
             3. Deletes the chunks themselves from ``chunks_vdb`` and
-               ``text_chunks``.
+               ``text_chunks`` (skipped when ``delete_chunks=False``, so a
+               caller that re-extracts from the same chunks keeps them).
             4. For *delete-outright* entries: removes the relationship /
                entity from the graph storage, vector storage, and chunk
                tracking.
@@ -3755,20 +3775,21 @@ class LightRAG(_RoleLLMMixin, _StorageMigrationMixin, _PipelineMixin):
             )
             raise Exception(f"Failed to process graph dependencies: {e}") from e
 
-        # ---- 3. Delete chunks themselves ----
-        try:
-            await self.chunks_vdb.delete(chunk_ids)
-            await self.text_chunks.delete(chunk_ids)
-            async with pipeline_status_lock:
-                log_message = (
-                    f"[purge] {doc_id}: deleted {len(chunk_ids)} chunk(s) from storage"
-                )
-                logger.info(log_message)
-                pipeline_status["latest_message"] = log_message
-                pipeline_status["history_messages"].append(log_message)
-        except Exception as e:
-            logger.error(f"[purge] Failed to delete chunks for {doc_id}: {e}")
-            raise Exception(f"Failed to delete document chunks: {e}") from e
+        # ---- 3. Delete chunks themselves (unless caller re-extracts from them) ----
+        if delete_chunks:
+            try:
+                await self.chunks_vdb.delete(chunk_ids)
+                await self.text_chunks.delete(chunk_ids)
+                async with pipeline_status_lock:
+                    log_message = (
+                        f"[purge] {doc_id}: deleted {len(chunk_ids)} chunk(s) from storage"
+                    )
+                    logger.info(log_message)
+                    pipeline_status["latest_message"] = log_message
+                    pipeline_status["history_messages"].append(log_message)
+            except Exception as e:
+                logger.error(f"[purge] Failed to delete chunks for {doc_id}: {e}")
+                raise Exception(f"Failed to delete document chunks: {e}") from e
 
         # ---- 4. Delete relationships with no remaining sources ----
         if relationships_to_delete:
