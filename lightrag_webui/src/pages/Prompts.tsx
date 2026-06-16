@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertCircleIcon, CheckCircle2Icon, ChevronDownIcon, FileTextIcon, PlayIcon, RefreshCwIcon, SaveIcon, SparklesIcon, Trash2Icon, XCircleIcon, XIcon } from 'lucide-react'
+import { AlertCircleIcon, CheckCircle2Icon, ChevronDownIcon, FileTextIcon, Maximize2Icon, PlayIcon, RefreshCwIcon, SaveIcon, SparklesIcon, Trash2Icon, XCircleIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 
@@ -29,6 +29,13 @@ import {
   AlertDialogTitle
 } from '@/components/ui/AlertDialog'
 import Button from '@/components/ui/Button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/Dialog'
 import Input from '@/components/ui/Input'
 import Separator from '@/components/ui/Separator'
 import Textarea from '@/components/ui/Textarea'
@@ -269,6 +276,26 @@ export const resolveValidationDisplay = (params: {
 export type AssistDraftResponse = EntityTypePromptAssistResponse
 
 /**
+ * One entry in the assist refinement conversation. `instruction` is null for
+ * the initial generation and the user's follow-up text thereafter; `response`
+ * is the draft that turn produced, kept so any turn can be restored (revert).
+ */
+export type AssistTurn = {
+  instruction: string | null
+  response: AssistDraftResponse
+}
+
+/**
+ * Pure helper. Revert truncates the conversation to `index` (inclusive), so the
+ * chosen turn becomes the latest again and everything after it is discarded.
+ * Out-of-range indices are clamped by `slice`, returning a safe prefix.
+ */
+export const revertAssistTurns = (
+  turns: AssistTurn[],
+  index: number
+): AssistTurn[] => turns.slice(0, index + 1)
+
+/**
  * Pure helper that wraps the API client and strips empty optional fields.
  * Keeping the request shape minimal lets the backend apply its own defaults
  * (language="auto"). Assist always drafts both text and JSON examples.
@@ -356,6 +383,10 @@ export default function Prompts() {
   const [assistDraft, setAssistDraft] = useState<AssistDraftResponse | null>(null)
   const [assistLoading, setAssistLoading] = useState(false)
   const [assistRawOpen, setAssistRawOpen] = useState(false)
+  const [draftFullscreen, setDraftFullscreen] = useState(false)
+  const [assistTurns, setAssistTurns] = useState<AssistTurn[]>([])
+  const [assistFollowUp, setAssistFollowUp] = useState('')
+  const [assistRefining, setAssistRefining] = useState(false)
 
   const hasUnsavedChanges = state.content !== savedContent
 
@@ -540,12 +571,10 @@ export default function Prompts() {
     }
   }, [state, t])
 
-  const handleCloseAssist = useCallback(() => setAssistOpen(false), [])
-
   const handleToggleAssist = useCallback(() => setAssistOpen((open) => !open), [])
 
   const handleGenerateAssistDraft = useCallback(async () => {
-    if (!assistRequirements.trim() || assistLoading) {
+    if (!assistRequirements.trim() || assistLoading || assistRefining) {
       return
     }
     setAssistLoading(true)
@@ -557,6 +586,8 @@ export default function Prompts() {
         language: assistLanguage
       })
       setAssistDraft(response)
+      setAssistTurns([{ instruction: null, response }])
+      setAssistFollowUp('')
       setAssistRawOpen(false)
     } catch (error) {
       const key = _resolveAssistErrorKey(error)
@@ -568,7 +599,46 @@ export default function Prompts() {
     } finally {
       setAssistLoading(false)
     }
-  }, [assistLanguage, assistLoading, assistRequirements, assistSampleText, state.content, t])
+  }, [assistLanguage, assistLoading, assistRefining, assistRequirements, assistSampleText, state.content, t])
+
+  const handleSendFollowUp = useCallback(async () => {
+    const instruction = assistFollowUp.trim()
+    if (!instruction || assistLoading || assistRefining || !assistDraft) {
+      return
+    }
+    setAssistRefining(true)
+    try {
+      const response = await generateAssistDraft({
+        requirements: instruction,
+        currentContent: assistDraft.content,
+        sampleText: assistSampleText,
+        language: assistLanguage
+      })
+      setAssistDraft(response)
+      setAssistTurns((previous) => [...previous, { instruction, response }])
+      setAssistFollowUp('')
+      setAssistRawOpen(false)
+    } catch (error) {
+      const key = _resolveAssistErrorKey(error)
+      if (key) {
+        toast.error(t(key))
+      } else {
+        toast.error(error instanceof Error ? error.message : String(error))
+      }
+    } finally {
+      setAssistRefining(false)
+    }
+  }, [assistDraft, assistFollowUp, assistLanguage, assistLoading, assistRefining, assistSampleText, t])
+
+  const handleRevertTurn = useCallback(
+    (index: number) => {
+      const next = revertAssistTurns(assistTurns, index)
+      const last = next[next.length - 1]
+      setAssistTurns(next)
+      setAssistDraft(last ? last.response : null)
+    },
+    [assistTurns]
+  )
 
   const handleApplyAssistDraft = useCallback(() => {
     if (!assistDraft) {
@@ -593,19 +663,6 @@ export default function Prompts() {
     setLastValidatedContent(assistDraft.content)
     setAssistOpen(false)
   }, [assistDraft, hasUnsavedChanges, t])
-
-  useEffect(() => {
-    if (!assistOpen) {
-      return
-    }
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setAssistOpen(false)
-      }
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [assistOpen])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -765,29 +822,24 @@ export default function Prompts() {
             </Button>
           </div>
 
-          {assistOpen && (
-            <div
+          <Dialog open={assistOpen} onOpenChange={setAssistOpen}>
+            <DialogContent
               id="prompts-assist-panel"
-              role="region"
-              aria-labelledby="prompts-assist-title"
-              aria-live="polite"
-              className="mb-3 max-h-[40vh] space-y-3 overflow-auto rounded-md border bg-muted/30 p-3"
+              className="flex max-h-[85vh] w-full max-w-2xl flex-col gap-3 overflow-hidden"
             >
-              <div className="flex items-center justify-between">
-                <span id="prompts-assist-title" className="text-sm font-medium">
+              <DialogHeader>
+                <DialogTitle id="prompts-assist-title">
                   {t('prompts.assist.panelTitle', 'Assist with LLM')}
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  aria-label={t('common.close', 'Close')}
-                  onClick={handleCloseAssist}
-                >
-                  <XIcon aria-hidden="true" />
-                </Button>
-              </div>
-              <label className="grid gap-1 text-sm">
+                </DialogTitle>
+                <DialogDescription>
+                  {t(
+                    'prompts.assist.panelDescription',
+                    'Describe your needs and let the LLM draft an entity-type prompt for you'
+                  )}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="-mr-2 flex-1 space-y-3 overflow-y-auto pr-2">
+                <label className="grid gap-1 text-sm">
                 <span className="text-xs font-medium text-muted-foreground">
                   {t('prompts.assist.requirementsLabel', 'Your requirements')}
                 </span>
@@ -849,7 +901,7 @@ export default function Prompts() {
                 <Button
                   type="button"
                   size="sm"
-                  disabled={assistLoading || !assistRequirements.trim()}
+                  disabled={assistLoading || assistRefining || !assistRequirements.trim()}
                   onClick={() => void handleGenerateAssistDraft()}
                 >
                   {assistLoading ? (
@@ -877,11 +929,24 @@ export default function Prompts() {
               </div>
               {assistDraft && (
                 <div className="space-y-2">
-                  <div className="text-xs text-muted-foreground">
-                    {t('prompts.assist.draftMeta', 'Generated · {{model}} · {{lines}} lines', {
-                      model: assistDraft.model ?? '-',
-                      lines: assistDraft.content ? assistDraft.content.split('\n').length : 0
-                    })}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs text-muted-foreground">
+                      {t('prompts.assist.draftMeta', 'Generated · {{model}} · {{lines}} lines', {
+                        model: assistDraft.model ?? '-',
+                        lines: assistDraft.content ? assistDraft.content.split('\n').length : 0
+                      })}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      tooltip={t('prompts.assist.expand', 'Expand')}
+                      aria-label={t('prompts.assist.expand', 'Expand')}
+                      onClick={() => setDraftFullscreen(true)}
+                    >
+                      <Maximize2Icon aria-hidden="true" />
+                      <span>{t('prompts.assist.expand', 'Expand')}</span>
+                    </Button>
                   </div>
                   {assistDraft.warnings.length > 0 && (
                     <ul className="list-inside list-disc text-xs text-amber-600 dark:text-amber-400">
@@ -928,10 +993,120 @@ export default function Prompts() {
                       )}
                     </div>
                   )}
+                  <div className="space-y-2 border-t pt-3">
+                    <div className="text-xs font-medium uppercase text-muted-foreground">
+                      {t('prompts.assist.refineLabel', 'Continue editing')}
+                    </div>
+                    {assistTurns.length > 0 && (
+                      <ul className="space-y-1.5">
+                        {assistTurns.map((turn, idx) => {
+                          const isCurrent = idx === assistTurns.length - 1
+                          const lines = turn.response.content
+                            ? turn.response.content.split('\n').length
+                            : 0
+                          return (
+                            <li key={idx} className="text-sm">
+                              {turn.instruction !== null && (
+                                <div>
+                                  <span className="text-muted-foreground">
+                                    {t('prompts.assist.youLabel', 'You')}:{' '}
+                                  </span>
+                                  {turn.instruction}
+                                </div>
+                              )}
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <span>
+                                  {turn.instruction === null
+                                    ? t('prompts.assist.turnInitial', 'Initial draft · {{lines}} lines', {
+                                        lines
+                                      })
+                                    : t('prompts.assist.turnUpdated', '↳ Draft updated · {{lines}} lines', {
+                                        lines
+                                      })}
+                                </span>
+                                {isCurrent ? (
+                                  <span className="rounded bg-accent px-1.5 py-0.5">
+                                    {t('prompts.assist.turnCurrent', 'current')}
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="cursor-pointer underline hover:text-foreground"
+                                    onClick={() => handleRevertTurn(idx)}
+                                  >
+                                    {t('prompts.assist.revert', 'Revert to this')}
+                                  </button>
+                                )}
+                              </div>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                    <Textarea
+                      value={assistFollowUp}
+                      maxLength={4000}
+                      disabled={assistRefining}
+                      onChange={(event) => setAssistFollowUp(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !event.shiftKey) {
+                          event.preventDefault()
+                          void handleSendFollowUp()
+                        }
+                      }}
+                      placeholder={t(
+                        'prompts.assist.refinePlaceholder',
+                        'Describe a change, e.g., make the examples shorter or add a medical-domain example'
+                      )}
+                      className="min-h-[60px]"
+                    />
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={assistRefining || !assistFollowUp.trim()}
+                        onClick={() => void handleSendFollowUp()}
+                      >
+                        {assistRefining ? (
+                          <>
+                            <RefreshCwIcon aria-hidden="true" className="animate-spin" />
+                            <span>{t('prompts.assist.refining', 'Refining...')}</span>
+                          </>
+                        ) : (
+                          <>
+                            <SparklesIcon aria-hidden="true" />
+                            <span>{t('prompts.assist.send', 'Send')}</span>
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               )}
-            </div>
-          )}
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={draftFullscreen} onOpenChange={setDraftFullscreen}>
+            <DialogContent className="flex h-[90vh] w-full max-w-[95vw] flex-col gap-3">
+              <DialogHeader>
+                <DialogTitle>
+                  {t('prompts.assist.draftPreviewTitle', 'Generated draft')}
+                </DialogTitle>
+                <DialogDescription>
+                  {t('prompts.assist.draftMeta', 'Generated · {{model}} · {{lines}} lines', {
+                    model: assistDraft?.model ?? '-',
+                    lines: assistDraft?.content ? assistDraft.content.split('\n').length : 0
+                  })}
+                </DialogDescription>
+              </DialogHeader>
+              <YamlEditor
+                value={assistDraft?.content ?? ''}
+                readOnly
+                className="min-h-0 flex-1 text-sm"
+              />
+            </DialogContent>
+          </Dialog>
 
           <div className="mb-3 grid shrink-0 grid-cols-[minmax(180px,1fr)_80px_auto] items-end gap-3">
             <label className="grid gap-1 text-sm">

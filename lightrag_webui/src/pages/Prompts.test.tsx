@@ -380,6 +380,28 @@ describe('Prompts assist draft', () => {
     expect(next.list).toEqual(baseState.list)
   })
 
+  test('revertAssistTurns truncates the conversation to the chosen turn (inclusive)', async () => {
+    const page = await import('./Prompts')
+    const turn = (content: string) => ({
+      instruction: content,
+      response: {
+        content,
+        validation: { valid: true, errors: [] },
+        warnings: [],
+        raw_output: content,
+        model: 'm'
+      }
+    })
+    const turns = [turn('v1'), turn('v2'), turn('v3')]
+
+    // Reverting to index 0 keeps only the first turn.
+    expect(page.revertAssistTurns(turns, 0)).toEqual([turns[0]])
+    // Reverting to the last index is a no-op.
+    expect(page.revertAssistTurns(turns, 2)).toEqual(turns)
+    // Out-of-range index is clamped to the full prefix (safe).
+    expect(page.revertAssistTurns(turns, 99)).toEqual(turns)
+  })
+
   test('shouldConfirmAssistApply triggers on unsaved changes OR invalid draft', async () => {
     const page = await import('./Prompts')
 

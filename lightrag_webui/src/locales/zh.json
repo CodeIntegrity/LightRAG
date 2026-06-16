@@ -201,7 +201,7 @@
           "chunks": "分块"
         }
       },
-      "cancelPipelineButton": "中断所有 Pipeline",
+      "cancelPipelineButton": "中断所有流水线",
       "cancelPipelineTooltip": "请求中断当前所有文档流水线任务",
       "customChunksRebuild": {
         "button": "重建图谱",
@@ -976,6 +976,7 @@
     "assist": {
       "button": "辅助生成",
       "panelTitle": "LLM 辅助编写",
+      "panelDescription": "描述你的需求，让 LLM 为你起草实体类型提示词",
       "requirementsLabel": "你的需求",
       "requirementsPlaceholder": "例如：从医疗记录中抽取疾病、药物、症状和治疗",
       "languageLabel": "生成语言",
@@ -984,6 +985,17 @@
       "sampleTextPlaceholder": "粘贴一段有代表性的语料，生成的示例将以其为素材",
       "generate": "生成草稿",
       "generating": "生成中...",
+      "expand": "全屏查看",
+      "draftPreviewTitle": "生成的草稿",
+      "refineLabel": "继续修改",
+      "refinePlaceholder": "描述要做的修改，例如：让示例更简短，或增加一个医疗领域示例",
+      "send": "发送",
+      "refining": "修改中...",
+      "youLabel": "你",
+      "turnInitial": "初始草稿 · {{lines}} 行",
+      "turnUpdated": "↳ 已更新草稿 · {{lines}} 行",
+      "turnCurrent": "当前",
+      "revert": "回退到这一版",
       "apply": "应用草稿",
       "applyConfirm": "应用草稿将覆盖编辑器内容（未保存的修改会丢失），且/或草稿尚未通过校验。是否继续？",
       "draftMeta": "已生成 · {{model}} · {{lines}} 行",
