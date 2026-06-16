@@ -206,38 +206,34 @@ export const resolveNodeColor = (
   currentMap: Map<string, string> | undefined
 ): ResolveNodeColorResult => {
   const typeColorMap = currentMap ?? new Map<string, string>()
-  const normalizedType = nodeType ? nodeType.toLowerCase() : 'unknown'
-  const standardType = TYPE_SYNONYMS[normalizedType]
-  const cacheKey = standardType || normalizedType
+  // Legend label must be the raw database value (preserve original case & language).
+  // Synonym normalization is used ONLY to pick a consistent color, never as the map
+  // key — otherwise a Chinese type like "组织" would display as English "organization".
+  const displayKey = nodeType && nodeType.trim() !== '' ? nodeType : 'unknown'
 
-  if (typeColorMap.has(cacheKey)) {
+  if (typeColorMap.has(displayKey)) {
     return {
-      color: typeColorMap.get(cacheKey) || DEFAULT_NODE_COLOR,
+      color: typeColorMap.get(displayKey) || DEFAULT_NODE_COLOR,
       map: typeColorMap,
       updated: false
     }
   }
 
+  const normalizedType = nodeType ? nodeType.toLowerCase() : 'unknown'
+  const standardType = TYPE_SYNONYMS[normalizedType]
+
+  let color: string
   if (standardType) {
-    const color = NODE_TYPE_COLORS[standardType] || DEFAULT_NODE_COLOR
-    const newMap = new Map(typeColorMap)
-    newMap.set(standardType, color)
-    return {
-      color,
-      map: newMap,
-      updated: true
-    }
+    color = NODE_TYPE_COLORS[standardType] || DEFAULT_NODE_COLOR
+  } else {
+    const usedExtendedColors = new Set(
+      Array.from(typeColorMap.values()).filter((c) => !PREDEFINED_COLOR_SET.has(c))
+    )
+    color = EXTENDED_COLORS.find((c) => !usedExtendedColors.has(c)) || DEFAULT_NODE_COLOR
   }
 
-  const usedExtendedColors = new Set(
-    Array.from(typeColorMap.values()).filter((color) => !PREDEFINED_COLOR_SET.has(color))
-  )
-
-  const unusedColor = EXTENDED_COLORS.find((color) => !usedExtendedColors.has(color))
-  const color = unusedColor || DEFAULT_NODE_COLOR
-
   const newMap = new Map(typeColorMap)
-  newMap.set(normalizedType, color)
+  newMap.set(displayKey, color)
 
   return {
     color,
