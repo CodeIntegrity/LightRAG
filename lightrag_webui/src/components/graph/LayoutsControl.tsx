@@ -20,6 +20,7 @@ import {
   loadGraphLayoutType,
   saveGraphLayoutView
 } from '@/utils/graphViewPersistence'
+import { computeForceAtlas2Layout, FORCE_ATLAS2_BASE_SETTINGS } from '@/utils/forceAtlas2Layout'
 
 import { GripIcon, PlayIcon, PauseIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -241,7 +242,10 @@ const LayoutsControl = () => {
       maxMove: maxMove
     }
   })
-  const layoutForceAtlas2 = useLayoutForceAtlas2({ iterations: maxIterations })
+  const layoutForceAtlas2 = useLayoutForceAtlas2({
+    iterations: maxIterations,
+    settings: FORCE_ATLAS2_BASE_SETTINGS
+  })
   const workerNoverlap = useWorkerLayoutNoverlap()
   const workerForce = useWorkerLayoutForce()
   const workerForceAtlas2 = useWorkerLayoutForceAtlas2()
@@ -292,7 +296,6 @@ const LayoutsControl = () => {
   const runLayout = useCallback(
     (newLayout: LayoutName) => {
       console.debug('Running layout:', newLayout)
-      const { positions } = layouts[newLayout].layout
 
       try {
         const graph = sigma.getGraph()
@@ -301,7 +304,11 @@ const LayoutsControl = () => {
           return
         }
 
-        const pos = positions()
+        // Force Atlas 走两阶段管线（FA2 出簇结构 → noverlap 抛光消重叠），其余沿用各自 hook
+        const pos =
+          newLayout === 'Force Atlas'
+            ? computeForceAtlas2Layout(graph)
+            : layouts[newLayout].layout.positions()
         console.log('Positions calculated, animating nodes')
         animateNodes(graph, pos, { duration: 400 })
         setLayout(newLayout)

@@ -1,7 +1,6 @@
 import { useRegisterEvents, useSetSettings, useSigma } from '@react-sigma/core'
 import { AbstractGraph } from 'graphology-types'
 // import { useLayoutCircular } from '@react-sigma/layout-circular'
-import { useLayoutForceAtlas2 } from '@react-sigma/layout-forceatlas2'
 import { type MutableRefObject, useEffect, useRef, useState } from 'react'
 
 // import useRandomGraph, { EdgeType, NodeType } from '@/hooks/useRandomGraph'
@@ -13,10 +12,12 @@ import { useSettingsStore } from '@/stores/settings'
 import { useGraphStore } from '@/stores/graph'
 import {
   loadGraphCameraView,
+  loadGraphNodePositions,
   restorePersistedCameraView,
   saveGraphNodePosition,
   subscribeToCameraViewPersistence
 } from '@/utils/graphViewPersistence'
+import { applyForceAtlas2Layout } from '@/utils/forceAtlas2Layout'
 import { applyLinkedDragMovement } from '@/utils/graphDrag'
 import { getGraphEdgeType } from '@/utils/graphEdgeType'
 import { getGraphInteractionSettings } from '@/utils/graphInteractionSettings'
@@ -215,11 +216,6 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
   const registerEvents = useRegisterEvents<NodeType, EdgeType>()
   const setSettings = useSetSettings<NodeType, EdgeType>()
 
-  const maxIterations = useSettingsStore.use.graphLayoutMaxIterations()
-  const { assign: assignLayout } = useLayoutForceAtlas2({
-    iterations: maxIterations
-  })
-
   const { theme } = useTheme()
   const hideUnselectedEdges = useSettingsStore.use.enableHideUnselectedEdges()
   const enableEdgeEvents = useSettingsStore.use.enableEdgeEvents()
@@ -263,8 +259,9 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
     (theme === 'system' && systemThemeIsDark)
 
   /**
-   * When component mount or maxIterations changes
-   * => ensure graph reference and apply layout
+   * When component mount or the graph instance changes
+   * => bind graph to sigma and apply the initial layout.
+   * 仅在没有用户保存的节点位置时自动布局，避免覆盖手动整理过的视图。
    */
   useEffect(() => {
     if (sigmaGraph && sigma) {
@@ -280,9 +277,16 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
         return;
       }
 
-      assignLayout();
+      const { currentWorkspace: workspace } = useSettingsStore.getState()
+      const { lastSuccessfulQueryLabel: queryLabel } = useGraphStore.getState()
+      const hasPersistedPositions =
+        Object.keys(loadGraphNodePositions({ workspace, queryLabel })).length > 0
+      if (!hasPersistedPositions) {
+        applyForceAtlas2Layout(sigmaGraph)
+        sigma.refresh()
+      }
     }
-  }, [sigma, sigmaGraph, assignLayout, maxIterations])
+  }, [sigma, sigmaGraph])
 
   useEffect(() => {
     if (!sigma || !sigmaGraph) {

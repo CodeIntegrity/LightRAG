@@ -158,8 +158,10 @@ const fetchGraph = async (
       rawData.nodes[i] = node
       nodeIdMap[node.id] = i
 
-      node.x = Math.random()
-      node.y = Math.random()
+      // 按 node.id 播种初始坐标，使自动布局可复现（刷新不乱跳）
+      const rng = seedrandom(node.id)
+      node.x = rng()
+      node.y = rng()
       node.degree = 0
       node.size = 10
     }

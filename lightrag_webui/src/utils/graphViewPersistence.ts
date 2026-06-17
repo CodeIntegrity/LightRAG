@@ -1,6 +1,6 @@
 const STORAGE_PREFIX = 'lightrag-graph-view:'
 const MAX_ENTRIES = 50
-export const DEFAULT_GRAPH_LAYOUT = 'Circular'
+export const DEFAULT_GRAPH_LAYOUT = 'Force Atlas'
 export const SUPPORTED_GRAPH_LAYOUTS = [
   'Circular',
   'Circlepack',
