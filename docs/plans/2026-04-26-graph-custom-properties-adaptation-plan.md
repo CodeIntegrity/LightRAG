@@ -164,11 +164,11 @@
   - 不影响现有属性面板和 Action Inspector
 
 ## 测试命令
-- `rtk ./scripts/test.sh tests/test_graph_routes.py -v`
-- `rtk ./scripts/test.sh tests/test_batch_graph_operations.py -v`
-- `rtk ./scripts/test.sh tests/test_nebula_graph_storage.py -v`
-- `rtk bash -lc 'cd lightrag_webui && bun test graphProperties ActionInspector -t custom_properties'`
-- `rtk ruff check lightrag/lightrag.py lightrag/api/routers/graph_routes.py lightrag/api/graph_workbench.py lightrag/kg/nebula_impl.py tests/test_graph_routes.py tests/test_batch_graph_operations.py tests/test_nebula_graph_storage.py`
+- `./scripts/test.sh tests/test_graph_routes.py -v`
+- `./scripts/test.sh tests/test_batch_graph_operations.py -v`
+- `./scripts/test.sh tests/test_nebula_graph_storage.py -v`
+- `bash -lc 'cd lightrag_webui && bun test graphProperties ActionInspector -t custom_properties'`
+- `ruff check lightrag/lightrag.py lightrag/api/routers/graph_routes.py lightrag/api/graph_workbench.py lightrag/kg/nebula_impl.py tests/test_graph_routes.py tests/test_batch_graph_operations.py tests/test_nebula_graph_storage.py`
 
 ## 风险点
 - `Nebula` schema 变更需要兼顾初始化、已有空间和测试建库流程。

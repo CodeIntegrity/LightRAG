@@ -68,8 +68,8 @@
 - 改动范围不扩散到其他图后端
 
 ## 测试命令
-- `rtk ./scripts/test.sh tests/test_nebula_graph_storage.py -v`
-- `rtk ruff check lightrag/kg/nebula_impl.py tests/test_nebula_graph_storage.py`
+- `./scripts/test.sh tests/test_nebula_graph_storage.py -v`
+- `ruff check lightrag/kg/nebula_impl.py tests/test_nebula_graph_storage.py`
 
 ## 风险点
 - `Nebula` 旧数据仍保留 `name == entity_id`，新旧数据展示语义会并存

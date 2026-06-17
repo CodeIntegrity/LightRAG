@@ -71,8 +71,8 @@ M — 单个前端子系统内的链路、交互、展示与测试补强，部�
 - [ ] 同步补 `lightrag.ts` 中相关 API helper 的测试。
 
 ## Verification Commands
-- `rtk bash -lc 'cd lightrag_webui && bun test src/features/RetrievalTesting.test.tsx src/components/retrieval/QuerySettings.test.tsx src/api/lightrag.test.ts src/components/retrieval/RetrievalPromptVersionSelector.test.ts'`
-- `rtk bash -lc 'cd lightrag_webui && bun run build'`
+- `bash -lc 'cd lightrag_webui && bun test src/features/RetrievalTesting.test.tsx src/components/retrieval/QuerySettings.test.tsx src/api/lightrag.test.ts src/components/retrieval/RetrievalPromptVersionSelector.test.ts'`
+- `bash -lc 'cd lightrag_webui && bun run build'`
 
 ## Delivery Acceptance Plan
 - 检索页默认一次查询不再自动触发第二次 `/query/data` 请求。

@@ -124,13 +124,13 @@
 Run:
 
 ```bash
-rtk ./scripts/test.sh tests/test_graph_routes.py -q
+./scripts/test.sh tests/test_graph_routes.py -q
 ```
 
 如新增 Nebula 专项测试，再补：
 
 ```bash
-rtk ./scripts/test.sh tests/<nebula-test-file>.py -q
+./scripts/test.sh tests/<nebula-test-file>.py -q
 ```
 
 Expected:
@@ -173,7 +173,7 @@ Expected:
 Run:
 
 ```bash
-rtk bash -lc 'cd /root/project/LightRAG/lightrag_webui && bun test src/utils/graphSearch.test.ts'
+bash -lc 'cd /root/project/LightRAG/lightrag_webui && bun test src/utils/graphSearch.test.ts'
 ```
 
 Expected:
@@ -227,7 +227,7 @@ Expected:
 Run:
 
 ```bash
-rtk bash -lc 'cd /root/project/LightRAG/lightrag_webui && bun test src/components/graph'
+bash -lc 'cd /root/project/LightRAG/lightrag_webui && bun test src/components/graph'
 ```
 
 Expected:
@@ -315,7 +315,7 @@ Expected:
 Run:
 
 ```bash
-rtk ./scripts/test.sh tests/test_graph_routes.py tests/test_graph_workbench.py -q
+./scripts/test.sh tests/test_graph_routes.py tests/test_graph_workbench.py -q
 ```
 
 - [x] **Step 2: 运行前端验证**
@@ -323,7 +323,7 @@ rtk ./scripts/test.sh tests/test_graph_routes.py tests/test_graph_workbench.py -
 Run:
 
 ```bash
-rtk bash -lc 'cd /root/project/LightRAG/lightrag_webui && bun test'
+bash -lc 'cd /root/project/LightRAG/lightrag_webui && bun test'
 ```
 
 - [x] **Step 3: 记录性能证据**
@@ -379,12 +379,12 @@ rtk bash -lc 'cd /root/project/LightRAG/lightrag_webui && bun test'
 ### 实际运行命令
 
 ```bash
-rtk ./scripts/test.sh tests/test_nebula_graph_storage.py tests/test_graph_routes.py -q
-rtk ./scripts/test.sh tests/test_graph_routes.py tests/test_graph_workbench.py -q
-rtk bun test src/utils/graphSearch.test.ts
-rtk bun test src/components/graph src/utils/graphSearch.test.ts
-rtk uv run ruff check lightrag/kg/nebula_impl.py lightrag/api/routers/graph_routes.py tests/test_nebula_graph_storage.py tests/test_graph_routes.py
-rtk bun run build
+./scripts/test.sh tests/test_nebula_graph_storage.py tests/test_graph_routes.py -q
+./scripts/test.sh tests/test_graph_routes.py tests/test_graph_workbench.py -q
+bun test src/utils/graphSearch.test.ts
+bun test src/components/graph src/utils/graphSearch.test.ts
+uv run ruff check lightrag/kg/nebula_impl.py lightrag/api/routers/graph_routes.py tests/test_nebula_graph_storage.py tests/test_graph_routes.py
+bun run build
 ```
 
 ### 性能证据

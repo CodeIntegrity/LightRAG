@@ -68,7 +68,7 @@ describe('useLightragGraph request lifecycle', () => {
 
 - [ ] **Step 2: 跑测试确认当前实现缺少保护**
 
-Run: `rtk bash -lc 'cd lightrag_webui && bun test src/hooks/useLightragGraph.test.ts'`
+Run: `bash -lc 'cd lightrag_webui && bun test src/hooks/useLightragGraph.test.ts'`
 Expected: FAIL，原因是旧请求结果仍能覆盖新请求。
 
 - [ ] **Step 3: 给 API client 增加取消能力**
@@ -112,7 +112,7 @@ if (requestId !== requestIdRef.current) {
 
 - [ ] **Step 6: 重新运行请求生命周期测试**
 
-Run: `rtk bash -lc 'cd lightrag_webui && bun test src/hooks/useLightragGraph.test.ts'`
+Run: `bash -lc 'cd lightrag_webui && bun test src/hooks/useLightragGraph.test.ts'`
 Expected: PASS
 
 - [ ] **Step 7: 提交**
@@ -149,7 +149,7 @@ describe('graph overlay states', () => {
 
 - [ ] **Step 2: 跑测试确认当前实现仍向图内注入空节点**
 
-Run: `rtk bash -lc 'cd lightrag_webui && bun test src/components/graph/GraphLoadingOverlay.test.tsx'`
+Run: `bash -lc 'cd lightrag_webui && bun test src/components/graph/GraphLoadingOverlay.test.tsx'`
 Expected: FAIL，原因是现状仍依赖 `empty-graph-node`。
 
 - [ ] **Step 3: 为图谱 store 增加显式视图状态**
@@ -186,7 +186,7 @@ if (!data || data.nodes.length === 0) {
 
 - [ ] **Step 7: 运行视图状态测试**
 
-Run: `rtk bash -lc 'cd lightrag_webui && bun test src/components/graph/GraphLoadingOverlay.test.tsx'`
+Run: `bash -lc 'cd lightrag_webui && bun test src/components/graph/GraphLoadingOverlay.test.tsx'`
 Expected: PASS
 
 - [ ] **Step 8: 提交**
@@ -224,7 +224,7 @@ describe('graph expand worker path', () => {
 
 - [ ] **Step 2: 运行测试确认当前仍在 hook 内做同步重计算**
 
-Run: `rtk bash -lc 'cd lightrag_webui && bun test src/hooks/useLightragGraph.test.ts -t "graph expand worker path"'`
+Run: `bash -lc 'cd lightrag_webui && bun test src/hooks/useLightragGraph.test.ts -t "graph expand worker path"'`
 Expected: FAIL
 
 - [ ] **Step 3: 把节点展开的数据整理逻辑抽成 worker 输入输出**
@@ -256,7 +256,7 @@ const expanded = await runLayout(payload)
 
 - [ ] **Step 6: 跑相关测试**
 
-Run: `rtk bash -lc 'cd lightrag_webui && bun test src/hooks/useLightragGraph.test.ts'`
+Run: `bash -lc 'cd lightrag_webui && bun test src/hooks/useLightragGraph.test.ts'`
 Expected: PASS
 
 - [ ] **Step 7: 提交**
@@ -293,7 +293,7 @@ describe('graph workbench layout', () => {
 
 - [ ] **Step 2: 跑组件测试确认当前布局仍固定三栏**
 
-Run: `rtk bash -lc 'cd lightrag_webui && bun test src/components/graph/ActionInspector.test.tsx src/components/graph/FilterWorkbench.test.tsx'`
+Run: `bash -lc 'cd lightrag_webui && bun test src/components/graph/ActionInspector.test.tsx src/components/graph/FilterWorkbench.test.tsx'`
 Expected: FAIL
 
 - [ ] **Step 3: 把右侧操作区改成 inspect 主面板 + 二级动作抽屉**
@@ -322,7 +322,7 @@ className="lg:w-[300px] xl:w-[340px]"
 
 - [ ] **Step 6: 跑布局相关组件测试**
 
-Run: `rtk bash -lc 'cd lightrag_webui && bun test src/components/graph/ActionInspector.test.tsx src/components/graph/FilterWorkbench.test.tsx'`
+Run: `bash -lc 'cd lightrag_webui && bun test src/components/graph/ActionInspector.test.tsx src/components/graph/FilterWorkbench.test.tsx'`
 Expected: PASS
 
 - [ ] **Step 7: 提交**
@@ -360,7 +360,7 @@ test('latest graph request wins', async ({ page }) => {
 
 - [ ] **Step 2: 先跑 E2E，确认当前没有覆盖这些工作流**
 
-Run: `rtk bash -lc 'cd lightrag_webui && bunx playwright test tests/graph-workbench.spec.ts'`
+Run: `bash -lc 'cd lightrag_webui && bunx playwright test tests/graph-workbench.spec.ts'`
 Expected: FAIL 或缺少场景实现。
 
 - [ ] **Step 3: 至少覆盖四类回归场景**
@@ -381,7 +381,7 @@ Expected: FAIL 或缺少场景实现。
 
 - [ ] **Step 5: 跑完整验证**
 
-Run: `rtk bash -lc 'cd lightrag_webui && bun test && bun run build && bun run test:e2e:graph'`
+Run: `bash -lc 'cd lightrag_webui && bun test && bun run build && bun run test:e2e:graph'`
 Expected: PASS
 
 - [ ] **Step 6: 提交**
@@ -401,9 +401,9 @@ git commit -m "test: add graph workbench end-to-end coverage"
 
 ## Verification Commands
 
-- `rtk bash -lc 'cd lightrag_webui && bun test src/hooks/useLightragGraph.test.ts src/components/graph/GraphLoadingOverlay.test.tsx src/components/graph/ActionInspector.test.tsx src/components/graph/FilterWorkbench.test.tsx'`
-- `rtk bash -lc 'cd lightrag_webui && bun run build'`
-- `rtk bash -lc 'cd lightrag_webui && bun run test:e2e:graph'`
+- `bash -lc 'cd lightrag_webui && bun test src/hooks/useLightragGraph.test.ts src/components/graph/GraphLoadingOverlay.test.tsx src/components/graph/ActionInspector.test.tsx src/components/graph/FilterWorkbench.test.tsx'`
+- `bash -lc 'cd lightrag_webui && bun run build'`
+- `bash -lc 'cd lightrag_webui && bun run test:e2e:graph'`
 
 ## Risks And Guardrails
 

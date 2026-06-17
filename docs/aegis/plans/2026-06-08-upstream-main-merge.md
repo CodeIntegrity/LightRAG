@@ -81,7 +81,6 @@ Facts:
 - `upstream/main` is `445` commits ahead of merge base; local is `233` commits ahead.
 - Upstream changed `342` files from merge base.
 - A dry merge in a temporary worktree failed with `18` conflict files.
-- The main working tree had one unrelated untracked `.rtk/` directory before preparation.
 
 Conflict files from dry merge:
 
