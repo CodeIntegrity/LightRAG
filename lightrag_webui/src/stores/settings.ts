@@ -9,7 +9,7 @@ import type { GraphClusterBy } from '@/utils/forceAtlas2Layout'
 import { DEFAULT_FA2_SCALING_RATIO, DEFAULT_FA2_GRAVITY } from '@/utils/forceAtlas2Layout'
 
 type Theme = 'dark' | 'light' | 'system'
-type Language = 'en' | 'zh' | 'fr' | 'ar' | 'zh_TW' | 'ru' | 'ja' | 'de' | 'uk' | 'ko' | 'vi'
+type Language = 'en' | 'zh'
 type Tab = 'documents' | 'knowledge-graph' | 'retrieval' | 'prompts' | 'api'
 
 interface SettingsState {
@@ -316,7 +316,7 @@ const useSettingsStoreBase = create<SettingsState>()(
     {
       name: 'settings-storage',
       storage: createJSONStorage(() => localStorage),
-      version: 33,
+      version: 34,
       migrate: (state: any, version: number) => {
         if (version < 2) {
           state.showEdgeLabel = false
@@ -461,6 +461,12 @@ const useSettingsStoreBase = create<SettingsState>()(
         }
         if (version < 33) {
           state.colorEdgesByDirection = false
+        }
+        if (version < 34) {
+          // 只保留中英文：历史里存的其他语言一律回落到 en
+          if (state.language !== 'en' && state.language !== 'zh') {
+            state.language = 'en'
+          }
         }
         return state
       }

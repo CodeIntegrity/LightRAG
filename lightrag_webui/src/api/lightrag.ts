@@ -288,7 +288,7 @@ export type EntityTypePromptDeleteResponse = {
   active_file: string | null
 }
 
-export type EntityTypePromptAssistLanguage = 'auto' | 'en' | 'zh' | 'ja'
+export type EntityTypePromptAssistLanguage = 'auto' | 'en' | 'zh'
 
 export type EntityTypePromptAssistRequest = {
   requirements: string

@@ -1,15 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import ar from '@/locales/ar.json'
-import de from '@/locales/de.json'
 import en from '@/locales/en.json'
-import fr from '@/locales/fr.json'
-import ja from '@/locales/ja.json'
-import ko from '@/locales/ko.json'
-import ru from '@/locales/ru.json'
-import uk from '@/locales/uk.json'
-import vi from '@/locales/vi.json'
 import zh from '@/locales/zh.json'
-import zhTW from '@/locales/zh_TW.json'
 
 Object.defineProperty(globalThis, 'localStorage', {
   value: {
@@ -59,7 +50,7 @@ describe('workspace api helpers', () => {
   })
 
   test('workspaceManager locale keys exist across supported languages', () => {
-    const locales = [ar, de, en, fr, ja, ko, ru, uk, vi, zh, zhTW] as Record<string, unknown>[]
+    const locales = [en, zh] as Record<string, unknown>[]
     const requiredPaths = [
       'retrievePanel.querySettings.promptVersionLabel',
       'retrievePanel.querySettings.promptVersionTooltip',
@@ -103,7 +94,7 @@ describe('workspace api helpers', () => {
   })
 
   test('workspaceManager locale no longer exposes prompt version display copy', () => {
-    const locales = [ar, de, en, fr, ja, ko, ru, uk, vi, zh, zhTW] as Record<string, unknown>[]
+    const locales = [en, zh] as Record<string, unknown>[]
     const getValueAtPath = (obj: Record<string, unknown>, path: string): unknown =>
       path.split('.').reduce<unknown>((current, segment) => {
         if (current && typeof current === 'object') {

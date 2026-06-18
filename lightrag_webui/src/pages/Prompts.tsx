@@ -877,7 +877,6 @@ export default function Prompts() {
                       </SelectItem>
                       <SelectItem value="en">English</SelectItem>
                       <SelectItem value="zh">中文</SelectItem>
-                      <SelectItem value="ja">日本語</SelectItem>
                     </SelectContent>
                   </Select>
                 </label>
