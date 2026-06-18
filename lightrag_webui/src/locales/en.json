@@ -253,6 +253,7 @@
       "description": "View current system status and connection information"
     },
     "legend": "Legend",
+    "legendByCommunity": "Communities",
     "nodeTypes": {
       "person": "Person",
       "category": "Category",
@@ -292,6 +293,11 @@
         "showPropertyPanel": "Show Property Panel",
         "showSearchBar": "Show Search Bar",
         "showNodeLabel": "Show Node Label",
+        "colorByCommunity": "Color by Community",
+        "clusterBy": "Layout Clustering",
+        "clusterByNone": "None",
+        "clusterByType": "By Type",
+        "clusterByCommunity": "By Community",
         "nodeDraggable": "Node Draggable",
         "showEdgeLabel": "Show Edge Label",
         "hideUnselectedEdges": "Hide Unselected Edges",

@@ -242,4 +242,27 @@ export const resolveNodeColor = (
   }
 }
 
+// 社区着色：用 HSL 黄金角生成稳定、高区分度的颜色（社区数量不定，无需维护映射表）。
+// 输出 hex —— sigma 的 WebGL 颜色解析不支持 hsl()，必须给 hex/rgb。
+const hslToHex = (h: number, s: number, l: number): string => {
+  const a = s * Math.min(l, 1 - l)
+  const channel = (n: number) => {
+    const k = (n + h / 30) % 12
+    const value = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)
+    return Math.round(255 * value)
+      .toString(16)
+      .padStart(2, '0')
+  }
+  return `#${channel(0)}${channel(8)}${channel(4)}`
+}
+
+export type GraphColorScheme = 'type' | 'community'
+
+export const getCommunityColor = (communityId: number): string => {
+  const safeId = Number.isFinite(communityId) ? Math.abs(Math.trunc(communityId)) : 0
+  // 黄金角 137.508° 让相邻社区色相差异最大化
+  const hue = (safeId * 137.508) % 360
+  return hslToHex(hue, 0.62, 0.55)
+}
+
 export { DEFAULT_NODE_COLOR }

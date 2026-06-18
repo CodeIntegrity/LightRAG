@@ -253,6 +253,7 @@
       "description": "查看当前系统状态和连接信息"
     },
     "legend": "图例",
+    "legendByCommunity": "社区",
     "nodeTypes": {
       "person": "人物角色",
       "category": "分类",
@@ -292,6 +293,11 @@
         "showPropertyPanel": "显示属性面板",
         "showSearchBar": "显示搜索栏",
         "showNodeLabel": "显示节点标签",
+        "colorByCommunity": "按社区着色",
+        "clusterBy": "布局聚集",
+        "clusterByNone": "不聚集",
+        "clusterByType": "按类型",
+        "clusterByCommunity": "按社区",
         "nodeDraggable": "节点可拖动",
         "showEdgeLabel": "显示边标签",
         "hideUnselectedEdges": "隐藏未选中的边",

@@ -43,7 +43,8 @@ vi.mock('@/stores/graph', () => ({
         new Map<string, string>([
           ['PERSON', '#ff0000'],
           ['技术', '#00ff00']
-        ])
+        ]),
+      communityColorMap: () => new Map<string, string>()
     }
   }
 }))

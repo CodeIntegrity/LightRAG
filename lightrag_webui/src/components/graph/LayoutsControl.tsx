@@ -20,7 +20,7 @@ import {
   loadGraphLayoutType,
   saveGraphLayoutView
 } from '@/utils/graphViewPersistence'
-import { computeForceAtlas2Layout, FORCE_ATLAS2_BASE_SETTINGS } from '@/utils/forceAtlas2Layout'
+import { computeForceAtlas2Layout, computeClusteredCirclepack, resolveClusterAttribute, FORCE_ATLAS2_BASE_SETTINGS } from '@/utils/forceAtlas2Layout'
 
 import { GripIcon, PlayIcon, PauseIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -203,6 +203,7 @@ const LayoutsControl = () => {
   const { t } = useTranslation()
   const currentWorkspace = useSettingsStore.use.currentWorkspace()
   const lastSuccessfulQueryLabel = useGraphStore.use.lastSuccessfulQueryLabel()
+  const graphClusterBy = useSettingsStore.use.graphClusterBy()
   const [layout, setLayout] = useState<LayoutName>(DEFAULT_GRAPH_LAYOUT)
   const [opened, setOpened] = useState<boolean>(false)
 
@@ -304,13 +305,24 @@ const LayoutsControl = () => {
           return
         }
 
-        // Force Atlas 走两阶段管线（FA2 出簇结构 → noverlap 抛光消重叠），其余沿用各自 hook
+        // "布局聚集"开启时，Force Atlas / Circlepack 升级为按类型/按社区聚集
+        const clusterAttribute = resolveClusterAttribute(graphClusterBy)
         const pos =
           newLayout === 'Force Atlas'
-            ? computeForceAtlas2Layout(graph)
-            : layouts[newLayout].layout.positions()
+            ? computeForceAtlas2Layout(graph, { clusterAttribute })
+            : newLayout === 'Circlepack' && clusterAttribute
+              ? computeClusteredCirclepack(graph, clusterAttribute)
+              : layouts[newLayout].layout.positions()
         console.log('Positions calculated, animating nodes')
-        animateNodes(graph, pos, { duration: 400 })
+        // 切换布局会改变坐标尺度；若此前交互（mousedown）锁定过 customBBox，
+        // 新坐标会落到锁定范围外导致节点"消失"。清除后让 sigma 按新坐标重新归一化，
+        // 动画结束再把相机复位到适配整图。
+        if (sigma.getCustomBBox()) {
+          sigma.setCustomBBox(null)
+        }
+        animateNodes(graph, pos, { duration: 400 }, () => {
+          sigma.getCamera().animatedReset()
+        })
         setLayout(newLayout)
 
         const settings = useSettingsStore.getState()
@@ -327,7 +339,7 @@ const LayoutsControl = () => {
         console.error('Error running layout:', error)
       }
     },
-    [layouts, sigma]
+    [layouts, sigma, graphClusterBy]
   )
 
   return (

@@ -106,6 +106,7 @@ interface GraphState {
   lastSuccessfulQueryLabel: string
 
   typeColorMap: Map<string, string>
+  communityColorMap: Map<string, string>
 
   // Global flags to track data fetching attempts
   graphDataFetchAttempted: boolean
@@ -135,6 +136,7 @@ interface GraphState {
 
   // Legend color mapping methods
   setTypeColorMap: (typeColorMap: Map<string, string>) => void
+  setCommunityColorMap: (communityColorMap: Map<string, string>) => void
 
   // Search engine methods
   setSearchEngine: (engine: MiniSearch | null, key?: string | null) => void
@@ -184,6 +186,7 @@ const useGraphStoreBase = create<GraphState>()((set, get) => ({
   sigmaInstance: null,
 
   typeColorMap: new Map<string, string>(),
+  communityColorMap: new Map<string, string>(),
 
   searchEngine: null,
   searchEngineKey: null,
@@ -233,6 +236,7 @@ const useGraphStoreBase = create<GraphState>()((set, get) => ({
       viewState: 'idle',
       requestError: null,
       typeColorMap: new Map<string, string>(),
+      communityColorMap: new Map<string, string>(),
       graphDataFetchAttempted: false,
       labelsFetchAttempted: false
     });
@@ -253,6 +257,7 @@ const useGraphStoreBase = create<GraphState>()((set, get) => ({
   setSigmaInstance: (instance: any) => set({ sigmaInstance: instance }),
 
   setTypeColorMap: (typeColorMap: Map<string, string>) => set({ typeColorMap }),
+  setCommunityColorMap: (communityColorMap: Map<string, string>) => set({ communityColorMap }),
 
   setSearchEngine: (engine: MiniSearch | null, key: string | null = null) =>
     set({ searchEngine: engine, searchEngineKey: key }),

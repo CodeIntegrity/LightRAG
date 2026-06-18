@@ -17,7 +17,8 @@ import {
   saveGraphNodePosition,
   subscribeToCameraViewPersistence
 } from '@/utils/graphViewPersistence'
-import { applyForceAtlas2Layout } from '@/utils/forceAtlas2Layout'
+import { applyForceAtlas2Layout, resolveClusterAttribute } from '@/utils/forceAtlas2Layout'
+import { getCommunityColor } from '@/utils/graphColor'
 import { applyLinkedDragMovement } from '@/utils/graphDrag'
 import { getGraphEdgeType } from '@/utils/graphEdgeType'
 import { getGraphInteractionSettings } from '@/utils/graphInteractionSettings'
@@ -228,6 +229,7 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
   const currentWorkspace = useSettingsStore.use.currentWorkspace()
   const minEdgeSize = useSettingsStore.use.minEdgeSize()
   const maxEdgeSize = useSettingsStore.use.maxEdgeSize()
+  const graphColorScheme = useSettingsStore.use.graphColorScheme()
   const selectedNode = useGraphStore.use.selectedNode()
   const selectedNodeSource = useGraphStore.use.selectedNodeSource()
   const focusedNode = useGraphStore.use.focusedNode()
@@ -277,16 +279,41 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
         return;
       }
 
-      const { currentWorkspace: workspace } = useSettingsStore.getState()
+      const { currentWorkspace: workspace, graphClusterBy } = useSettingsStore.getState()
       const { lastSuccessfulQueryLabel: queryLabel } = useGraphStore.getState()
       const hasPersistedPositions =
         Object.keys(loadGraphNodePositions({ workspace, queryLabel })).length > 0
       if (!hasPersistedPositions) {
-        applyForceAtlas2Layout(sigmaGraph)
+        applyForceAtlas2Layout(sigmaGraph, { clusterAttribute: resolveClusterAttribute(graphClusterBy) })
+        // 自动布局改变坐标尺度后，清除可能被交互锁定的 customBBox，避免节点落到视野外
+        if (sigma.getCustomBBox()) {
+          sigma.setCustomBBox(null)
+        }
         sigma.refresh()
       }
     }
   }, [sigma, sigmaGraph])
+
+  /**
+   * 按当前着色模式（类型/社区）重算节点颜色。
+   * 社区编号由 louvain 在建图时写入 community 属性；缺失时回退到类型色。
+   */
+  useEffect(() => {
+    if (!sigma || !sigmaGraph) {
+      return
+    }
+    const graph = sigma.getGraph()
+    graph.forEachNode((node, attr) => {
+      const nextColor =
+        graphColorScheme === 'community' && attr.community !== undefined
+          ? getCommunityColor(attr.community)
+          : attr.typeColor ?? attr.color
+      if (nextColor !== attr.color) {
+        graph.setNodeAttribute(node, 'color', nextColor)
+      }
+    })
+    sigma.refresh()
+  }, [graphColorScheme, sigma, sigmaGraph])
 
   useEffect(() => {
     if (!sigma || !sigmaGraph) {

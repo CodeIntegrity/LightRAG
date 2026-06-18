@@ -4,6 +4,14 @@ import Checkbox from '@/components/ui/Checkbox'
 import Button from '@/components/ui/Button'
 import Separator from '@/components/ui/Separator'
 import Input from '@/components/ui/Input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/Select'
+import type { GraphClusterBy } from '@/utils/forceAtlas2Layout'
 
 import { controlButtonVariant } from '@/lib/constants'
 import { useSettingsStore } from '@/stores/settings'
@@ -161,6 +169,9 @@ export default function Settings() {
   const showPropertyPanel = useSettingsStore.use.showPropertyPanel()
   const showNodeSearchBar = useSettingsStore.use.showNodeSearchBar()
   const showNodeLabel = useSettingsStore.use.showNodeLabel()
+  const graphColorScheme = useSettingsStore.use.graphColorScheme()
+  const graphClusterBy = useSettingsStore.use.graphClusterBy()
+  const setGraphClusterBy = useSettingsStore.use.setGraphClusterBy()
   const graphLabelFontSize = useSettingsStore.use.graphLabelFontSize()
   const enableEdgeEvents = useSettingsStore.use.enableEdgeEvents()
   const enableNodeDrag = useSettingsStore.use.enableNodeDrag()
@@ -248,6 +259,14 @@ export default function Settings() {
 
   const setShowNodeLabel = useCallback(
     () => useSettingsStore.setState((pre) => ({ showNodeLabel: !pre.showNodeLabel })),
+    []
+  )
+
+  const setColorByCommunity = useCallback(
+    () =>
+      useSettingsStore.setState((pre) => ({
+        graphColorScheme: pre.graphColorScheme === 'community' ? 'type' : 'community'
+      })),
     []
   )
 
@@ -397,6 +416,29 @@ export default function Settings() {
               onCheckedChange={setShowNodeLabel}
               label={t('graphPanel.sideBar.settings.showNodeLabel')}
             />
+            <LabeledCheckBox
+              checked={graphColorScheme === 'community'}
+              onCheckedChange={setColorByCommunity}
+              label={t('graphPanel.sideBar.settings.colorByCommunity')}
+            />
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-sm leading-none font-medium">
+                {t('graphPanel.sideBar.settings.clusterBy')}
+              </label>
+              <Select
+                value={graphClusterBy}
+                onValueChange={(value) => setGraphClusterBy(value as GraphClusterBy)}
+              >
+                <SelectTrigger className="h-7 w-28 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{t('graphPanel.sideBar.settings.clusterByNone')}</SelectItem>
+                  <SelectItem value="type">{t('graphPanel.sideBar.settings.clusterByType')}</SelectItem>
+                  <SelectItem value="community">{t('graphPanel.sideBar.settings.clusterByCommunity')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <LabeledNumberInput
               value={graphLabelFontSize}
               onEditFinished={setGraphLabelFontSize}

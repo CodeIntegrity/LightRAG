@@ -4,6 +4,8 @@ import { createSelectors } from '@/lib/utils'
 import { defaultQueryLabel } from '@/lib/constants'
 import { Message, QueryRequest } from '@/api/lightrag'
 import { DEFAULT_LAYOUT_PARAMS } from '@/utils/graphViewPersistence'
+import type { GraphColorScheme } from '@/utils/graphColor'
+import type { GraphClusterBy } from '@/utils/forceAtlas2Layout'
 
 type Theme = 'dark' | 'light' | 'system'
 type Language = 'en' | 'zh' | 'fr' | 'ar' | 'zh_TW' | 'ru' | 'ja' | 'de' | 'uk' | 'ko' | 'vi'
@@ -33,6 +35,12 @@ interface SettingsState {
   showNodeSearchBar: boolean
   showLegend: boolean
   setShowLegend: (show: boolean) => void
+
+  graphColorScheme: GraphColorScheme
+  setGraphColorScheme: (scheme: GraphColorScheme) => void
+
+  graphClusterBy: GraphClusterBy
+  setGraphClusterBy: (clusterBy: GraphClusterBy) => void
 
   showNodeLabel: boolean
   graphLabelFontSize: number
@@ -132,6 +140,8 @@ const useSettingsStoreBase = create<SettingsState>()(
       showPropertyPanel: true,
       showNodeSearchBar: true,
       showLegend: false,
+      graphColorScheme: 'type',
+      graphClusterBy: 'none',
 
       showNodeLabel: true,
       graphLabelFontSize: 12,
@@ -317,6 +327,8 @@ const useSettingsStoreBase = create<SettingsState>()(
 
       setShowFileName: (show: boolean) => set({ showFileName: show }),
       setShowLegend: (show: boolean) => set({ showLegend: show }),
+      setGraphColorScheme: (scheme: GraphColorScheme) => set({ graphColorScheme: scheme }),
+      setGraphClusterBy: (clusterBy: GraphClusterBy) => set({ graphClusterBy: clusterBy }),
       setDocumentsPageSize: (size: number) => set({ documentsPageSize: size }),
 
       // User prompt history methods

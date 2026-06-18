@@ -1,4 +1,5 @@
 import Graph, { UndirectedGraph } from 'graphology'
+import louvain from 'graphology-communities-louvain'
 import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { errorMessage } from '@/lib/utils'
@@ -19,7 +20,7 @@ import useGraphLayoutWorker from '@/hooks/useGraphLayoutWorker'
 import { createGraphRequestState, isAbortError } from '@/utils/graphRequestState'
 
 import seedrandom from 'seedrandom'
-import { resolveNodeColor, DEFAULT_NODE_COLOR } from '@/utils/graphColor'
+import { resolveNodeColor, getCommunityColor, DEFAULT_NODE_COLOR } from '@/utils/graphColor'
 import { getGraphEdgeType } from '@/utils/graphEdgeType'
 import { resolveNodeDisplayName } from '@/utils/graphLabel'
 import { normalizeGraphEdgePayload, normalizeGraphNodePayload } from '@/utils/graphPayload'
@@ -98,6 +99,9 @@ export type NodeType = {
   label: string
   size: number
   color: string
+  typeColor?: string
+  community?: number
+  entityType?: string
   highlighted?: boolean
 }
 export type EdgeType = {
@@ -245,6 +249,10 @@ const createSigmaGraph = (rawGraph: RawGraph | null) => {
     graph.addNode(rawNode.id, {
       label: resolveNodeDisplayName(rawNode),
       color: rawNode.color,
+      // 固定的"类型色"，用于在按类型/按社区着色之间切换时恢复
+      typeColor: rawNode.color,
+      // 实体类型，用于"按类型聚集"布局
+      entityType: rawNode.properties?.entity_type as string | undefined,
       x: rawNode.x,
       y: rawNode.y,
       size: rawNode.size,
@@ -292,6 +300,27 @@ const createSigmaGraph = (rawGraph: RawGraph | null) => {
     graph.forEachEdge(edge => {
       graph.setEdgeAttribute(edge, 'size', minEdgeSize)
     })
+  }
+
+  // 社区检测：为每个节点写入 community 编号，并构建"社区→颜色"映射供图例使用。
+  // 仅在有边时有意义；失败不应阻断建图。
+  if (graph.size > 0) {
+    try {
+      louvain.assign(graph)
+      const communityColorMap = new Map<string, string>()
+      graph.forEachNode((_node, attributes) => {
+        const community = attributes.community as number | undefined
+        if (community !== undefined) {
+          const key = `#${community}`
+          if (!communityColorMap.has(key)) {
+            communityColorMap.set(key, getCommunityColor(community))
+          }
+        }
+      })
+      useGraphStore.getState().setCommunityColorMap(communityColorMap)
+    } catch (error) {
+      console.error('Community detection failed:', error)
+    }
   }
 
   return graph
