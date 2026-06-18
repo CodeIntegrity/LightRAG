@@ -13,11 +13,12 @@ import { useGraphStore } from '@/stores/graph'
 import {
   loadGraphCameraView,
   loadGraphNodePositions,
+  hasCompletePersistedNodePositions,
   restorePersistedCameraView,
   saveGraphNodePosition,
   subscribeToCameraViewPersistence
 } from '@/utils/graphViewPersistence'
-import { applyForceAtlas2Layout, resolveClusterAttribute } from '@/utils/forceAtlas2Layout'
+import { applyInitialRandomLayout } from '@/utils/forceAtlas2Layout'
 import { getCommunityColor } from '@/utils/graphColor'
 import { applyLinkedDragMovement } from '@/utils/graphDrag'
 import { getGraphEdgeType } from '@/utils/graphEdgeType'
@@ -40,9 +41,6 @@ type GraphEventHandlerDeps = {
   sigma: ReturnType<typeof useSigma<NodeType, EdgeType>>
   enableEdgeEvents: boolean
   enableNodeDrag: boolean
-  enableSearchLinkedDrag: boolean
-  selectedNode: string | null
-  selectedNodeSource: 'graph' | 'search' | null
   draggedNodeRef: MutableRefObject<string | null>
   linkedDraggedNodeIdsRef: MutableRefObject<string[]>
   wasDraggingRef: MutableRefObject<boolean>
@@ -52,9 +50,6 @@ export const buildGraphEventHandlers = ({
   sigma,
   enableEdgeEvents,
   enableNodeDrag,
-  enableSearchLinkedDrag,
-  selectedNode,
-  selectedNodeSource,
   draggedNodeRef,
   linkedDraggedNodeIdsRef,
   wasDraggingRef
@@ -117,10 +112,7 @@ export const buildGraphEventHandlers = ({
     const graph = sigma.getGraph()
     if (graph.hasNode(event.node)) {
       draggedNodeRef.current = event.node
-      linkedDraggedNodeIdsRef.current =
-        enableSearchLinkedDrag && selectedNodeSource === 'search' && selectedNode === event.node
-          ? graph.neighbors(event.node).filter((nodeId) => graph.hasNode(nodeId))
-          : []
+      linkedDraggedNodeIdsRef.current = []
       graph.setNodeAttribute(event.node, 'highlighted', true)
     }
   }
@@ -219,19 +211,18 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
 
   const { theme } = useTheme()
   const hideUnselectedEdges = useSettingsStore.use.enableHideUnselectedEdges()
+  const colorEdgesByDirection = useSettingsStore.use.colorEdgesByDirection()
   const enableEdgeEvents = useSettingsStore.use.enableEdgeEvents()
   const renderEdgeLabels = useSettingsStore.use.showEdgeLabel()
   const showDirectionalArrows = useSettingsStore.use.showDirectionalArrows()
   const renderLabels = useSettingsStore.use.showNodeLabel()
   const graphLabelFontSize = useSettingsStore.use.graphLabelFontSize()
   const enableNodeDrag = useSettingsStore.use.enableNodeDrag()
-  const enableSearchLinkedDrag = useSettingsStore.use.enableSearchLinkedDrag()
   const currentWorkspace = useSettingsStore.use.currentWorkspace()
   const minEdgeSize = useSettingsStore.use.minEdgeSize()
   const maxEdgeSize = useSettingsStore.use.maxEdgeSize()
   const graphColorScheme = useSettingsStore.use.graphColorScheme()
   const selectedNode = useGraphStore.use.selectedNode()
-  const selectedNodeSource = useGraphStore.use.selectedNodeSource()
   const focusedNode = useGraphStore.use.focusedNode()
   const selectedEdge = useGraphStore.use.selectedEdge()
   const focusedEdge = useGraphStore.use.focusedEdge()
@@ -279,12 +270,15 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
         return;
       }
 
-      const { currentWorkspace: workspace, graphClusterBy } = useSettingsStore.getState()
+      const { currentWorkspace: workspace } = useSettingsStore.getState()
       const { lastSuccessfulQueryLabel: queryLabel } = useGraphStore.getState()
-      const hasPersistedPositions =
-        Object.keys(loadGraphNodePositions({ workspace, queryLabel })).length > 0
-      if (!hasPersistedPositions) {
-        applyForceAtlas2Layout(sigmaGraph, { clusterAttribute: resolveClusterAttribute(graphClusterBy) })
+      const nodePositions = loadGraphNodePositions({ workspace, queryLabel })
+      const hasCompletePersistedPositions = hasCompletePersistedNodePositions(
+        sigmaGraph.nodes(),
+        nodePositions
+      )
+      if (!hasCompletePersistedPositions) {
+        applyInitialRandomLayout(sigmaGraph)
         // 自动布局改变坐标尺度后，清除可能被交互锁定的 customBBox，避免节点落到视野外
         if (sigma.getCustomBBox()) {
           sigma.setCustomBBox(null)
@@ -366,9 +360,6 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
         sigma,
         enableEdgeEvents,
         enableNodeDrag,
-        enableSearchLinkedDrag,
-        selectedNode,
-        selectedNodeSource,
         draggedNodeRef,
         linkedDraggedNodeIdsRef,
         wasDraggingRef
@@ -384,10 +375,7 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
     registerEvents,
     sigma,
     enableEdgeEvents,
-    enableNodeDrag,
-    enableSearchLinkedDrag,
-    selectedNode,
-    selectedNodeSource
+    enableNodeDrag
   ])
 
   /**
@@ -546,14 +534,19 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
 
           if (_focusedNode && graph.hasNode(_focusedNode)) {
             try {
-              if (hideUnselectedEdges) {
-                if (!graph.extremities(edge).includes(_focusedNode)) {
-                  newData.hidden = true
-                }
-              } else {
-                if (graph.extremities(edge).includes(_focusedNode)) {
+              const isIncident = graph.extremities(edge).includes(_focusedNode)
+              if (isIncident) {
+                // 关联边：开启方向染色则按 出/入 上色；否则仅在不隐藏时高亮
+                if (colorEdgesByDirection) {
+                  newData.color =
+                    graph.source(edge) === _focusedNode
+                      ? Constants.edgeColorOutgoing
+                      : Constants.edgeColorIncoming
+                } else if (!hideUnselectedEdges) {
                   newData.color = edgeHighlightColor
                 }
+              } else if (hideUnselectedEdges) {
+                newData.hidden = true
               }
             } catch {
               return { ...data, hidden: false, labelColor, color: edgeColor }
@@ -585,7 +578,8 @@ const GraphControl = ({ disableHoverEffect }: { disableHoverEffect?: boolean }) 
     sigma,
     disableHoverEffect,
     isDarkTheme,
-    hideUnselectedEdges
+    hideUnselectedEdges,
+    colorEdgesByDirection
   ])
 
   return null

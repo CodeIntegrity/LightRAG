@@ -50,11 +50,6 @@ describe('GraphControl — drag gating', () => {
     expect(useSettingsStore.getState().enableNodeDrag).toBe(true)
   })
 
-  test('enableSearchLinkedDrag defaults to false in settings store', async () => {
-    const { useSettingsStore } = await import('@/stores/settings')
-    expect(useSettingsStore.getState().enableSearchLinkedDrag).toBe(false)
-  })
-
   test('showDirectionalArrows defaults to false in settings store', async () => {
     const { useSettingsStore } = await import('@/stores/settings')
     expect(useSettingsStore.getState().showDirectionalArrows).toBe(false)
@@ -162,13 +157,6 @@ describe('GraphControl — layout settings propagation', () => {
     useSettingsStore.getState().setGraphLayoutGravity(0.03)
     expect(useSettingsStore.getState().graphLayoutGravity).toBe(0.03)
   })
-
-  test('graphLayoutMargin defaults and updates', async () => {
-    const { useSettingsStore } = await import('@/stores/settings')
-    expect(useSettingsStore.getState().graphLayoutMargin).toBe(5)
-    useSettingsStore.getState().setGraphLayoutMargin(10)
-    expect(useSettingsStore.getState().graphLayoutMargin).toBe(10)
-  })
 })
 
 describe('GraphControl — edge size recalculation', () => {
@@ -248,9 +236,6 @@ describe('GraphControl — event registration composition', () => {
       sigma,
       enableEdgeEvents: true,
       enableNodeDrag: true,
-      enableSearchLinkedDrag: false,
-      selectedNode: null,
-      selectedNodeSource: null,
       draggedNodeRef: { current: null },
       linkedDraggedNodeIdsRef: { current: [] },
       wasDraggingRef: { current: false }
@@ -275,9 +260,6 @@ describe('GraphControl — event registration composition', () => {
       sigma,
       enableEdgeEvents: false,
       enableNodeDrag: false,
-      enableSearchLinkedDrag: false,
-      selectedNode: null,
-      selectedNodeSource: null,
       draggedNodeRef: { current: null },
       linkedDraggedNodeIdsRef: { current: [] },
       wasDraggingRef: { current: false }

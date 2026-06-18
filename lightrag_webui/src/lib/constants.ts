@@ -20,6 +20,10 @@ export const edgeColorSelected = '#F57F17'
 export const edgeColorHighlightedDarkTheme = '#F57F17'
 export const edgeColorHighlightedLightTheme = '#F57F17'
 
+// 按方向染色：以选中节点为中心，出边（source=选中节点）蓝、入边（target=选中节点）橙
+export const edgeColorOutgoing = '#2196F3'
+export const edgeColorIncoming = '#F57F17'
+
 export const searchResultLimit = 50
 export const labelListLimit = 100
 

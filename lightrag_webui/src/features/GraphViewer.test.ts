@@ -44,6 +44,16 @@ describe('GraphViewer sigma settings', () => {
 
     expect(settings.defaultEdgeType).toBe('curvedNoArrow')
   })
+
+  test('scales item sizes with graph positions instead of fixed screen pixels', async () => {
+    const { createSigmaSettings } = await import('@/utils/graphSigmaSettings')
+
+    const settings = createSigmaSettings(false, 12, false, false)
+
+    expect(settings.itemSizesReference).toBe('positions')
+    expect(settings.zoomToSizeRatioFunction?.(0.25)).toBe(0.25)
+    expect(settings.zoomToSizeRatioFunction?.(2)).toBe(2)
+  })
 })
 
 describe('graph edge type helper', () => {

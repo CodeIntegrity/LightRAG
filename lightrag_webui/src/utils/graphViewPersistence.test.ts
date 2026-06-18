@@ -224,15 +224,7 @@ describe('saveGraphView / loadGraphView', () => {
       {
         graphLayoutRepulsion: 0.08,
         graphLayoutGravity: 0.03,
-        graphLayoutMargin: 9,
-        graphLayoutMaxIterations: 24,
-        graphLayoutAttraction: 0.0007,
-        graphLayoutInertia: 0.6,
-        graphLayoutMaxMove: 85,
-        graphLayoutExpansion: 1.5,
-        graphLayoutGridSize: 4,
-        graphLayoutRatio: 1.2,
-        graphLayoutSpeed: 6
+        graphLayoutMaxIterations: 24
       }
     )
 
@@ -244,15 +236,7 @@ describe('saveGraphView / loadGraphView', () => {
     ).toEqual({
       repulsion: 0.08,
       gravity: 0.03,
-      margin: 9,
-      maxIterations: 24,
-      attraction: 0.0007,
-      inertia: 0.6,
-      maxMove: 85,
-      expansion: 1.5,
-      gridSize: 4,
-      ratio: 1.2,
-      speed: 6
+      maxIterations: 24
     })
   })
 
@@ -326,15 +310,7 @@ describe('saveGraphView / loadGraphView', () => {
       {
         graphLayoutRepulsion: 0.08,
         graphLayoutGravity: 0.03,
-        graphLayoutMargin: 9,
-        graphLayoutMaxIterations: 24,
-        graphLayoutAttraction: 0.0007,
-        graphLayoutInertia: 0.6,
-        graphLayoutMaxMove: 85,
-        graphLayoutExpansion: 1.5,
-        graphLayoutGridSize: 4,
-        graphLayoutRatio: 1.2,
-        graphLayoutSpeed: 6
+        graphLayoutMaxIterations: 24
       }
     )
 
@@ -343,15 +319,7 @@ describe('saveGraphView / loadGraphView', () => {
       layoutParams: {
         repulsion: 0.08,
         gravity: 0.03,
-        margin: 9,
-        maxIterations: 24,
-        attraction: 0.0007,
-        inertia: 0.6,
-        maxMove: 85,
-        expansion: 1.5,
-        gridSize: 4,
-        ratio: 1.2,
-        speed: 6
+        maxIterations: 24
       }
     })
   })
@@ -375,15 +343,7 @@ describe('saveGraphView / loadGraphView', () => {
       {
         graphLayoutRepulsion: 0.08,
         graphLayoutGravity: 0.03,
-        graphLayoutMargin: 9,
-        graphLayoutMaxIterations: 24,
-        graphLayoutAttraction: 0.0007,
-        graphLayoutInertia: 0.6,
-        graphLayoutMaxMove: 85,
-        graphLayoutExpansion: 1.5,
-        graphLayoutGridSize: 4,
-        graphLayoutRatio: 1.2,
-        graphLayoutSpeed: 6
+        graphLayoutMaxIterations: 24
       }
     )
 
@@ -392,15 +352,7 @@ describe('saveGraphView / loadGraphView', () => {
       layoutParams: {
         repulsion: 0.08,
         gravity: 0.03,
-        margin: 9,
-        maxIterations: 24,
-        attraction: 0.0007,
-        inertia: 0.6,
-        maxMove: 85,
-        expansion: 1.5,
-        gridSize: 4,
-        ratio: 1.2,
-        speed: 6
+        maxIterations: 24
       }
     })
   })
@@ -450,15 +402,7 @@ describe('saveGraphView / loadGraphView', () => {
       layoutParams: {
         repulsion: 0.05,
         gravity: 0.03,
-        margin: 10,
-        maxIterations: 20,
-        attraction: 0.0005,
-        inertia: 0.6,
-        maxMove: 80,
-        expansion: 1.3,
-        gridSize: 2,
-        ratio: 1.2,
-        speed: 4
+        maxIterations: 20
       }
     }
 
@@ -470,15 +414,7 @@ describe('saveGraphView / loadGraphView', () => {
     expect(loaded!.layoutType).toBe('Force Directed')
     expect(loaded!.layoutParams.repulsion).toBe(0.05)
     expect(loaded!.layoutParams.gravity).toBe(0.03)
-    expect(loaded!.layoutParams.margin).toBe(10)
     expect(loaded!.layoutParams.maxIterations).toBe(20)
-    expect(loaded!.layoutParams.attraction).toBe(0.0005)
-    expect(loaded!.layoutParams.inertia).toBe(0.6)
-    expect(loaded!.layoutParams.maxMove).toBe(80)
-    expect(loaded!.layoutParams.expansion).toBe(1.3)
-    expect(loaded!.layoutParams.gridSize).toBe(2)
-    expect(loaded!.layoutParams.ratio).toBe(1.2)
-    expect(loaded!.layoutParams.speed).toBe(4)
   })
 
   test('merge preserves existing data', () => {
@@ -490,15 +426,7 @@ describe('saveGraphView / loadGraphView', () => {
       layoutParams: {
         repulsion: 0.05,
         gravity: 0.03,
-        margin: 10,
-        maxIterations: 20,
-        attraction: 0.0005,
-        inertia: 0.6,
-        maxMove: 80,
-        expansion: 1.3,
-        gridSize: 2,
-        ratio: 1.2,
-        speed: 4
+        maxIterations: 20
       }
     })
 
@@ -512,7 +440,7 @@ describe('saveGraphView / loadGraphView', () => {
     expect(loaded!.nodePositions['node2']).toEqual({ x: 30, y: 40 })
     expect(loaded!.layoutType).toBe('Circular')
     expect(loaded!.cameraView).toEqual({ x: 100, y: 200, ratio: 1.5 })
-    expect(loaded!.layoutParams.speed).toBe(4)
+    expect(loaded!.layoutParams.repulsion).toBe(0.05)
   })
 
   test('returns null for non-existent key', () => {
@@ -551,15 +479,7 @@ describe('saveGraphView / loadGraphView', () => {
     expect(loaded).not.toBeNull()
     expect(loaded!.layoutParams.repulsion).toBe(0.07)
     expect(loaded!.layoutParams.gravity).toBe(0.04)
-    expect(loaded!.layoutParams.margin).toBe(9)
     expect(loaded!.layoutParams.maxIterations).toBe(22)
-    expect(loaded!.layoutParams.attraction).toBe(0.0003)
-    expect(loaded!.layoutParams.inertia).toBe(0.4)
-    expect(loaded!.layoutParams.maxMove).toBe(100)
-    expect(loaded!.layoutParams.expansion).toBe(1.1)
-    expect(loaded!.layoutParams.gridSize).toBe(1)
-    expect(loaded!.layoutParams.ratio).toBe(1)
-    expect(loaded!.layoutParams.speed).toBe(3)
   })
 })
 

@@ -169,14 +169,6 @@ describe('settings store — layout params defaults', () => {
     expect(state.graphLayoutMaxIterations).toBe(15)
     expect(state.graphLayoutRepulsion).toBe(0.02)
     expect(state.graphLayoutGravity).toBe(0.02)
-    expect(state.graphLayoutMargin).toBe(5)
-    expect(state.graphLayoutAttraction).toBe(0.0003)
-    expect(state.graphLayoutInertia).toBe(0.4)
-    expect(state.graphLayoutMaxMove).toBe(100)
-    expect(state.graphLayoutExpansion).toBe(1.1)
-    expect(state.graphLayoutGridSize).toBe(1)
-    expect(state.graphLayoutRatio).toBe(1)
-    expect(state.graphLayoutSpeed).toBe(3)
   })
 
   test('setGraphLayoutRepulsion rejects values below 0.001', async () => {
@@ -200,30 +192,14 @@ describe('settings store — layout params defaults', () => {
     const settings = {
       setGraphLayoutRepulsion: (value: number) => calls.push(`repulsion:${value}`),
       setGraphLayoutGravity: (value: number) => calls.push(`gravity:${value}`),
-      setGraphLayoutMargin: (value: number) => calls.push(`margin:${value}`),
-      setGraphLayoutMaxIterations: (value: number) => calls.push(`iterations:${value}`),
-      setGraphLayoutAttraction: (value: number) => calls.push(`attraction:${value}`),
-      setGraphLayoutInertia: (value: number) => calls.push(`inertia:${value}`),
-      setGraphLayoutMaxMove: (value: number) => calls.push(`maxMove:${value}`),
-      setGraphLayoutExpansion: (value: number) => calls.push(`expansion:${value}`),
-      setGraphLayoutGridSize: (value: number) => calls.push(`gridSize:${value}`),
-      setGraphLayoutRatio: (value: number) => calls.push(`ratio:${value}`),
-      setGraphLayoutSpeed: (value: number) => calls.push(`speed:${value}`)
+      setGraphLayoutMaxIterations: (value: number) => calls.push(`iterations:${value}`)
     }
 
     applyPersistedLayoutParams(
       {
         repulsion: 0.08,
         gravity: 0.04,
-        margin: 8,
-        maxIterations: 25,
-        attraction: 0.0006,
-        inertia: 0.55,
-        maxMove: 70,
-        expansion: 1.4,
-        gridSize: 3,
-        ratio: 1.3,
-        speed: 5
+        maxIterations: 25
       },
       settings
     )
@@ -231,15 +207,7 @@ describe('settings store — layout params defaults', () => {
     expect(calls).toEqual([
       'repulsion:0.08',
       'gravity:0.04',
-      'margin:8',
-      'iterations:25',
-      'attraction:0.0006',
-      'inertia:0.55',
-      'maxMove:70',
-      'expansion:1.4',
-      'gridSize:3',
-      'ratio:1.3',
-      'speed:5'
+      'iterations:25'
     ])
   })
 })

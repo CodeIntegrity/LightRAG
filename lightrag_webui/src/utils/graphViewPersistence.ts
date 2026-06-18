@@ -1,9 +1,10 @@
 const STORAGE_PREFIX = 'lightrag-graph-view:'
 const MAX_ENTRIES = 50
-export const DEFAULT_GRAPH_LAYOUT = 'Force Atlas'
+export const DEFAULT_GRAPH_LAYOUT = 'Random'
 export const SUPPORTED_GRAPH_LAYOUTS = [
   'Circular',
   'Circlepack',
+  'Radial',
   'Random',
   'Noverlaps',
   'Force Directed',
@@ -15,29 +16,13 @@ export type SupportedGraphLayout = (typeof SUPPORTED_GRAPH_LAYOUTS)[number]
 export interface PersistedLayoutParams {
   repulsion: number
   gravity: number
-  margin: number
   maxIterations: number
-  attraction: number
-  inertia: number
-  maxMove: number
-  expansion: number
-  gridSize: number
-  ratio: number
-  speed: number
 }
 
 export const DEFAULT_LAYOUT_PARAMS: PersistedLayoutParams = {
   repulsion: 0.02,
   gravity: 0.02,
-  margin: 5,
-  maxIterations: 15,
-  attraction: 0.0003,
-  inertia: 0.4,
-  maxMove: 100,
-  expansion: 1.1,
-  gridSize: 1,
-  ratio: 1,
-  speed: 3
+  maxIterations: 15
 }
 
 export interface PersistedGraphView {
@@ -75,29 +60,13 @@ export interface GraphViewContext {
 export interface GraphLayoutSettingsApplier {
   setGraphLayoutRepulsion: (value: number) => void
   setGraphLayoutGravity: (value: number) => void
-  setGraphLayoutMargin: (value: number) => void
   setGraphLayoutMaxIterations: (value: number) => void
-  setGraphLayoutAttraction: (value: number) => void
-  setGraphLayoutInertia: (value: number) => void
-  setGraphLayoutMaxMove: (value: number) => void
-  setGraphLayoutExpansion: (value: number) => void
-  setGraphLayoutGridSize: (value: number) => void
-  setGraphLayoutRatio: (value: number) => void
-  setGraphLayoutSpeed: (value: number) => void
 }
 
 export interface GraphLayoutSettingsSnapshot {
   graphLayoutRepulsion: number
   graphLayoutGravity: number
-  graphLayoutMargin: number
   graphLayoutMaxIterations: number
-  graphLayoutAttraction: number
-  graphLayoutInertia: number
-  graphLayoutMaxMove: number
-  graphLayoutExpansion: number
-  graphLayoutGridSize: number
-  graphLayoutRatio: number
-  graphLayoutSpeed: number
 }
 
 export function isSupportedGraphLayout(layoutType: string): layoutType is SupportedGraphLayout {
@@ -128,15 +97,7 @@ function buildLayoutParamsFromSettings(
   return {
     repulsion: settings.graphLayoutRepulsion,
     gravity: settings.graphLayoutGravity,
-    margin: settings.graphLayoutMargin,
-    maxIterations: settings.graphLayoutMaxIterations,
-    attraction: settings.graphLayoutAttraction,
-    inertia: settings.graphLayoutInertia,
-    maxMove: settings.graphLayoutMaxMove,
-    expansion: settings.graphLayoutExpansion,
-    gridSize: settings.graphLayoutGridSize,
-    ratio: settings.graphLayoutRatio,
-    speed: settings.graphLayoutSpeed
+    maxIterations: settings.graphLayoutMaxIterations
   }
 }
 
@@ -271,25 +232,29 @@ export function applyPersistedNodePositions(
   }
 }
 
+export function hasCompletePersistedNodePositions(
+  nodeIds: Iterable<string>,
+  nodePositions: PersistedGraphView['nodePositions']
+): boolean {
+  let hasNode = false
+  for (const nodeId of nodeIds) {
+    hasNode = true
+    if (!nodePositions[nodeId]) {
+      return false
+    }
+  }
+  return hasNode
+}
+
 export function applyPersistedLayoutParams(
   layoutParams: Partial<PersistedLayoutParams>,
   settings: GraphLayoutSettingsApplier
 ): void {
   if (layoutParams.repulsion !== undefined) settings.setGraphLayoutRepulsion(layoutParams.repulsion)
   if (layoutParams.gravity !== undefined) settings.setGraphLayoutGravity(layoutParams.gravity)
-  if (layoutParams.margin !== undefined) settings.setGraphLayoutMargin(layoutParams.margin)
   if (layoutParams.maxIterations !== undefined) {
     settings.setGraphLayoutMaxIterations(layoutParams.maxIterations)
   }
-  if (layoutParams.attraction !== undefined) {
-    settings.setGraphLayoutAttraction(layoutParams.attraction)
-  }
-  if (layoutParams.inertia !== undefined) settings.setGraphLayoutInertia(layoutParams.inertia)
-  if (layoutParams.maxMove !== undefined) settings.setGraphLayoutMaxMove(layoutParams.maxMove)
-  if (layoutParams.expansion !== undefined) settings.setGraphLayoutExpansion(layoutParams.expansion)
-  if (layoutParams.gridSize !== undefined) settings.setGraphLayoutGridSize(layoutParams.gridSize)
-  if (layoutParams.ratio !== undefined) settings.setGraphLayoutRatio(layoutParams.ratio)
-  if (layoutParams.speed !== undefined) settings.setGraphLayoutSpeed(layoutParams.speed)
 }
 
 function getStorageKey(viewKey: string): string {

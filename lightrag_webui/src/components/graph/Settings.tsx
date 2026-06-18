@@ -12,12 +12,12 @@ import {
   SelectValue
 } from '@/components/ui/Select'
 import type { GraphClusterBy } from '@/utils/forceAtlas2Layout'
+import { DEFAULT_FA2_SCALING_RATIO, DEFAULT_FA2_GRAVITY } from '@/utils/forceAtlas2Layout'
 
 import { controlButtonVariant } from '@/lib/constants'
 import { useSettingsStore } from '@/stores/settings'
 import { useGraphStore } from '@/stores/graph'
 import {
-  DEFAULT_LAYOUT_PARAMS,
   saveGraphLayoutSettings
 } from '@/utils/graphViewPersistence'
 import { DEFAULT_GRAPH_LABEL_FONT_SIZE } from '@/utils/graphLabelSize'
@@ -160,6 +160,15 @@ const LabeledNumberInput = ({
 }
 
 /**
+ * Group header that labels what a block of settings controls.
+ */
+const SectionTitle = ({ children }: { children: string }) => (
+  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+    {children}
+  </div>
+)
+
+/**
  * Component that displays a popover with settings options.
  */
 export default function Settings() {
@@ -178,7 +187,7 @@ export default function Settings() {
   const enableHideUnselectedEdges = useSettingsStore.use.enableHideUnselectedEdges()
   const showEdgeLabel = useSettingsStore.use.showEdgeLabel()
   const showDirectionalArrows = useSettingsStore.use.showDirectionalArrows()
-  const enableSearchLinkedDrag = useSettingsStore.use.enableSearchLinkedDrag()
+  const colorEdgesByDirection = useSettingsStore.use.colorEdgesByDirection()
   const minEdgeSize = useSettingsStore.use.minEdgeSize()
   const maxEdgeSize = useSettingsStore.use.maxEdgeSize()
   const graphQueryMaxDepth = useSettingsStore.use.graphQueryMaxDepth()
@@ -189,16 +198,8 @@ export default function Settings() {
     ? `${t('graphPanel.sideBar.settings.maxNodes')} (<= ${backendMaxGraphNodes})`
     : t('graphPanel.sideBar.settings.maxNodes')
   const graphLayoutMaxIterations = useSettingsStore.use.graphLayoutMaxIterations()
-  const graphLayoutRepulsion = useSettingsStore.use.graphLayoutRepulsion()
-  const graphLayoutGravity = useSettingsStore.use.graphLayoutGravity()
-  const graphLayoutMargin = useSettingsStore.use.graphLayoutMargin()
-  const graphLayoutAttraction = useSettingsStore.use.graphLayoutAttraction()
-  const graphLayoutInertia = useSettingsStore.use.graphLayoutInertia()
-  const graphLayoutMaxMove = useSettingsStore.use.graphLayoutMaxMove()
-  const graphLayoutExpansion = useSettingsStore.use.graphLayoutExpansion()
-  const graphLayoutGridSize = useSettingsStore.use.graphLayoutGridSize()
-  const graphLayoutRatio = useSettingsStore.use.graphLayoutRatio()
-  const graphLayoutSpeed = useSettingsStore.use.graphLayoutSpeed()
+  const graphLayoutScalingRatio = useSettingsStore.use.graphLayoutScalingRatio()
+  const graphLayoutCenterGravity = useSettingsStore.use.graphLayoutCenterGravity()
 
   const enableHealthCheck = useSettingsStore.use.enableHealthCheck()
 
@@ -231,17 +232,17 @@ export default function Settings() {
       })),
     []
   )
+  const setColorEdgesByDirection = useCallback(
+    () =>
+      useSettingsStore.setState((pre) => ({
+        colorEdgesByDirection: !pre.colorEdgesByDirection
+      })),
+    []
+  )
   const setShowDirectionalArrows = useCallback(
     () =>
       useSettingsStore.setState((pre) => ({
         showDirectionalArrows: !pre.showDirectionalArrows
-      })),
-    []
-  )
-  const setEnableSearchLinkedDrag = useCallback(
-    () =>
-      useSettingsStore.setState((pre) => ({
-        enableSearchLinkedDrag: !pre.enableSearchLinkedDrag
       })),
     []
   )
@@ -297,54 +298,14 @@ export default function Settings() {
     useSettingsStore.setState({ graphLabelFontSize: fontSize })
   }, [])
 
-  const setGraphLayoutRepulsion = useCallback((repulsion: number) => {
-    if (repulsion < 0.001) return
-    useSettingsStore.setState({ graphLayoutRepulsion: repulsion })
-  }, [])
-
-  const setGraphLayoutGravity = useCallback((gravity: number) => {
-    if (gravity < 0.001) return
-    useSettingsStore.setState({ graphLayoutGravity: gravity })
-  }, [])
-
-  const setGraphLayoutMargin = useCallback((margin: number) => {
-    if (margin < 1) return
-    useSettingsStore.setState({ graphLayoutMargin: margin })
-  }, [])
-
-  const setGraphLayoutAttraction = useCallback((attraction: number) => {
-    if (attraction < 0.0001) return
-    useSettingsStore.setState({ graphLayoutAttraction: attraction })
-  }, [])
-
-  const setGraphLayoutInertia = useCallback((inertia: number) => {
-    if (inertia < 0 || inertia > 1) return
-    useSettingsStore.setState({ graphLayoutInertia: inertia })
-  }, [])
-
-  const setGraphLayoutMaxMove = useCallback((maxMove: number) => {
-    if (maxMove < 1) return
-    useSettingsStore.setState({ graphLayoutMaxMove: maxMove })
-  }, [])
-
-  const setGraphLayoutExpansion = useCallback((expansion: number) => {
-    if (expansion < 1) return
-    useSettingsStore.setState({ graphLayoutExpansion: expansion })
-  }, [])
-
-  const setGraphLayoutGridSize = useCallback((gridSize: number) => {
-    if (gridSize < 1) return
-    useSettingsStore.setState({ graphLayoutGridSize: gridSize })
-  }, [])
-
-  const setGraphLayoutRatio = useCallback((ratio: number) => {
+  const setGraphLayoutScalingRatio = useCallback((ratio: number) => {
     if (ratio <= 0) return
-    useSettingsStore.setState({ graphLayoutRatio: ratio })
+    useSettingsStore.setState({ graphLayoutScalingRatio: ratio })
   }, [])
 
-  const setGraphLayoutSpeed = useCallback((speed: number) => {
-    if (speed <= 0) return
-    useSettingsStore.setState({ graphLayoutSpeed: speed })
+  const setGraphLayoutCenterGravity = useCallback((gravity: number) => {
+    if (gravity < 0) return
+    useSettingsStore.setState({ graphLayoutCenterGravity: gravity })
   }, [])
 
   const saveSettings = () => {
@@ -390,6 +351,7 @@ export default function Settings() {
         >
           <div className="max-h-[min(78vh,42rem)] overflow-y-auto p-3">
             <div className="flex flex-col gap-3">
+            <SectionTitle>{t('graphPanel.sideBar.settings.groupSystem')}</SectionTitle>
             <LabeledCheckBox
               checked={enableHealthCheck}
               onCheckedChange={setEnableHealthCheck}
@@ -398,6 +360,28 @@ export default function Settings() {
 
             <Separator />
 
+            <SectionTitle>{t('graphPanel.sideBar.settings.groupData')}</SectionTitle>
+            <div className="grid grid-cols-2 gap-3">
+              <LabeledNumberInput
+                label={t('graphPanel.sideBar.settings.maxQueryDepth')}
+                min={1}
+                value={graphQueryMaxDepth}
+                defaultValue={3}
+                onEditFinished={setGraphQueryMaxDepth}
+              />
+              <LabeledNumberInput
+                label={graphMaxNodesLabel}
+                min={1}
+                max={graphMaxNodesLimit}
+                value={graphMaxNodes}
+                defaultValue={backendMaxGraphNodes ?? undefined}
+                onEditFinished={setGraphMaxNodes}
+              />
+            </div>
+
+            <Separator />
+
+            <SectionTitle>{t('graphPanel.sideBar.settings.groupInterface')}</SectionTitle>
             <LabeledCheckBox
               checked={showPropertyPanel}
               onCheckedChange={setShowPropertyPanel}
@@ -411,6 +395,7 @@ export default function Settings() {
 
             <Separator />
 
+            <SectionTitle>{t('graphPanel.sideBar.settings.groupNode')}</SectionTitle>
             <LabeledCheckBox
               checked={showNodeLabel}
               onCheckedChange={setShowNodeLabel}
@@ -421,24 +406,6 @@ export default function Settings() {
               onCheckedChange={setColorByCommunity}
               label={t('graphPanel.sideBar.settings.colorByCommunity')}
             />
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-sm leading-none font-medium">
-                {t('graphPanel.sideBar.settings.clusterBy')}
-              </label>
-              <Select
-                value={graphClusterBy}
-                onValueChange={(value) => setGraphClusterBy(value as GraphClusterBy)}
-              >
-                <SelectTrigger className="h-7 w-28 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">{t('graphPanel.sideBar.settings.clusterByNone')}</SelectItem>
-                  <SelectItem value="type">{t('graphPanel.sideBar.settings.clusterByType')}</SelectItem>
-                  <SelectItem value="community">{t('graphPanel.sideBar.settings.clusterByCommunity')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
             <LabeledNumberInput
               value={graphLabelFontSize}
               onEditFinished={setGraphLabelFontSize}
@@ -453,14 +420,10 @@ export default function Settings() {
               onCheckedChange={setEnableNodeDrag}
               label={t('graphPanel.sideBar.settings.nodeDraggable')}
             />
-            <LabeledCheckBox
-              checked={enableSearchLinkedDrag}
-              onCheckedChange={setEnableSearchLinkedDrag}
-              label={t('graphPanel.sideBar.settings.searchLinkedDrag')}
-            />
 
             <Separator />
 
+            <SectionTitle>{t('graphPanel.sideBar.settings.groupEdge')}</SectionTitle>
             <LabeledCheckBox
               checked={showEdgeLabel}
               onCheckedChange={setShowEdgeLabel}
@@ -480,6 +443,11 @@ export default function Settings() {
               checked={enableEdgeEvents}
               onCheckedChange={setEnableEdgeEvents}
               label={t('graphPanel.sideBar.settings.edgeEvents')}
+            />
+            <LabeledCheckBox
+              checked={colorEdgesByDirection}
+              onCheckedChange={setColorEdgesByDirection}
+              label={t('graphPanel.sideBar.settings.colorEdgesByDirection')}
             />
 
             <div className="flex flex-col gap-2">
@@ -532,22 +500,27 @@ export default function Settings() {
             </div>
 
             <Separator />
+
+            <SectionTitle>{t('graphPanel.sideBar.settings.groupLayout')}</SectionTitle>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-sm leading-none font-medium">
+                {t('graphPanel.sideBar.settings.clusterBy')}
+              </label>
+              <Select
+                value={graphClusterBy}
+                onValueChange={(value) => setGraphClusterBy(value as GraphClusterBy)}
+              >
+                <SelectTrigger className="h-7 w-28 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{t('graphPanel.sideBar.settings.clusterByNone')}</SelectItem>
+                  <SelectItem value="type">{t('graphPanel.sideBar.settings.clusterByType')}</SelectItem>
+                  <SelectItem value="community">{t('graphPanel.sideBar.settings.clusterByCommunity')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid grid-cols-2 gap-3">
-              <LabeledNumberInput
-                label={t('graphPanel.sideBar.settings.maxQueryDepth')}
-                min={1}
-                value={graphQueryMaxDepth}
-                defaultValue={3}
-                onEditFinished={setGraphQueryMaxDepth}
-              />
-              <LabeledNumberInput
-                label={graphMaxNodesLabel}
-                min={1}
-                max={graphMaxNodesLimit}
-                value={graphMaxNodes}
-                defaultValue={backendMaxGraphNodes ?? undefined}
-                onEditFinished={setGraphMaxNodes}
-              />
               <LabeledNumberInput
                 label={t('graphPanel.sideBar.settings.maxLayoutIterations')}
                 min={1}
@@ -556,95 +529,23 @@ export default function Settings() {
                 defaultValue={15}
                 onEditFinished={setGraphLayoutMaxIterations}
               />
-            </div>
-            <Separator />
-            <div className="grid grid-cols-2 gap-3">
               <LabeledNumberInput
-                label={t('graphPanel.sideBar.settings.layoutRepulsion')}
-                min={0.001}
-                max={1}
-                value={graphLayoutRepulsion}
-                defaultValue={0.02}
-                step={0.001}
-                onEditFinished={setGraphLayoutRepulsion}
-              />
-              <LabeledNumberInput
-                label={t('graphPanel.sideBar.settings.layoutGravity')}
-                min={0.001}
-                max={1}
-                value={graphLayoutGravity}
-                defaultValue={0.02}
-                step={0.001}
-                onEditFinished={setGraphLayoutGravity}
-              />
-              <LabeledNumberInput
-                label={t('graphPanel.sideBar.settings.layoutMargin')}
-                min={1}
-                max={100}
-                value={graphLayoutMargin}
-                defaultValue={DEFAULT_LAYOUT_PARAMS.margin}
-                onEditFinished={setGraphLayoutMargin}
-              />
-              <LabeledNumberInput
-                label={t('graphPanel.sideBar.settings.layoutAttraction')}
-                min={0.0001}
-                max={0.01}
-                value={graphLayoutAttraction}
-                defaultValue={DEFAULT_LAYOUT_PARAMS.attraction}
-                step={0.0001}
-                onEditFinished={setGraphLayoutAttraction}
-              />
-              <LabeledNumberInput
-                label={t('graphPanel.sideBar.settings.layoutInertia')}
-                min={0}
-                max={1}
-                value={graphLayoutInertia}
-                defaultValue={DEFAULT_LAYOUT_PARAMS.inertia}
-                step={0.01}
-                onEditFinished={setGraphLayoutInertia}
-              />
-              <LabeledNumberInput
-                label={t('graphPanel.sideBar.settings.layoutMaxMove')}
-                min={1}
-                max={500}
-                value={graphLayoutMaxMove}
-                defaultValue={DEFAULT_LAYOUT_PARAMS.maxMove}
-                onEditFinished={setGraphLayoutMaxMove}
-              />
-              <LabeledNumberInput
-                label={t('graphPanel.sideBar.settings.layoutExpansion')}
-                min={1}
-                max={5}
-                value={graphLayoutExpansion}
-                defaultValue={DEFAULT_LAYOUT_PARAMS.expansion}
-                step={0.1}
-                onEditFinished={setGraphLayoutExpansion}
-              />
-              <LabeledNumberInput
-                label={t('graphPanel.sideBar.settings.layoutGridSize')}
-                min={1}
+                label={t('graphPanel.sideBar.settings.layoutScalingRatio')}
+                min={0.1}
                 max={20}
-                value={graphLayoutGridSize}
-                defaultValue={DEFAULT_LAYOUT_PARAMS.gridSize}
-                onEditFinished={setGraphLayoutGridSize}
+                value={graphLayoutScalingRatio}
+                defaultValue={DEFAULT_FA2_SCALING_RATIO}
+                step={0.1}
+                onEditFinished={setGraphLayoutScalingRatio}
               />
               <LabeledNumberInput
-                label={t('graphPanel.sideBar.settings.layoutRatio')}
-                min={0.1}
-                max={10}
-                value={graphLayoutRatio}
-                defaultValue={DEFAULT_LAYOUT_PARAMS.ratio}
+                label={t('graphPanel.sideBar.settings.layoutCenterGravity')}
+                min={0}
+                max={20}
+                value={graphLayoutCenterGravity}
+                defaultValue={DEFAULT_FA2_GRAVITY}
                 step={0.1}
-                onEditFinished={setGraphLayoutRatio}
-              />
-              <LabeledNumberInput
-                label={t('graphPanel.sideBar.settings.layoutSpeed')}
-                min={0.1}
-                max={10}
-                value={graphLayoutSpeed}
-                defaultValue={DEFAULT_LAYOUT_PARAMS.speed}
-                step={0.1}
-                onEditFinished={setGraphLayoutSpeed}
+                onEditFinished={setGraphLayoutCenterGravity}
               />
             </div>
             {/* Development/Testing Section - Only visible in development mode */}

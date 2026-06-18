@@ -21,6 +21,7 @@ import {
   saveGraphLayoutView
 } from '@/utils/graphViewPersistence'
 import { computeForceAtlas2Layout, computeClusteredCirclepack, resolveClusterAttribute, FORCE_ATLAS2_BASE_SETTINGS } from '@/utils/forceAtlas2Layout'
+import { computeRadialLayout } from '@/utils/radialLayout'
 
 import { GripIcon, PlayIcon, PauseIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -28,6 +29,7 @@ import { useTranslation } from 'react-i18next'
 type LayoutName =
   | 'Circular'
   | 'Circlepack'
+  | 'Radial'
   | 'Random'
   | 'Noverlaps'
   | 'Force Directed'
@@ -210,42 +212,30 @@ const LayoutsControl = () => {
   const maxIterations = useSettingsStore.use.graphLayoutMaxIterations()
   const repulsion = useSettingsStore.use.graphLayoutRepulsion()
   const gravity = useSettingsStore.use.graphLayoutGravity()
-  const margin = useSettingsStore.use.graphLayoutMargin()
-  const attraction = useSettingsStore.use.graphLayoutAttraction()
-  const inertia = useSettingsStore.use.graphLayoutInertia()
-  const maxMove = useSettingsStore.use.graphLayoutMaxMove()
-  const expansion = useSettingsStore.use.graphLayoutExpansion()
-  const gridSize = useSettingsStore.use.graphLayoutGridSize()
-  const ratio = useSettingsStore.use.graphLayoutRatio()
-  const speed = useSettingsStore.use.graphLayoutSpeed()
+  const scalingRatio = useSettingsStore.use.graphLayoutScalingRatio()
+  const centerGravity = useSettingsStore.use.graphLayoutCenterGravity()
 
   const layoutCircular = useLayoutCircular()
   const layoutCirclepack = useLayoutCirclepack()
   const layoutRandom = useLayoutRandom()
   const layoutNoverlap = useLayoutNoverlap({
-    maxIterations: maxIterations,
-    settings: {
-      margin: margin,
-      expansion: expansion,
-      gridSize: gridSize,
-      ratio: ratio,
-      speed: speed,
-    }
+    maxIterations: maxIterations
   })
   // Add parameters for Force Directed layout to improve convergence
   const layoutForce = useLayoutForce({
     maxIterations: maxIterations,
     settings: {
-      attraction: attraction,
       repulsion: repulsion,
-      gravity: gravity,
-      inertia: inertia,
-      maxMove: maxMove
+      gravity: gravity
     }
   })
   const layoutForceAtlas2 = useLayoutForceAtlas2({
     iterations: maxIterations,
-    settings: FORCE_ATLAS2_BASE_SETTINGS
+    settings: {
+      ...FORCE_ATLAS2_BASE_SETTINGS,
+      scalingRatio: scalingRatio,
+      gravity: centerGravity
+    }
   })
   const workerNoverlap = useWorkerLayoutNoverlap()
   const workerForce = useWorkerLayoutForce()
@@ -258,6 +248,15 @@ const LayoutsControl = () => {
       },
       Circlepack: {
         layout: layoutCirclepack
+      },
+      Radial: {
+        // 同心环辐射布局：以选中节点（或度数最大节点）为中心一次性定位
+        layout: {
+          positions: () =>
+            computeRadialLayout(sigma.getGraph(), {
+              center: useGraphStore.getState().selectedNode
+            })
+        } as unknown as LayoutHook
       },
       Random: {
         layout: layoutRandom
@@ -282,6 +281,7 @@ const LayoutsControl = () => {
     layoutForceAtlas2,
     layoutNoverlap,
     layoutRandom,
+    sigma,
     workerForce,
     workerNoverlap,
     workerForceAtlas2
@@ -309,7 +309,11 @@ const LayoutsControl = () => {
         const clusterAttribute = resolveClusterAttribute(graphClusterBy)
         const pos =
           newLayout === 'Force Atlas'
-            ? computeForceAtlas2Layout(graph, { clusterAttribute })
+            ? computeForceAtlas2Layout(graph, {
+                clusterAttribute,
+                scalingRatio,
+                gravity: centerGravity
+              })
             : newLayout === 'Circlepack' && clusterAttribute
               ? computeClusteredCirclepack(graph, clusterAttribute)
               : layouts[newLayout].layout.positions()
@@ -339,7 +343,7 @@ const LayoutsControl = () => {
         console.error('Error running layout:', error)
       }
     },
-    [layouts, sigma, graphClusterBy]
+    [layouts, sigma, graphClusterBy, scalingRatio, centerGravity]
   )
 
   return (
