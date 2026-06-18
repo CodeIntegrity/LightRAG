@@ -129,6 +129,7 @@ const fetchGraph = async (
 ) => {
   let rawData: any = null;
   let isTruncated = false;
+  let filteredOnTruncatedBase = false;
 
   // Trigger GraphLabels component to check if the label is valid
   // console.log('Setting labelsFetchAttempted to true');
@@ -145,6 +146,7 @@ const fetchGraph = async (
       !!structuredResponse.data?.is_truncated ||
       structuredResponse.truncation.was_truncated_before_filtering ||
       structuredResponse.truncation.was_truncated_after_filtering
+    filteredOnTruncatedBase = !!structuredResponse.meta?.filtered_on_truncated_base
   } else {
     console.log(`Fetching graph label: ${queryLabel}, depth: ${maxDepth}, nodes: ${maxNodes}`);
     rawData = await queryGraphs(queryLabel, maxDepth, maxNodes, signal);
@@ -226,7 +228,7 @@ const fetchGraph = async (
   }
 
   // console.debug({ data: JSON.parse(JSON.stringify(rawData)) })
-  return { rawGraph, is_truncated: isTruncated }
+  return { rawGraph, is_truncated: isTruncated, filtered_on_truncated_base: filteredOnTruncatedBase }
 }
 
 // Create a new graph instance with the raw graph data
@@ -454,7 +456,7 @@ const useLightrangeGraph = () => {
               )
             : currentQueryLabel
               ? await fetchGraph(currentQueryLabel, currentMaxQueryDepth, currentMaxNodes, signal)
-              : { rawGraph: null, is_truncated: false }
+              : { rawGraph: null, is_truncated: false, filtered_on_truncated_base: false }
 
         if (!requestStateRef.current.isCurrent(requestId)) {
           return
@@ -475,7 +477,14 @@ const useLightrangeGraph = () => {
           })
         }
 
-        if (result?.is_truncated) {
+        if (result?.filtered_on_truncated_base) {
+          toast.warning(
+            tRef.current(
+              'graphPanel.filteredOnTruncatedBase',
+              'Filters were applied to a truncated sample, results may be incomplete. Increase Max Nodes or narrow the start label.'
+            )
+          )
+        } else if (result?.is_truncated) {
           toast.info(tRef.current('graphPanel.dataIsTruncated', 'Graph data is truncated to Max Nodes'))
         }
 

@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+import lightrag.api.graph_workbench as graph_workbench
 from lightrag.api.graph_workbench import (
     LOW_WEIGHT_EDGE_THRESHOLD,
     get_legacy_graph_payload,
@@ -501,28 +502,6 @@ async def test_query_time_filters_support_mixed_timezone_and_naive_boundaries():
 
 
 @pytest.mark.asyncio
-async def test_query_highlight_matches_is_ignored_and_not_counted_as_filtering_applied():
-    rag = _DummyRAG(
-        graph_payload={
-            "nodes": [_node("n1", "PERSON"), _node("n2", "ORGANIZATION")],
-            "edges": [_edge("e1", "n1", "n2", "works_for", weight=1.0)],
-            "is_truncated": False,
-        }
-    )
-
-    result = await query_graph_workbench(
-        rag,
-        {
-            "scope": {"label": "*", "max_depth": 1, "max_nodes": 10},
-            "view_options": {"highlight_matches": True},
-        },
-    )
-
-    assert result["meta"]["filtering_applied"] is False
-    assert "view_options.highlight_matches" in result["meta"]["ignored_filter_groups"]
-
-
-@pytest.mark.asyncio
 async def test_query_hide_low_weight_edges_uses_explicit_threshold_semantics():
     rag = _DummyRAG(
         graph_payload={
@@ -550,6 +529,166 @@ async def test_query_hide_low_weight_edges_uses_explicit_threshold_semantics():
     )
 
     assert [edge["id"] for edge in result["data"]["edges"]] == ["e-high"]
+
+
+@pytest.mark.asyncio
+async def test_meta_flags_filtering_on_truncated_base():
+    # 回归 #2：基础图已截断且有过滤时，如实标记结果基于样本
+    rag = _DummyRAG(
+        graph_payload={
+            "nodes": [_node("n1", "PERSON"), _node("n2", "ORGANIZATION")],
+            "edges": [],
+            "is_truncated": True,
+        }
+    )
+
+    result = await query_graph_workbench(
+        rag,
+        {
+            "scope": {"label": "*", "max_depth": 1, "max_nodes": 10},
+            "node_filters": {"entity_types": ["PERSON"]},
+        },
+    )
+
+    assert result["meta"]["execution_mode"] == "post_truncation_filter"
+    assert result["meta"]["filtered_on_truncated_base"] is True
+
+
+@pytest.mark.asyncio
+async def test_meta_does_not_flag_when_not_truncated_or_no_filter():
+    base_payload = {
+        "nodes": [_node("n1", "PERSON"), _node("n2", "ORGANIZATION")],
+        "edges": [],
+    }
+
+    # 未截断 + 有过滤 → 不标记
+    rag_not_truncated = _DummyRAG(
+        graph_payload={**base_payload, "is_truncated": False}
+    )
+    filtered = await query_graph_workbench(
+        rag_not_truncated,
+        {
+            "scope": {"label": "*", "max_depth": 1, "max_nodes": 10},
+            "node_filters": {"entity_types": ["PERSON"]},
+        },
+    )
+    assert filtered["meta"]["filtered_on_truncated_base"] is False
+
+    # 截断 + 无过滤 → 不标记
+    rag_truncated = _DummyRAG(graph_payload={**base_payload, "is_truncated": True})
+    unfiltered = await query_graph_workbench(
+        rag_truncated,
+        {"scope": {"label": "*", "max_depth": 1, "max_nodes": 10}},
+    )
+    assert unfiltered["meta"]["filtered_on_truncated_base"] is False
+
+
+class _FullScanRAG(_DummyRAG):
+    """提供 get_all_nodes/get_all_edges 以触发 filter-first；bounded 路径模拟 top-N 截断。"""
+
+    def __init__(self, all_nodes, all_edges, bounded_payload, **kwargs):
+        super().__init__(graph_payload=bounded_payload, **kwargs)
+        self._all_nodes = all_nodes
+        self._all_edges = all_edges
+        self.get_all_nodes_calls = 0
+
+    async def get_all_nodes(self):
+        self.get_all_nodes_calls += 1
+        return [dict(node) for node in self._all_nodes]
+
+    async def get_all_edges(self):
+        return [dict(edge) for edge in self._all_edges]
+
+
+def _flat_node(node_id: str, entity_type: str) -> dict[str, Any]:
+    return {"id": node_id, "entity_id": node_id, "entity_type": entity_type}
+
+
+def _full_scan_fixture() -> tuple[list[dict], list[dict], dict[str, Any]]:
+    all_nodes = [
+        _flat_node("org1", "ORGANIZATION"),
+        _flat_node("org2", "ORGANIZATION"),
+        _flat_node("p1", "PERSON"),  # 低度数，top-N 会被丢弃
+    ]
+    all_edges = [
+        {"source": "org1", "target": "org2", "relationship": "partner_of", "weight": 1.0},
+        {"source": "org1", "target": "p1", "relationship": "employs", "weight": 1.0},
+    ]
+    # bounded 路径模拟"按度数 top-2"：只剩两个 ORG，PERSON 丢失且已截断
+    bounded_payload = {
+        "nodes": [_node("org1", "ORGANIZATION"), _node("org2", "ORGANIZATION")],
+        "edges": [],
+        "is_truncated": True,
+    }
+    return all_nodes, all_edges, bounded_payload
+
+
+@pytest.mark.asyncio
+async def test_filter_first_preserves_rare_type_that_top_n_would_drop():
+    rag = _FullScanRAG(*_full_scan_fixture())
+
+    result = await query_graph_workbench(
+        rag,
+        {
+            "scope": {"label": "*", "max_depth": 2, "max_nodes": 2},
+            "node_filters": {"entity_types": ["PERSON"]},
+        },
+    )
+
+    assert rag.get_all_nodes_calls == 1
+    assert result["meta"]["execution_mode"] == "filter_first_full_scan"
+    assert {node["id"] for node in result["data"]["nodes"]} == {"p1"}
+    # 在全图上过滤，未基于截断样本
+    assert result["meta"]["filtered_on_truncated_base"] is False
+    assert result["truncation"]["was_truncated_before_filtering"] is False
+
+
+@pytest.mark.asyncio
+async def test_filter_first_falls_back_when_scan_exceeds_limit(monkeypatch):
+    rag = _FullScanRAG(*_full_scan_fixture())
+    monkeypatch.setattr(graph_workbench, "FILTER_FIRST_SCAN_LIMIT", 1)
+
+    result = await query_graph_workbench(
+        rag,
+        {
+            "scope": {"label": "*", "max_depth": 2, "max_nodes": 10},
+            "node_filters": {"entity_types": ["PERSON"]},
+        },
+    )
+
+    # 回退到 bounded 路径：基础图已截断 + 有过滤 → 如实标记
+    assert result["meta"]["execution_mode"] == "post_truncation_filter"
+    assert result["meta"]["filtered_on_truncated_base"] is True
+
+
+@pytest.mark.asyncio
+async def test_no_filter_keeps_bounded_path_and_skips_full_scan():
+    rag = _FullScanRAG(*_full_scan_fixture())
+
+    result = await query_graph_workbench(
+        rag,
+        {"scope": {"label": "*", "max_depth": 2, "max_nodes": 10}},
+    )
+
+    assert rag.get_all_nodes_calls == 0
+    assert result["meta"]["execution_mode"] == "post_truncation_filter"
+
+
+@pytest.mark.asyncio
+async def test_filter_first_only_triggers_for_global_label():
+    rag = _FullScanRAG(*_full_scan_fixture())
+
+    result = await query_graph_workbench(
+        rag,
+        {
+            "scope": {"label": "org1", "max_depth": 2, "max_nodes": 10},
+            "node_filters": {"entity_types": ["PERSON"]},
+        },
+    )
+
+    # 指定起点标签不是 top-N 截断问题，走 bounded BFS，不全量扫描
+    assert rag.get_all_nodes_calls == 0
+    assert result["meta"]["execution_mode"] == "post_truncation_filter"
 
 
 def test_revision_token_is_stable_for_equivalent_payloads():

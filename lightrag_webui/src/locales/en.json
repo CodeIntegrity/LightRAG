@@ -248,6 +248,7 @@
   },
   "graphPanel": {
     "dataIsTruncated": "Graph data is truncated to Max Nodes",
+    "filteredOnTruncatedBase": "Filters were applied to a truncated sample, results may be incomplete. Increase Max Nodes or narrow the start label.",
     "statusDialog": {
       "title": "LightRAG Server Settings",
       "description": "View current system status and connection information"
@@ -525,8 +526,7 @@
           "showNodesOnly": "Show Nodes Only",
           "showEdgesOnly": "Show Edges Only",
           "hideLowWeightEdges": "Hide Low Weight Edges",
-          "hideEmptyDescription": "Hide Empty Description",
-          "highlightMatches": "Highlight Matches"
+          "hideEmptyDescription": "Hide Empty Description"
         },
         "placeholders": {
           "entityTypes": "PERSON, ORGANIZATION",
@@ -539,6 +539,9 @@
         "messages": {
           "noEntityTypeResults": "No matching entity types found.",
           "noLabelResults": "No matching labels found."
+        },
+        "hints": {
+          "sourceFilters": "Applies to relationships (edges) only; does not filter nodes."
         },
         "direction": {
           "both": "Both",

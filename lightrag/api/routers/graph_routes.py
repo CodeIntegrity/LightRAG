@@ -304,7 +304,6 @@ class GraphViewOptionsV1(BaseModel):
     show_edges_only: bool = False
     hide_low_weight_edges: bool = False
     hide_empty_description: bool = False
-    highlight_matches: bool = False
 
 
 class GraphQueryRequest(BaseModel):
@@ -343,18 +342,12 @@ class GraphQueryMeta(BaseModel):
     filter_semantics: GraphQueryFilterSemantics = Field(
         default_factory=GraphQueryFilterSemantics
     )
-    execution_mode: Literal["base_graph_only_placeholder"] = (
-        "base_graph_only_placeholder"
+    execution_mode: Literal["post_truncation_filter", "filter_first_full_scan"] = (
+        "post_truncation_filter"
     )
     filtering_applied: bool = False
-    ignored_filter_groups: list[str] = Field(
-        default_factory=lambda: [
-            "node_filters",
-            "edge_filters",
-            "source_filters",
-            "view_options",
-        ]
-    )
+    filtered_on_truncated_base: bool = False
+    ignored_filter_groups: list[str] = Field(default_factory=list)
 
 
 class GraphQueryResponse(BaseModel):

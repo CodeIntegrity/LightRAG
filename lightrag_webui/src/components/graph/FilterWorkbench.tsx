@@ -21,6 +21,7 @@ import {
 } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import {
+  cloneQuery,
   getDefaultGraphWorkbenchFilterDraft,
   useGraphWorkbenchStore
 } from '@/stores/graphWorkbench'
@@ -53,25 +54,6 @@ const parseNumberInput = (value: string): number | null => {
   const parsed = Number(trimmed)
   return Number.isFinite(parsed) ? parsed : null
 }
-
-const cloneDraft = (query: GraphWorkbenchQueryRequest): GraphWorkbenchQueryRequest => ({
-  scope: { ...query.scope },
-  node_filters: {
-    ...query.node_filters,
-    entity_types: [...query.node_filters.entity_types]
-  },
-  edge_filters: {
-    ...query.edge_filters,
-    relation_types: [...query.edge_filters.relation_types],
-    source_entity_types: [...query.edge_filters.source_entity_types],
-    target_entity_types: [...query.edge_filters.target_entity_types]
-  },
-  source_filters: {
-    ...query.source_filters,
-    file_paths: [...query.source_filters.file_paths]
-  },
-  view_options: { ...query.view_options }
-})
 
 const normalizeScopeNumber = (rawValue: string, currentValue: number, minValue: number): number => {
   const trimmed = rawValue.trim()
@@ -108,7 +90,7 @@ export const updateDraftFromInput = <
   field: TField,
   rawValue: string | boolean
 ): GraphWorkbenchQueryRequest => {
-  const nextDraft = cloneDraft(draft)
+  const nextDraft = cloneQuery(draft)
   const key = String(field)
   const sectionDraft = nextDraft[section] as Record<string, unknown>
   if (typeof rawValue === 'boolean') {
@@ -155,7 +137,7 @@ export const updateDraftFromValue = <
   field: TField,
   value: GraphWorkbenchQueryRequest[TSection][TField]
 ): GraphWorkbenchQueryRequest => {
-  const nextDraft = cloneDraft(draft)
+  const nextDraft = cloneQuery(draft)
   const key = String(field)
   const sectionDraft = nextDraft[section] as Record<string, unknown>
   sectionDraft[key] = Array.isArray(value) ? [...value] : value
@@ -758,6 +740,9 @@ export const FilterWorkbench = ({
                   expanded={filterSections.source}
                   onToggle={() => toggleFilterSection('source')}
                 >
+                  <p className="text-muted-foreground text-[11px] leading-tight">
+                    {t('graphPanel.workbench.filter.hints.sourceFilters')}
+                  </p>
                   <TextField
                     label={t('graphPanel.workbench.filter.fields.sourceIdQuery')}
                     value={filterDraft.source_filters.source_id_query}
@@ -816,13 +801,6 @@ export const FilterWorkbench = ({
                     checked={filterDraft.view_options.hide_empty_description}
                     onCheckedChange={(checked) =>
                       updateField('view_options', 'hide_empty_description', checked)
-                    }
-                  />
-                  <ToggleField
-                    label={t('graphPanel.workbench.filter.fields.highlightMatches')}
-                    checked={filterDraft.view_options.highlight_matches}
-                    onCheckedChange={(checked) =>
-                      updateField('view_options', 'highlight_matches', checked)
                     }
                   />
                 </Section>

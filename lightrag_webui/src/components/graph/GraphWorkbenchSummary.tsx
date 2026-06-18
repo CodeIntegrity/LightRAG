@@ -41,8 +41,7 @@ const countActiveFilterGroups = (query: GraphWorkbenchQueryRequest): number => {
     query.view_options.show_nodes_only ||
     query.view_options.show_edges_only ||
     query.view_options.hide_low_weight_edges ||
-    query.view_options.hide_empty_description ||
-    query.view_options.highlight_matches
+    query.view_options.hide_empty_description
   if (hasViewOptions) activeGroups += 1
 
   return activeGroups

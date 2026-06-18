@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from lightrag.constants import DEFAULT_MAX_GRAPH_NODES
+from lightrag.utils import logger
 from lightrag.utils_graph import (
     build_revision_token,
     normalize_graph_edge_data,
@@ -18,7 +19,9 @@ GraphBackendQueryHook = Callable[
     [Any, dict[str, Any], int], Awaitable[Any] | Any
 ]
 LOW_WEIGHT_EDGE_THRESHOLD = 0.1
-IGNORED_HIGHLIGHT_MATCHES = "view_options.highlight_matches"
+# filter-first 全量扫描的节点上限：超过则放弃前置过滤、回退到 top-N 截断路径并如实上报。
+# ponytail: 固定上限护内存；真要支撑百万级图，按 C 方案对当前后端做谓词下推（见 pushdown 设计文档）。
+FILTER_FIRST_SCAN_LIMIT = 50_000
 
 
 def _model_dump_or_dict(value: Any) -> dict[str, Any]:
@@ -551,6 +554,69 @@ async def _fetch_base_graph(
     )
 
 
+def _supports_full_scan(rag: Any) -> bool:
+    return callable(getattr(rag, "get_all_nodes", None)) and callable(
+        getattr(rag, "get_all_edges", None)
+    )
+
+
+def _adapt_full_scan_node(row: Mapping[str, Any]) -> dict[str, Any]:
+    """把 get_all_nodes 的扁平属性 dict 适配成 {id, labels, properties} 规范形状。"""
+    node = dict(row)
+    node["id"] = _normalize_text(node.get("id")) or _normalize_text(node.get("entity_id"))
+    entity_type = _normalize_text(node.get("entity_type"))
+    node["labels"] = _normalize_list(node.get("labels")) or (
+        [entity_type] if entity_type else []
+    )
+    if "properties" not in node and "graph_data" not in node:
+        node["properties"] = dict(row)
+    return node
+
+
+def _adapt_full_scan_edge(row: Mapping[str, Any], index: int) -> dict[str, Any]:
+    """把 get_all_edges 的扁平属性 dict 适配成 {id, type, source, target, properties} 规范形状。"""
+    edge = dict(row)
+    edge["source"] = _normalize_text(edge.get("source")) or _normalize_text(
+        edge.get("src_id")
+    )
+    edge["target"] = _normalize_text(edge.get("target")) or _normalize_text(
+        edge.get("tgt_id")
+    )
+    edge["type"] = (
+        _normalize_text(edge.get("type"))
+        or _normalize_text(edge.get("relationship"))
+        or _normalize_text(edge.get("relation_type"))
+    )
+    if not _normalize_text(edge.get("id")):
+        edge["id"] = f"edge-{index}"
+    if "properties" not in edge and "graph_data" not in edge:
+        edge["properties"] = dict(row)
+    return edge
+
+
+async def _fetch_full_graph(rag: Any, scan_limit: int) -> dict[str, Any] | None:
+    """全量取数供 filter-first 使用；超过 scan_limit 或后端不支持时返回 None 触发回退。"""
+    all_nodes = await rag.get_all_nodes()
+    node_rows = list(all_nodes or [])
+    if len(node_rows) > scan_limit:
+        logger.info(
+            f"filter-first scan skipped: {len(node_rows)} nodes exceed limit {scan_limit}; "
+            "falling back to bounded top-N path"
+        )
+        return None
+    all_edges = await rag.get_all_edges()
+    edge_rows = list(all_edges or [])
+    return {
+        "nodes": [_adapt_full_scan_node(row) for row in node_rows if row],
+        "edges": [
+            _adapt_full_scan_edge(row, index)
+            for index, row in enumerate(edge_rows)
+            if row
+        ],
+        "is_truncated": False,
+    }
+
+
 def _node_matches_scope_label(node: Mapping[str, Any], scope_label: str) -> bool:
     if not scope_label or scope_label == "*":
         return False
@@ -661,13 +727,37 @@ async def query_graph_workbench(
         else requested_max_nodes
     )
 
-    raw_graph = await _fetch_base_graph(
-        rag=rag,
-        request_payload=request_payload,
-        scope=scope,
-        effective_max_nodes=effective_max_nodes,
-        backend_query_hook=backend_query_hook,
+    node_filter_active = _node_filter_active(node_filters)
+    edge_filter_active = _edge_filter_active(edge_filters)
+    source_filter_active = _source_filter_active(source_filters)
+    view_options_active = _view_options_active(view_options)
+
+    # filter-first：仅在 "*" 全图 + 数据类过滤激活时，绕开"按度数 top-N"截断，
+    # 改为全量取数 → 过滤 → 末尾截断，使稀有/低度数节点不被过滤前的截断丢弃。
+    label = _normalize_text(scope.get("label")) or "*"
+    data_filter_active = node_filter_active or edge_filter_active or source_filter_active
+    use_filter_first = (
+        label == "*"
+        and data_filter_active
+        and backend_query_hook is None
+        and _supports_full_scan(rag)
     )
+
+    raw_graph = None
+    execution_mode = "post_truncation_filter"
+    if use_filter_first:
+        raw_graph = await _fetch_full_graph(rag, FILTER_FIRST_SCAN_LIMIT)
+        if raw_graph is not None:
+            execution_mode = "filter_first_full_scan"
+
+    if raw_graph is None:
+        raw_graph = await _fetch_base_graph(
+            rag=rag,
+            request_payload=request_payload,
+            scope=scope,
+            effective_max_nodes=effective_max_nodes,
+            backend_query_hook=backend_query_hook,
+        )
     nodes, edges, was_truncated_before = _normalize_graph_data(raw_graph)
 
     normalized_nodes: list[dict[str, Any]] = []
@@ -719,12 +809,6 @@ async def query_graph_workbench(
     degree_map = _build_degree_map(
         [str(node.get("id", "")).strip() for node in normalized_nodes], normalized_edges
     )
-
-    node_filter_active = _node_filter_active(node_filters)
-    edge_filter_active = _edge_filter_active(edge_filters)
-    source_filter_active = _source_filter_active(source_filters)
-    view_options_active = _view_options_active(view_options)
-    highlight_matches_requested = bool(view_options.get("highlight_matches"))
 
     filtered_nodes: list[dict[str, Any]] = []
     for node in normalized_nodes:
@@ -782,9 +866,9 @@ async def query_graph_workbench(
         or view_options_active
         or bool(scope.get("only_matched_neighborhood"))
     )
+    # 过滤跑在已截断的基础子图之上：若基础图已被截断且本次确有过滤，结果只反映样本而非全图
+    filtered_on_truncated_base = bool(was_truncated_before and filtering_applied)
     ignored_filter_groups: list[str] = []
-    if highlight_matches_requested:
-        ignored_filter_groups.append(IGNORED_HIGHLIGHT_MATCHES)
 
     return {
         "data": {
@@ -805,8 +889,9 @@ async def query_graph_workbench(
                 "array_operator": "OR",
                 "version": "v1",
             },
-            "execution_mode": "base_graph_only_placeholder",
+            "execution_mode": execution_mode,
             "filtering_applied": filtering_applied,
+            "filtered_on_truncated_base": filtered_on_truncated_base,
             "ignored_filter_groups": ignored_filter_groups,
         },
     }

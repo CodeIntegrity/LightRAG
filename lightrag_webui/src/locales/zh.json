@@ -248,6 +248,7 @@
   },
   "graphPanel": {
     "dataIsTruncated": "图数据已截断至最大返回节点数",
+    "filteredOnTruncatedBase": "筛选基于已截断的样本，结果可能不完整。请调大最大节点数或缩小起始标签范围。",
     "statusDialog": {
       "title": "LightRAG 服务器设置",
       "description": "查看当前系统状态和连接信息"
@@ -525,8 +526,7 @@
           "showNodesOnly": "仅显示节点",
           "showEdgesOnly": "仅显示边",
           "hideLowWeightEdges": "隐藏低权重边",
-          "hideEmptyDescription": "隐藏空描述",
-          "highlightMatches": "高亮匹配项"
+          "hideEmptyDescription": "隐藏空描述"
         },
         "placeholders": {
           "entityTypes": "PERSON, ORGANIZATION",
@@ -539,6 +539,9 @@
         "messages": {
           "noEntityTypeResults": "未找到匹配的实体类型。",
           "noLabelResults": "未找到匹配的标签。"
+        },
+        "hints": {
+          "sourceFilters": "仅作用于关系（边），不过滤节点。"
         },
         "direction": {
           "both": "双向",

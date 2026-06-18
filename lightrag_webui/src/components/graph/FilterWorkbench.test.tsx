@@ -148,7 +148,6 @@ describe('FilterWorkbench', () => {
     draft.scope.max_depth = 2
     draft.scope.direction = 'outbound'
     draft.node_filters.entity_types = ['ORGANIZATION']
-    draft.view_options.highlight_matches = true
     store.setFilterDraft(draft)
 
     applyWorkbenchFilters()
@@ -174,7 +173,7 @@ describe('FilterWorkbench', () => {
     const applied = cloneDraft(draft)
     applied.node_filters.entity_types = ['ORGANIZATION']
     applied.edge_filters.relation_types = ['cooperate']
-    applied.view_options.highlight_matches = true
+    applied.view_options.show_nodes_only = true
 
     const html = renderToString(
       <GraphWorkbenchSummary
@@ -220,8 +219,8 @@ describe('FilterWorkbench', () => {
     )
     expect(withTime.source_filters.time_from).toBe('2026-03-25T09:30')
 
-    const withToggle = updateDraftFromInput(withTime, 'view_options', 'highlight_matches', true)
-    expect(withToggle.view_options.highlight_matches).toBe(true)
+    const withToggle = updateDraftFromInput(withTime, 'view_options', 'show_nodes_only', true)
+    expect(withToggle.view_options.show_nodes_only).toBe(true)
 
     const clearedWeight = updateDraftFromInput(withToggle, 'edge_filters', 'weight_min', '')
     expect(clearedWeight.edge_filters.weight_min).toBeNull()

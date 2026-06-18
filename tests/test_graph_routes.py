@@ -458,7 +458,6 @@ def test_graph_query_accepts_v1_filter_shape_and_returns_meta_truncation(graph_c
                 "show_edges_only": False,
                 "hide_low_weight_edges": True,
                 "hide_empty_description": True,
-                "highlight_matches": True,
             },
         },
     )
@@ -476,9 +475,10 @@ def test_graph_query_accepts_v1_filter_shape_and_returns_meta_truncation(graph_c
     assert body["truncation"]["requested_max_nodes"] == 128
     assert "was_truncated_before_filtering" in body["truncation"]
     assert "was_truncated_after_filtering" in body["truncation"]
-    assert body["meta"]["execution_mode"] == "base_graph_only_placeholder"
+    assert body["meta"]["execution_mode"] == "post_truncation_filter"
     assert body["meta"]["filtering_applied"] is True
-    assert body["meta"]["ignored_filter_groups"] == ["view_options.highlight_matches"]
+    assert body["meta"]["filtered_on_truncated_base"] is False
+    assert body["meta"]["ignored_filter_groups"] == []
     assert "nodes" in body["data"]
     assert "edges" in body["data"]
     assert body["data"]["nodes"][0]["revision_token"]
@@ -755,23 +755,6 @@ def test_graph_query_rejects_unknown_extra_fields(graph_client):
     )
 
     assert response.status_code == 422
-
-
-def test_graph_query_highlight_only_is_explicitly_ignored_in_meta(graph_client):
-    client, _ = graph_client
-
-    response = client.post(
-        "/graph/query",
-        json={
-            "scope": {"label": "Tesla", "max_depth": 2, "max_nodes": 128},
-            "view_options": {"highlight_matches": True},
-        },
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["meta"]["filtering_applied"] is False
-    assert "view_options.highlight_matches" in body["meta"]["ignored_filter_groups"]
 
 
 def test_merge_suggestions_route_exists_and_returns_candidate_structure(graph_client):

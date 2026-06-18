@@ -84,7 +84,7 @@ export const normalizeWorkbenchMutationError = (
   }
 }
 
-const cloneQuery = (query: GraphWorkbenchQueryRequest): GraphWorkbenchQueryRequest => {
+export const cloneQuery = (query: GraphWorkbenchQueryRequest): GraphWorkbenchQueryRequest => {
   return {
     scope: { ...query.scope },
     node_filters: {
@@ -157,8 +157,7 @@ export const getDefaultGraphWorkbenchFilterDraft = (
     show_nodes_only: false,
     show_edges_only: false,
     hide_low_weight_edges: false,
-    hide_empty_description: false,
-    highlight_matches: false
+    hide_empty_description: false
   }
 })
 

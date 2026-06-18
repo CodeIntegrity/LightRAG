@@ -65,7 +65,6 @@ export type GraphViewOptionsV1 = {
   show_edges_only: boolean
   hide_low_weight_edges: boolean
   hide_empty_description: boolean
-  highlight_matches: boolean
 }
 
 export type GraphWorkbenchQueryRequest = {
@@ -87,6 +86,7 @@ export type GraphQueryMeta = {
   filter_semantics: GraphQueryFilterSemantics
   execution_mode: string
   filtering_applied: boolean
+  filtered_on_truncated_base: boolean
   ignored_filter_groups: string[]
 }
 
