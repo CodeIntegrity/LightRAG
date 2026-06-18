@@ -53,14 +53,14 @@ function TabsNavigation() {
             {t('header.knowledgeGraph')}
           </NavigationTab>
         )}
-        {visibleTabs.includes('retrieval') && (
-          <NavigationTab value="retrieval" currentTab={currentTab}>
-            {t('header.retrieval')}
-          </NavigationTab>
-        )}
         {visibleTabs.includes('prompts') && (
           <NavigationTab value="prompts" currentTab={currentTab}>
             {t('header.prompts', 'Prompts')}
+          </NavigationTab>
+        )}
+        {visibleTabs.includes('retrieval') && (
+          <NavigationTab value="retrieval" currentTab={currentTab}>
+            {t('header.retrieval')}
           </NavigationTab>
         )}
         {visibleTabs.includes('api') && (
