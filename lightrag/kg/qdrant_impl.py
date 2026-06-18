@@ -661,6 +661,8 @@ class QdrantVectorDBStorage(BaseVectorStorage):
                             "QDRANT_API_KEY",
                             config.get("qdrant", "apikey", fallback=None),
                         ),
+                        # 跳过客户端/服务端版本校验，避免 minor 版本差导致的兼容性警告
+                        check_compatibility=False,
                     )
                     logger.debug(
                         f"[{self.workspace}] QdrantClient created successfully"
