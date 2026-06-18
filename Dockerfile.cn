@@ -27,48 +27,21 @@ RUN --mount=type=cache,id=lightrag-cn-bun-cache,target=/root/.bun/install/cache 
 # Python build stage - using uv for faster package installation
 FROM ${UV_IMAGE} AS builder
 
-ARG DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
-ARG DEBIAN_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
 ARG PYTHON_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
-ARG RUSTUP_DIST_SERVER=https://rsproxy.cn
-ARG RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup
-ARG CARGO_REGISTRY_INDEX=sparse+https://rsproxy.cn/index/
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV UV_SYSTEM_PYTHON=1
 ENV UV_DEFAULT_INDEX=${UV_DEFAULT_INDEX}
 ENV PIP_INDEX_URL=${PYTHON_INDEX_URL}
-ENV RUSTUP_DIST_SERVER=${RUSTUP_DIST_SERVER}
-ENV RUSTUP_UPDATE_ROOT=${RUSTUP_UPDATE_ROOT}
+ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /app
 
-# Install system deps (Rust is required by some wheels)
-RUN set -eux; \
-    for sources_file in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
-      if [ -f "$sources_file" ]; then \
-        sed -i \
-          -e "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
-          -e "s|https://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
-          -e "s|http://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
-          -e "s|https://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
-          -e "s|http://security.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
-          -e "s|https://security.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
-          "$sources_file"; \
-      fi; \
-    done; \
-    mkdir -p /root/.cargo; \
-    printf '[source.crates-io]\nreplace-with = "rsproxy"\n\n[source.rsproxy]\nregistry = "%s"\n' "$CARGO_REGISTRY_INDEX" > /root/.cargo/config.toml; \
-    apt-get update \
-    && apt-get install -y --no-install-recommends \
-        curl \
-        build-essential \
-        pkg-config \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-
-ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
+# No system toolchain (Rust/build-essential) needed: every locked dependency
+# ships pre-built wheels (manylinux/musllinux, amd64 + arm64), so uv never
+# compiles from source. Installing rustup here only burned build time —
+# especially under arm64 QEMU emulation.
 
 # Ensure shared data directory exists for uv caches
 RUN mkdir -p /root/.local/share/uv
@@ -131,11 +104,10 @@ COPY uv.lock .
 # Ensure the installed scripts are on PATH
 ENV PATH=/app/.venv/bin:/root/.local/bin:$PATH
 
-# Install dependencies with uv sync (uses locked versions from uv.lock)
-# And ensure pip is available for runtime installs
-RUN --mount=type=cache,id=lightrag-cn-uv-cache,target=/root/.local/share/uv \
-    uv sync --frozen --no-dev --extra api --extra offline --no-editable \
-    && /app/.venv/bin/python -m ensurepip --upgrade
+# The virtual environment (with pip) is copied intact from the builder stage
+# above. Both stages use the same Python at /usr/local/bin, so the venv is
+# relocatable as-is — re-running `uv sync` here would just reinstall the whole
+# offline dependency set a second time.
 
 # Create persistent data directories AFTER package installation
 RUN mkdir -p /app/data/rag_storage /app/data/inputs /app/data/prompts /app/data/tiktoken
