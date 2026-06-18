@@ -5,6 +5,7 @@ import {
   AUTO_LAYOUT_MAX_ITERATIONS,
   AUTO_LAYOUT_MIN_ITERATIONS,
   applyForceAtlas2Layout,
+  applyInitialRandomLayout,
   computeForceAtlas2Layout,
   computeClusteredCirclepack,
   resolveAutoLayoutIterations,
@@ -68,6 +69,22 @@ describe('applyForceAtlas2Layout', () => {
     expect(seen.size).toBeGreaterThan(1)
   })
 
+  test('孤立节点不坍缩成同一点（散开重合节点）', () => {
+    // 大量 degree-0 节点会被 FA2 向心力拉到同一坐标，noverlap 对重合点无能为力
+    const graph = new Graph()
+    for (let i = 0; i < 30; i++) {
+      graph.addNode(`iso${i}`, { x: 0, y: 0, size: 6 })
+    }
+    applyForceAtlas2Layout(graph, { iterations: 40, noverlapIterations: 60 })
+
+    const seen = new Set<string>()
+    graph.forEachNode((_node, attr) => {
+      seen.add(`${Math.round((attr.x as number) * 10)}:${Math.round((attr.y as number) * 10)}`)
+    })
+    // 30 个节点应被散开到多个不同位置，而非全部重合
+    expect(seen.size).toBeGreaterThan(10)
+  })
+
   test('is a no-op on an empty graph', () => {
     const graph = new Graph()
     expect(() => applyForceAtlas2Layout(graph)).not.toThrow()
@@ -86,6 +103,27 @@ describe('applyForceAtlas2Layout', () => {
       expect(Number.isFinite(attr.x as number)).toBe(true)
       expect(Number.isFinite(attr.y as number)).toBe(true)
     })
+  })
+})
+
+describe('applyInitialRandomLayout', () => {
+  test('spreads the first-render random layout beyond the tiny initial seed box', () => {
+    const graph = new Graph()
+    for (let i = 0; i < 40; i++) {
+      graph.addNode(`node-${i}`, { x: 0, y: 0, size: 8 })
+    }
+
+    applyInitialRandomLayout(graph)
+
+    const xs: number[] = []
+    const ys: number[] = []
+    graph.forEachNode((_node, attr) => {
+      xs.push(attr.x as number)
+      ys.push(attr.y as number)
+    })
+
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(100)
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(100)
   })
 })
 
