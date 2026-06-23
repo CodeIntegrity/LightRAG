@@ -92,6 +92,7 @@ memory-bank
 .claude/*
 !.claude/settings.json
 !.claude/hooks/
+!.claude/skills/
 
 # Google Jules
 .jules/
