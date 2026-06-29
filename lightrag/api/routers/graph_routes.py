@@ -249,6 +249,7 @@ class GraphQueryScope(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     label: str = Field(default="*", min_length=1)
+    min_depth: int = Field(default=0, ge=0)
     max_depth: int = Field(default=3, ge=1)
     max_nodes: int = Field(default=DEFAULT_MAX_GRAPH_NODES, ge=1)
     direction: Literal["both", "outbound", "inbound"] = Field(
@@ -264,6 +265,12 @@ class GraphQueryScope(BaseModel):
         if not normalized:
             raise ValueError("label cannot be empty")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_depth_range(self) -> "GraphQueryScope":
+        if self.min_depth > self.max_depth:
+            raise ValueError("min_depth cannot be greater than max_depth")
+        return self
 
 
 class GraphNodeFiltersV1(BaseModel):

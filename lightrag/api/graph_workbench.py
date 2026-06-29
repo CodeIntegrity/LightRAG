@@ -705,6 +705,64 @@ def _apply_directional_scope(
     return filtered_nodes, filtered_edges
 
 
+def _apply_min_depth_scope(
+    *,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    scope_label: str,
+    min_depth: int,
+    direction: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if min_depth <= 0 or scope_label == "*":
+        return nodes, edges
+
+    root_ids = {
+        _normalize_text(node.get("id"))
+        for node in nodes
+        if _node_matches_scope_label(node, scope_label)
+    }
+    root_ids.discard("")
+    if not root_ids:
+        return nodes, edges
+
+    normalized_direction = _normalize_query_direction(direction)
+    adjacency: dict[str, list[str]] = {}
+    for edge in edges:
+        source = _normalize_text(edge.get("source"))
+        target = _normalize_text(edge.get("target"))
+        if not source or not target:
+            continue
+        if normalized_direction in {"outbound", "both"}:
+            adjacency.setdefault(source, []).append(target)
+        if normalized_direction in {"inbound", "both"}:
+            adjacency.setdefault(target, []).append(source)
+
+    distances = {root_id: 0 for root_id in root_ids}
+    queue: deque[str] = deque(root_ids)
+    while queue:
+        current_id = queue.popleft()
+        next_depth = distances[current_id] + 1
+        for neighbor_id in adjacency.get(current_id, []):
+            if neighbor_id in distances:
+                continue
+            distances[neighbor_id] = next_depth
+            queue.append(neighbor_id)
+
+    retained_ids = {
+        node_id for node_id, depth in distances.items() if depth >= min_depth
+    }
+    filtered_nodes = [
+        node for node in nodes if _normalize_text(node.get("id")) in retained_ids
+    ]
+    filtered_edges = [
+        edge
+        for edge in edges
+        if _normalize_text(edge.get("source")) in retained_ids
+        and _normalize_text(edge.get("target")) in retained_ids
+    ]
+    return filtered_nodes, filtered_edges
+
+
 async def query_graph_workbench(
     rag: Any,
     request: GraphRequestPayload | Any,
@@ -803,6 +861,13 @@ async def query_graph_workbench(
         edges=normalized_edges,
         scope_label=_normalize_text(scope.get("label")) or "*",
         max_depth=_to_int(scope.get("max_depth"), 3, 1),
+        direction=scope.get("direction"),
+    )
+    normalized_nodes, normalized_edges = _apply_min_depth_scope(
+        nodes=normalized_nodes,
+        edges=normalized_edges,
+        scope_label=_normalize_text(scope.get("label")) or "*",
+        min_depth=_to_int(scope.get("min_depth"), 0, 0),
         direction=scope.get("direction"),
     )
 

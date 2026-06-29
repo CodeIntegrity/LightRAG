@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 import lightrag.api.graph_workbench as graph_workbench
 from lightrag.api.graph_workbench import (
@@ -163,6 +165,95 @@ async def test_query_bounded_base_graph_filtering_and_node_filtering():
     }
     assert result["truncation"]["effective_max_nodes"] == 2
     assert [node["id"] for node in result["data"]["nodes"]] == ["n1", "n3"]
+
+
+@pytest.mark.asyncio
+async def test_query_min_depth_filters_out_nodes_closer_than_requested_outbound():
+    rag = _DummyRAG(
+        graph_payload={
+            "nodes": [
+                _node("root", "ROOT"),
+                _node("hop1", "ENTITY"),
+                _node("hop2", "ENTITY"),
+                _node("hop3", "ENTITY"),
+                _node("side", "ENTITY"),
+            ],
+            "edges": [
+                _edge("e-root-hop1", "root", "hop1", "rel"),
+                _edge("e-hop1-hop2", "hop1", "hop2", "rel"),
+                _edge("e-hop2-hop3", "hop2", "hop3", "rel"),
+                _edge("e-side-root", "side", "root", "rel"),
+            ],
+            "is_truncated": False,
+        }
+    )
+
+    result = await query_graph_workbench(
+        rag,
+        {
+            "scope": {
+                "label": "root",
+                "min_depth": 2,
+                "max_depth": 3,
+                "max_nodes": 100,
+                "direction": "outbound",
+            }
+        },
+    )
+
+    assert rag.last_graph_call == {
+        "node_label": "root",
+        "max_depth": 3,
+        "max_nodes": 100,
+        "direction": "outbound",
+    }
+    assert [node["id"] for node in result["data"]["nodes"]] == ["hop2", "hop3"]
+    assert [edge["id"] for edge in result["data"]["edges"]] == ["e-hop2-hop3"]
+
+
+@pytest.mark.asyncio
+async def test_query_min_depth_is_ignored_for_wildcard_scope():
+    rag = _DummyRAG(
+        graph_payload={
+            "nodes": [_node("root", "ROOT"), _node("hop1", "ENTITY")],
+            "edges": [_edge("e-root-hop1", "root", "hop1", "rel")],
+            "is_truncated": False,
+        }
+    )
+
+    result = await query_graph_workbench(
+        rag,
+        {
+            "scope": {
+                "label": "*",
+                "min_depth": 2,
+                "max_depth": 3,
+                "max_nodes": 100,
+                "direction": "outbound",
+            }
+        },
+    )
+
+    assert [node["id"] for node in result["data"]["nodes"]] == ["root", "hop1"]
+    assert [edge["id"] for edge in result["data"]["edges"]] == ["e-root-hop1"]
+
+
+def test_graph_query_scope_accepts_min_depth_within_depth_range(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["pytest"])
+    from lightrag.api.routers.graph_routes import GraphQueryScope
+
+    scope = GraphQueryScope(label="root", min_depth=2, max_depth=3)
+
+    assert scope.min_depth == 2
+    assert scope.max_depth == 3
+
+
+def test_graph_query_scope_rejects_min_depth_greater_than_max_depth(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["pytest"])
+    from lightrag.api.routers.graph_routes import GraphQueryScope
+
+    with pytest.raises(ValidationError, match="min_depth cannot be greater"):
+        GraphQueryScope(label="root", min_depth=4, max_depth=3)
 
 
 @pytest.mark.asyncio
