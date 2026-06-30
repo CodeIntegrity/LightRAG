@@ -579,6 +579,31 @@ def test_graph_query_accepts_scope_direction_and_forwards_it(graph_client):
     }
 
 
+def test_graph_query_accepts_scope_min_depth(graph_client):
+    client, rag = graph_client
+
+    response = client.post(
+        "/graph/query",
+        json={
+            "scope": {
+                "label": "Tesla",
+                "min_depth": 1,
+                "max_depth": 2,
+                "max_nodes": 128,
+                "direction": "outbound",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert rag.last_graph_call == {
+        "node_label": "Tesla",
+        "max_depth": 2,
+        "max_nodes": 128,
+        "direction": "outbound",
+    }
+
+
 def test_delete_entity_route_exists_and_returns_expected_structure(graph_client):
     client, rag = graph_client
 
@@ -755,6 +780,18 @@ def test_graph_query_rejects_unknown_extra_fields(graph_client):
     )
 
     assert response.status_code == 422
+
+
+def test_graph_query_rejects_min_depth_greater_than_max_depth(graph_client):
+    client, _ = graph_client
+
+    response = client.post(
+        "/graph/query",
+        json={"scope": {"label": "Tesla", "min_depth": 3, "max_depth": 2}},
+    )
+
+    assert response.status_code == 422
+    assert "min_depth cannot be greater than max_depth" in response.text
 
 
 def test_merge_suggestions_route_exists_and_returns_candidate_structure(graph_client):

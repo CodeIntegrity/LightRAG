@@ -2,6 +2,7 @@
 @API_KEY = {{$dotenv LIGHTRAG_API_KEY}}
 @WORKSPACE = {{$dotenv LIGHTRAG_WORKSPACE}}
 @LABEL = {{$dotenv LIGHTRAG_GRAPH_LABEL}}
+@GRAPH_ROOT = {{$dotenv LIGHTRAG_GRAPH_ROOT}}
 @ENTITY_NAME = {{$dotenv LIGHTRAG_ENTITY_NAME}}
 @SOURCE_ENTITY = {{$dotenv LIGHTRAG_SOURCE_ENTITY}}
 @TARGET_ENTITY = {{$dotenv LIGHTRAG_TARGET_ENTITY}}
@@ -66,6 +67,7 @@ Accept: application/json
 {
   "scope": {
     "label": "{{LABEL}}",
+    "min_depth": 0,
     "max_depth": 2,
     "max_nodes": 200,
     "direction": "both",
@@ -99,6 +101,27 @@ Accept: application/json
     "hide_low_weight_edges": false,
     "hide_empty_description": false,
     "highlight_matches": true
+  }
+}
+
+### Graph Query 3 to 4 Hop Outbound
+# 用途：查询从指定根实体出发的 3 到 4 跳 outbound 子图；min_depth 只影响返回结果，后端仍按 max_depth 取基础子图。
+# @ref login
+POST {{BASE_URL}}/graph/query
+Authorization: Bearer {{login.access_token}}
+X-API-Key: {{API_KEY}}
+LIGHTRAG-WORKSPACE: {{WORKSPACE}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "scope": {
+    "label": "{{GRAPH_ROOT}}",
+    "min_depth": 3,
+    "max_depth": 4,
+    "max_nodes": 1000,
+    "direction": "outbound",
+    "only_matched_neighborhood": false
   }
 }
 

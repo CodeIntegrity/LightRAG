@@ -1140,6 +1140,37 @@ For the full routing syntax, supported extensions, parser cache behavior, chunke
 
 Uploads and text inserts can be accepted while the processing loop is busy; the running loop is nudged to pick up the new pending work. Destructive jobs such as document clear/delete and the classification phase of `/documents/scan` still reject concurrent enqueues to protect storage consistency. Failed files can be reprocessed from the WebUI or by triggering `/documents/scan`.
 
+### Structured Graph Query
+
+Use `POST /graph/query` to request a graph workbench payload with scoped traversal, filters, and view options. The response shape remains `data.nodes`, `data.edges`, truncation metadata, and query metadata.
+
+`scope` supports:
+
+| Field | Meaning |
+| --- | --- |
+| `label` | Root entity label. Use `*` for a global graph view. |
+| `min_depth` | Minimum hop distance from `label` to include in the returned result. Defaults to `0`. Ignored when `label="*"`. |
+| `max_depth` | Maximum traversal depth used to fetch the base graph. Defaults to `3`. |
+| `max_nodes` | Requested node cap, further limited by server/runtime `max_graph_nodes`. |
+| `direction` | Traversal direction: `both`, `outbound`, or `inbound`. |
+| `only_matched_neighborhood` | When node filters match nodes, include their immediate neighborhood. |
+
+`min_depth` is a result-shaping filter. The backend is still queried with `max_depth`, then the API filters out nodes closer than `min_depth` to the root. Requests with `min_depth > max_depth` are rejected with HTTP 422.
+
+Example for a 3-to-4 hop outbound neighborhood:
+
+```json
+{
+  "scope": {
+    "label": "xj_graph_root",
+    "min_depth": 3,
+    "max_depth": 4,
+    "max_nodes": 1000,
+    "direction": "outbound"
+  }
+}
+```
+
 ### Custom Chunk Imports and Graph Rebuilds
 
 LightRAG exposes a dedicated document API for callers that already own chunk boundaries:

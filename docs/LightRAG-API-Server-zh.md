@@ -1138,6 +1138,37 @@ notes.[-R].md
 
 当处理循环 busy 时，上传和文本插入仍可被接受；运行中的循环会被通知并拾取新 pending 文档。`/documents/clear`、单文档删除等破坏性任务，以及 `/documents/scan` 的分类阶段仍会拒绝并发入队，以保护存储一致性。失败文件可通过 WebUI 重新处理，也可以触发 `/documents/scan`。
 
+### 结构化图谱查询
+
+使用 `POST /graph/query` 可以请求图谱工作台 payload，支持范围遍历、过滤和视图选项。响应结构仍然包含 `data.nodes`、`data.edges`、截断元数据和查询元数据。
+
+`scope` 支持：
+
+| 字段 | 含义 |
+| --- | --- |
+| `label` | 根实体标签。使用 `*` 表示全局图谱视图。 |
+| `min_depth` | 返回结果中保留的最小跳数，默认 `0`。当 `label="*"` 时忽略。 |
+| `max_depth` | 获取基础子图时使用的最大遍历深度，默认 `3`。 |
+| `max_nodes` | 请求的节点上限，仍会被服务端/runtime 的 `max_graph_nodes` 进一步限制。 |
+| `direction` | 遍历方向：`both`、`outbound` 或 `inbound`。 |
+| `only_matched_neighborhood` | 当节点过滤命中节点时，包含其一跳邻域。 |
+
+`min_depth` 是结果塑形过滤。后端仍按 `max_depth` 获取基础子图，然后 API 会过滤掉距离根实体小于 `min_depth` 的节点。`min_depth > max_depth` 的请求会返回 HTTP 422。
+
+查询 3 到 4 跳 outbound 邻域的示例：
+
+```json
+{
+  "scope": {
+    "label": "xj_graph_root",
+    "min_depth": 3,
+    "max_depth": 4,
+    "max_nodes": 1000,
+    "direction": "outbound"
+  }
+}
+```
+
 ### Custom Chunk 导入与图谱重建
 
 对于已经由上游系统完成分块的文本，LightRAG 现在提供专门的文档接口：
